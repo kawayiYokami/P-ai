@@ -19,8 +19,8 @@ async fn resolve_image_description_with_vision_fallback(
         Ok(cached) => cached,
         Err(err) => {
             runtime_log_warn(format!(
-                "[图片转文] 缓存读取失败，跳过缓存继续转换，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 缓存读取失败，跳过缓存继续转换 错误={}",
+                err
             ));
             None
         }
@@ -89,8 +89,8 @@ async fn resolve_image_description_with_vision_fallback(
         .map_err(|err| format!("图片缓存写入任务失败：error={err}"))?
     } {
         runtime_log_warn(format!(
-            "[图片转文] 缓存写入失败，保留本次描述继续，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 缓存写入失败，保留本次描述继续 错误={}",
+            err
         ));
     }
 
@@ -237,7 +237,7 @@ fn drop_unsupported_prepared_audios(
     }
     if changed {
         runtime_log_warn(
-            "[附件投影] 当前模型未启用音频输入，已跳过音频二进制并保留路径提示继续"
+            "[聊天] 当前模型未启用音频输入，已跳过音频二进制并保留路径提示继续"
                 .to_string(),
         );
     }
@@ -259,8 +259,8 @@ async fn apply_prompt_image_fallbacks_to_prepared(
         Ok(api) => api,
         Err(err) => {
             runtime_log_warn(format!(
-                "[图片转文] 跳过，原因=视觉模型不可用，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 原因=视觉模型不可用 错误={}",
+                err
             ));
             return Ok(drop_all_prepared_images(prepared));
         }
@@ -269,16 +269,16 @@ async fn apply_prompt_image_fallbacks_to_prepared(
         Ok(resolved) => resolved,
         Err(err) => {
             runtime_log_warn(format!(
-                "[图片转文] 跳过，原因=视觉模型配置解析失败，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 原因=视觉模型配置解析失败 错误={}",
+                err
             ));
             return Ok(drop_all_prepared_images(prepared));
         }
     };
     if !vision_resolved.request_format.is_chat_text() {
         runtime_log_warn(format!(
-            "[图片转文] 跳过，原因=视觉模型请求格式暂未接入，conversation_id={}，request_format={}",
-            conversation_id, vision_resolved.request_format
+            "[聊天] 跳过 原因=视觉模型请求格式暂未接入 请求格式={}",
+            vision_resolved.request_format
         ));
         return Ok(drop_all_prepared_images(prepared));
     }
@@ -329,8 +329,7 @@ async fn apply_prompt_image_fallbacks_to_prepared(
                 )),
                 Ok(None) => {}
                 Err(err) => runtime_log_warn(format!(
-                    "[图片转文] 单图转换失败，保留路径提示继续，conversation_id={}，label={}，path={}，error={}",
-                    conversation_id,
+                    "[聊天] 单图转换失败，保留路径提示继续 标签={} 文件={} 错误={}",
                     image_label,
                     image.saved_path.as_deref().unwrap_or("未提供"),
                     err
@@ -373,8 +372,7 @@ async fn apply_prompt_image_fallbacks_to_prepared(
                     )),
                     Ok(None) => {}
                     Err(err) => runtime_log_warn(format!(
-                        "[图片转文] 单图转换失败，保留路径提示继续，conversation_id={}，label={}，path={}，error={}",
-                        conversation_id,
+                        "[聊天] 单图转换失败，保留路径提示继续 标签={} 文件={} 错误={}",
                         image_label,
                         image.saved_path.as_deref().unwrap_or("未提供"),
                         err

@@ -399,7 +399,7 @@ fn apply_patch_restore_backup_record(
                 }
                 if let Err(err) = std::fs::remove_file(&path) {
                     runtime_log_warn(format!(
-                        "[apply_patch撤回] 删除文件失败（跳过）: path={}, error={}",
+                        "[工具] 删除文件失败（跳过） 文件={} 错误={}",
                         terminal_path_for_user(&path), err
                     ));
                     continue;
@@ -417,7 +417,7 @@ fn apply_patch_restore_backup_record(
                     Ok(data) => data,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[apply_patch撤回] 读取删除备份失败（跳过）: path={}, error={}",
+                            "[工具] 读取删除备份失败（跳过） 文件={} 错误={}",
                             terminal_path_for_user(&path), err
                         ));
                         continue;
@@ -430,7 +430,7 @@ fn apply_patch_restore_backup_record(
                 let _ = apply_patch_write_parent_dir(&path);
                 if let Err(err) = std::fs::write(&path, raw) {
                     runtime_log_warn(format!(
-                        "[apply_patch撤回] 恢复文件失败（跳过）: path={}, error={}",
+                        "[工具] 恢复文件失败（跳过） 文件={} 错误={}",
                         terminal_path_for_user(&path), err
                     ));
                     continue;
@@ -448,7 +448,7 @@ fn apply_patch_restore_backup_record(
                     Ok(data) => data,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[apply_patch撤回] 读取修改备份失败（跳过）: path={}, error={}",
+                            "[工具] 读取修改备份失败（跳过） 文件={} 错误={}",
                             terminal_path_for_user(&path), err
                         ));
                         continue;
@@ -465,7 +465,7 @@ fn apply_patch_restore_backup_record(
                 let _ = apply_patch_write_parent_dir(&path);
                 if let Err(err) = std::fs::write(&path, raw) {
                     runtime_log_warn(format!(
-                        "[apply_patch撤回] 恢复文件失败（跳过）: path={}, error={}",
+                        "[工具] 恢复文件失败（跳过） 文件={} 错误={}",
                         terminal_path_for_user(&path), err
                     ));
                     continue;
@@ -484,7 +484,7 @@ fn apply_patch_restore_backup_record(
                     Ok(data) => data,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[apply_patch撤回] 读取移动备份失败（跳过）: path={}, error={}",
+                            "[工具] 读取移动备份失败（跳过） 文件={} 错误={}",
                             terminal_path_for_user(&to_path), err
                         ));
                         continue;
@@ -509,7 +509,7 @@ fn apply_patch_restore_backup_record(
                 let _ = apply_patch_write_parent_dir(&from_path);
                 if let Err(err) = std::fs::write(&from_path, raw) {
                     runtime_log_warn(format!(
-                        "[apply_patch撤回] 恢复原始文件失败（跳过）: path={}, error={}",
+                        "[工具] 恢复原始文件失败（跳过） 文件={} 错误={}",
                         terminal_path_for_user(&from_path), err
                     ));
                     continue;
@@ -790,8 +790,7 @@ fn apply_patch_assess_safety(
             .unwrap_or(None)
         else {
             runtime_log_warn(format!(
-                "[补丁拦截] 写入目标未命中本会话权限白名单，session={}，target={}",
-                _session_id,
+                "[工具] 写入目标未命中本会话权限白名单 目标={}",
                 terminal_path_for_user(path),
             ));
             return Ok(ApplyPatchSafetyCheck::Reject {
@@ -1470,10 +1469,8 @@ async fn builtin_apply_patch_with_name(
         }
     };
     runtime_log_info(format!(
-        "[补丁执行] 备份记录状态，任务=apply_patch，session={}，entry_count={}，record_id={}，record_path={}，changed_count={}",
-        normalized_session,
+        "[工具] 备份记录状态 任务=apply_patch 条数={} 记录路径={} 变更数={}",
         backup_record.entries.len(),
-        backup_record.record_id,
         record_path
             .as_ref()
             .map(|path| terminal_path_for_user(path))
@@ -1483,12 +1480,10 @@ async fn builtin_apply_patch_with_name(
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     if let Some(failure) = outcome.failure {
         runtime_log_error(format!(
-            "[补丁执行] 失败 task=apply_patch session={} changed={} failed_index={} elapsed_ms={} record_id={}",
-            normalized_session,
+            "[工具] 失败 任务=apply_patch 变更={} 失败序号={} 耗时={}",
             outcome.changed.len(),
             failure.index,
-            elapsed_ms,
-            backup_record.record_id
+            elapsed_ms
         ));
         return Ok(serde_json::json!({
             "ok": false,
@@ -1507,11 +1502,9 @@ async fn builtin_apply_patch_with_name(
         }));
     }
     runtime_log_info(format!(
-        "[补丁执行] 完成 task=apply_patch session={} changed={} elapsed_ms={} record_id={}",
-        normalized_session,
+        "[工具] 完成 任务=apply_patch 变更={} 耗时={}",
         outcome.changed.len(),
-        elapsed_ms,
-        backup_record.record_id
+        elapsed_ms
     ));
     Ok(serde_json::json!({
         "ok": true,

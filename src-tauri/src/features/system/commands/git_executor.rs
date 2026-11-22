@@ -424,7 +424,7 @@ impl GitExecutor {
             }
             let delay = GIT_LOCK_BASE_DELAY_MS * 2u64.pow(attempt);
             runtime_log_info(format!(
-                "[Git] 命令撞锁，第 {} 次重试（等待 {}ms）：git {}",
+                "[系统] 命令撞锁，第 {} 次重试（等待 {}ms）：git {}",
                 attempt + 1,
                 delay,
                 args.first().copied().unwrap_or("git")

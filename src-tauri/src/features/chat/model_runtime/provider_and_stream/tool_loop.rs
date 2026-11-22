@@ -212,7 +212,7 @@ fn assistant_tool_call_part(mut tool_call: genai::chat::ToolCall) -> genai::chat
     let unwrapped = unwrap_tool_arguments_value(&tool_call.fn_arguments);
     if !unwrapped.is_object() {
         runtime_log_debug(format!(
-            "[工具循环回放] 非法参数转为文本，不结构化回放: tool={}",
+            "[工具] 非法参数转为文本，不结构化回放 工具={}",
             tool_call.fn_name
         ));
         return genai::chat::ContentPart::from_text(invalid_tool_call_text(&tool_call));
@@ -665,9 +665,8 @@ async fn run_genai_tool_loop(
         }
 
         let mut stop_after_remote_im_done_in_turn = false;
-        runtime_log_info(format!(
-            "[聊天] 阶段=tool_loop.round_model_request.start，模式=stream，session={}，轮次={}，模型={}，api_id={}",
-            chat_session_key,
+        runtime_log_debug(format!(
+            "[聊天] 阶段=tool_loop.round_model_request.start 模式=stream 轮次={} 模型={} 模型配置={}",
             round_index + 1,
             model_name,
             selected_api.id,
@@ -855,8 +854,7 @@ async fn run_genai_tool_loop(
         )
         .await;
         runtime_log_info(format!(
-            "[聊天] 阶段=tool_loop.round_model_request.finish，模式=stream，session={}，轮次={}，模型={}，api_id={}，状态={}，耗时={}ms",
-            chat_session_key,
+            "[聊天] 阶段=tool_loop.round_model_request.finish 模式=stream 轮次={} 模型={} 模型配置={} 状态={} 耗时={}ms",
             round_index + 1,
             model_name,
             selected_api.id,
@@ -909,8 +907,8 @@ async fn run_genai_tool_loop(
 
         if let Some(context) = auto_compaction_context {
             runtime_log_info(format!(
-                "[聊天] 工具循环刷新缓存 conversation_id={} trusted_input_tokens={:?} context_window_tokens={}",
-                context.conversation_id, round_trusted_input_tokens, selected_api.context_window_tokens,
+                "[聊天] 工具循环刷新缓存 输入={} 上下文窗口={}",
+                round_trusted_input_tokens.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()), selected_api.context_window_tokens,
             ));
             conversation_prompt_service().refresh_shared_trusted_prompt_usage(
                 &context.trusted_prompt_usage,
@@ -926,8 +924,7 @@ async fn run_genai_tool_loop(
             match decide_context_exhausted_round(&turn_text) {
                 ContextExhaustedRoundAction::RequestReport => {
                     runtime_log_info(format!(
-                        "[聊天] 上下文耗尽收口没有正文，退回模型 session={} tool_calls={}",
-                        chat_session_key,
+                        "[聊天] 上下文耗尽收口没有正文，退回模型 调用数={}",
                         turn_tool_calls.len()
                     ));
                     insert_before_trailing_user_messages(
@@ -1058,8 +1055,8 @@ async fn run_genai_tool_loop(
                         repeat_streak,
                     );
                     runtime_log_info(format!(
-                        "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, threshold={}, args={}",
-                        chat_session_key, call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
+                        "[聊天] 工具循环触发重复调用熔断 工具={} 连续次数={} 阈值={} 参数={}",
+                        call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
                     ));
                     repeat_block = Some((call, err_text));
                     break;
@@ -1121,11 +1118,17 @@ async fn run_genai_tool_loop(
             );
             // 判定前不写临时账本；仅内存累积本轮事件。
             round_completed_tool_result_events.push(tool_result_event);
+            // 一次工具调用只留这一条 info：调了什么、成没成。参数与结果详情在 debug。
+            runtime_log_info(format!(
+                "执行工具 工具={} 结果={}",
+                tool_name,
+                if tool_result.is_error { "失败" } else { "成功" }
+            ));
 
             if tool_loop_should_close_for_guided_queue(tool_abort_state, usage_conversation_id) {
                 runtime_log_info(format!(
-                    "[引导投送] 工具轮次完成后闭合当前调度: session={}, tool_name={}",
-                    chat_session_key, tool_name
+                    "[聊天] 工具轮次完成后闭合当前调度 工具={}",
+                    tool_name
                 ));
                 guided_close_requested = true;
             }
@@ -1547,9 +1550,8 @@ async fn run_genai_tool_loop_non_stream(
         }
 
         let mut stop_after_remote_im_done_in_turn = false;
-        runtime_log_info(format!(
-            "[聊天] 阶段=tool_loop.round_model_request.start，模式=non_stream，session={}，轮次={}，模型={}，api_id={}",
-            chat_session_key,
+        runtime_log_debug(format!(
+            "[聊天] 阶段=tool_loop.round_model_request.start 模式=non_stream 轮次={} 模型={} 模型配置={}",
             round_index + 1,
             model_name,
             selected_api.id,
@@ -1636,8 +1638,7 @@ async fn run_genai_tool_loop_non_stream(
         )
         .await;
         runtime_log_info(format!(
-            "[聊天] 阶段=tool_loop.round_model_request.finish，模式=non_stream，session={}，轮次={}，模型={}，api_id={}，状态={}，耗时={}ms",
-            chat_session_key,
+            "[聊天] 阶段=tool_loop.round_model_request.finish 模式=non_stream 轮次={} 模型={} 模型配置={} 状态={} 耗时={}ms",
             round_index + 1,
             model_name,
             selected_api.id,
@@ -1686,8 +1687,8 @@ async fn run_genai_tool_loop_non_stream(
         );
         if let Some(context) = auto_compaction_context {
             runtime_log_info(format!(
-                "[聊天] 工具循环刷新缓存 conversation_id={} trusted_input_tokens={:?} context_window_tokens={}",
-                context.conversation_id, round_trusted_input_tokens, selected_api.context_window_tokens,
+                "[聊天] 工具循环刷新缓存 输入={} 上下文窗口={}",
+                round_trusted_input_tokens.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()), selected_api.context_window_tokens,
             ));
             conversation_prompt_service().refresh_shared_trusted_prompt_usage(
                 &context.trusted_prompt_usage,
@@ -1705,8 +1706,7 @@ async fn run_genai_tool_loop_non_stream(
             match decide_context_exhausted_round(&turn_text) {
                 ContextExhaustedRoundAction::RequestReport => {
                     runtime_log_info(format!(
-                        "[聊天] 上下文耗尽收口没有正文，退回模型 session={} tool_calls={}",
-                        chat_session_key,
+                        "[聊天] 上下文耗尽收口没有正文，退回模型 调用数={}",
                         turn_tool_calls.len()
                     ));
                     insert_before_trailing_user_messages(
@@ -1848,8 +1848,8 @@ async fn run_genai_tool_loop_non_stream(
                         repeat_streak,
                     );
                     runtime_log_info(format!(
-                        "[聊天] 工具循环触发重复调用熔断: session={}, tool_name={}, streak={}, threshold={}, args={}",
-                        chat_session_key, call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
+                        "[聊天] 工具循环触发重复调用熔断 工具={} 连续次数={} 阈值={} 参数={}",
+                        call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
                     ));
                     repeat_block = Some((call, err_text));
                     break;
@@ -1911,11 +1911,17 @@ async fn run_genai_tool_loop_non_stream(
             );
             // 判定前不写临时账本；仅内存累积本轮事件。
             round_completed_tool_result_events.push(tool_result_event);
+            // 一次工具调用只留这一条 info：调了什么、成没成。参数与结果详情在 debug。
+            runtime_log_info(format!(
+                "执行工具 工具={} 结果={}",
+                tool_name,
+                if tool_result.is_error { "失败" } else { "成功" }
+            ));
 
             if tool_loop_should_close_for_guided_queue(tool_abort_state, usage_conversation_id) {
                 runtime_log_info(format!(
-                    "[引导投送] 工具轮次完成后闭合当前非流式调度: session={}, tool_name={}",
-                    chat_session_key, tool_name
+                    "[聊天] 工具轮次完成后闭合当前非流式调度 工具={}",
+                    tool_name
                 ));
                 guided_close_requested = true;
             }

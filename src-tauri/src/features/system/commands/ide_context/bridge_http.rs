@@ -110,7 +110,7 @@ async fn prepare_ide_context_bridge_server_start(
         Ok(config) => config,
         Err(err) => {
             runtime_log_error(format!(
-                "[网络访问] 读取配置失败，使用默认端口: {}",
+                "[系统] 读取配置失败，使用默认端口: {}",
                 err
             ));
             AppConfig::default()
@@ -126,7 +126,7 @@ async fn prepare_ide_context_bridge_server_start(
         port_service
             .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
             .await;
-        runtime_log_warn(format!("[网络访问] 跳过启动：网络访问已关闭"));
+        runtime_log_info(format!("[系统] 跳过启动：网络访问已关闭"));
         return None;
     }
     port_service
@@ -147,7 +147,7 @@ async fn prepare_ide_context_bridge_server_start(
             port_service
                 .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
                 .await;
-            runtime_log_error(format!("[网络访问] 监听失败: {}", err));
+            runtime_log_error(format!("[系统] 监听失败: {}", err));
             return None;
         }
     };
@@ -171,7 +171,7 @@ async fn prepare_ide_context_bridge_server_start(
             port_service
                 .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
                 .await;
-            runtime_log_error(format!("[网络访问] 初始化远程访问密码失败，error={}", err));
+            runtime_log_error(format!("[系统] 初始化远程访问密码失败 错误={}", err));
             return None;
         }
     };
@@ -188,7 +188,7 @@ async fn prepare_ide_context_bridge_server_start(
         port_service
             .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
             .await;
-        runtime_log_error(format!("[网络访问] 写入发现文件失败，error={}", err));
+        runtime_log_error(format!("[系统] 写入发现文件失败 错误={}", err));
         return None;
     }
     port_service
@@ -202,7 +202,7 @@ async fn prepare_ide_context_bridge_server_start(
             &format!("服务启动，监听 {}", bridge_url),
         )
         .await;
-    runtime_log_info(format!("[网络访问] 已监听 {}", bridge_url));
+    runtime_log_info(format!("[系统] 已监听 {}", bridge_url));
     Some((listener, port, bridge_url))
 }
 
@@ -232,13 +232,13 @@ fn spawn_ide_context_bridge_server_task(
                     if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
                         slot.take();
                     }
-                    runtime_log_info(format!("[网络访问] 收到停机信号，停止监听 {}", bridge_url));
+                    runtime_log_info(format!("[系统] 收到停机信号，停止监听 {}", bridge_url));
                     break;
                 }
                 result = listener.accept() => match result {
                     Ok(result) => result,
                     Err(err) => {
-                        runtime_log_error(format!("[网络访问] 接收连接失败: {}", err));
+                        runtime_log_error(format!("[系统] 接收连接失败: {}", err));
                         continue;
                     }
                 },
@@ -271,10 +271,10 @@ async fn bind_ide_context_bridge_listener(
         Ok(listener) => Ok((listener, port)),
         Err(err) => {
             if err.kind() == std::io::ErrorKind::AddrInUse {
-                runtime_log_info(format!("[网络访问] 固定端口已占用，无法启动: {}", addr));
+                runtime_log_info(format!("[系统] 固定端口已占用，无法启动: {}", addr));
                 Err(format!("固定端口 {} 已被占用，请释放后重试", port))
             } else {
-                runtime_log_error(format!("[网络访问] 固定端口监听失败 {}: {}", addr, err));
+                runtime_log_error(format!("[系统] 固定端口监听失败 {}: {}", addr, err));
                 Err(format!("固定端口 {} 监听失败: {}", port, err))
             }
         }

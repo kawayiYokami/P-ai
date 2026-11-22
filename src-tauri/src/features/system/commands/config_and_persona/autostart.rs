@@ -41,9 +41,9 @@ fn refresh_autostart_target(app: &AppHandle) {
     match manager.is_enabled() {
         Ok(false) => {}
         Ok(true) => match manager.enable() {
-            Ok(()) => runtime_log_info("[开机自启] 已开启，按当前可执行文件路径刷新注册项".to_string()),
-            Err(err) => runtime_log_warn(format!("[开机自启] 刷新注册项失败：{err}")),
+            Ok(()) => runtime_log_info("[系统] 已开启，按当前可执行文件路径刷新注册项".to_string()),
+            Err(err) => runtime_log_warn(format!("[系统] 刷新注册项失败：{err}")),
         },
-        Err(err) => runtime_log_warn(format!("[开机自启] 读取状态失败：{err}")),
+        Err(err) => runtime_log_warn(format!("[系统] 读取状态失败：{err}")),
     }
 }

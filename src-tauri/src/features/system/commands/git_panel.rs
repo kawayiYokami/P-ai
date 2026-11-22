@@ -1393,7 +1393,7 @@ async fn git_panel_write_repo_history(state: &AppState, history: &HashMap<String
     })
     .await
     {
-        runtime_log_warn(format!("[git面板] 仓库历史写盘失败：error={err}"));
+        runtime_log_warn(format!("[系统] 仓库历史写盘失败 错误={err}"));
     }
 }
 
@@ -1647,7 +1647,7 @@ async fn git_panel_worktrees_inner(
         Ok(stdout) => stdout,
         Err(err) => {
             runtime_log_warn(format!(
-                "[git面板] 工作树列表读取失败，repo_root={repo_root}，error={err}"
+                "[系统] 工作树列表读取失败 仓库={repo_root} 错误={err}"
             ));
             return Ok(GitPanelWorktreesOutput {
                 repo_root,

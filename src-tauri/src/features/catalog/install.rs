@@ -224,7 +224,7 @@ async fn install_catalog_mcp(
     let written = write_catalog_mcp_files(state, &local_id, &entry.name, &definition_json)?;
     reload_workspace(state).await?;
     runtime_log_info(format!(
-        "[能力商店] 已安装 MCP：name={}，source={}，local_id={local_id}",
+        "[工具] 能力商店 已安装 MCP 名称={} 来源={} 本地编号={local_id}",
         entry.name, entry.source
     ));
     Ok(CatalogInstallResult {
@@ -573,7 +573,7 @@ async fn install_skills_sh_skill(
     write_skill_enabled(state, &skill_name, false)?;
     reload_workspace(state).await?;
     runtime_log_info(format!(
-        "[能力商店] 已安装 Skill：name={skill_name}，source={}，repo={owner}/{repo}/{skill_id}，dir={dir_name}",
+        "[工具] 能力商店 已安装 Skill 名称={skill_name} 来源={} 仓库={owner}/{repo}/{skill_id} 目录={dir_name}",
         CATALOG_SOURCE_SKILLS_SH
     ));
     Ok(CatalogInstallResult {
@@ -632,7 +632,7 @@ async fn install_catalog_skill(
     write_skill_enabled(state, &skill_name, false)?;
     reload_workspace(state).await?;
     runtime_log_info(format!(
-        "[能力商店] 已安装 Skill：name={}，source={}，dir={dir_name}",
+        "[工具] 能力商店 已安装 Skill 名称={} 来源={} 目录={dir_name}",
         entry.name, entry.source
     ));
     let written_paths = vec![skill_installed_skill_md_rel_path(&dir_name)];

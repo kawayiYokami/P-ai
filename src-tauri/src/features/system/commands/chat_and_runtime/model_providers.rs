@@ -203,7 +203,7 @@ async fn codex_get_builtin_models_inner(
     let auth = match resolve_codex_api_auth_by_id(state, input.provider_id.as_deref()).await {
         Ok(auth) => auth,
         Err(err) => {
-            runtime_log_warn(format!("[Codex模型清单] 凭证不可用，回落内置名单：{err}"));
+            runtime_log_warn(format!("[系统] 凭证不可用，回落内置名单：{err}"));
             return Ok(fallback());
         }
     };
@@ -213,7 +213,7 @@ async fn codex_get_builtin_models_inner(
     let models = match fetch_codex_backend_models_with_auth(&state.shared_http_client, &auth).await {
         Ok(models) => models,
         Err(err) => {
-            runtime_log_warn(format!("[Codex模型清单] 实调失败，回落：{err}"));
+            runtime_log_warn(format!("[系统] 实调失败，回落：{err}"));
             let cached = codex_backend_models_cache_read(&codex_backend_models_cache_key(&auth));
             return Ok(cached.unwrap_or_else(fallback));
         }
@@ -878,7 +878,7 @@ async fn refresh_models_inner(
 
     if let Err(err) = ensure_models_dev_cache_current(&state).await {
         runtime_log_error(format!(
-            "[models.dev缓存] 刷新模型时更新元数据缓存失败: error={:?}",
+            "[系统] 刷新模型时更新元数据缓存失败 错误={}",
             err
         ));
     }
@@ -1305,7 +1305,7 @@ async fn test_embedding_connection_inner(
     }
     let elapsed_ms = started.elapsed().as_millis();
     runtime_log_info(format!(
-        "[连通性测试] 类型=嵌入 模型={} 向量维度={} 耗时={}ms",
+        "[系统] 类型=嵌入 模型={} 向量维度={} 耗时={}ms",
         model, dim, elapsed_ms
     ));
     Ok(TestEmbeddingConnectionResult {
@@ -1370,7 +1370,7 @@ async fn test_rerank_connection_inner(
     }
     let elapsed_ms = started.elapsed().as_millis();
     runtime_log_info(format!(
-        "[连通性测试] 类型=重排 模型={} 结果数={} 耗时={}ms",
+        "[系统] 类型=重排 模型={} 结果数={} 耗时={}ms",
         model,
         results.len(),
         elapsed_ms
@@ -1439,7 +1439,7 @@ async fn test_voice_connection_inner(input: TestVoiceConnectionInput) -> Result<
     }
     let kind = if is_tts { "TTS" } else { "STT" };
     runtime_log_info(format!(
-        "[连通性测试] 类型={} 耗时={}ms",
+        "[系统] 类型={} 耗时={}ms",
         kind, elapsed_ms
     ));
     Ok(TestVoiceConnectionResult { elapsed_ms })

@@ -7,7 +7,7 @@ fn ide_context_normalize_time_or_now(field_name: &str, raw: &str) -> String {
         Ok(value) => value,
         Err(err) => {
             runtime_log_info(format!(
-                "[IDE 上下文桥] 时间字段非法，回退当前时间: field={}, value={}, error={}",
+                "[系统] 时间字段非法，回退当前时间 字段={} 值={} 错误={}",
                 field_name, trimmed, err
             ));
             now_iso()
@@ -94,7 +94,7 @@ fn ide_context_prune_expired_snapshots(
     snapshots.retain(|client_id, snapshot| {
         if ide_context_snapshot_is_expired(snapshot, &now) {
             runtime_log_debug(format!(
-                "[IDE 上下文桥] 快照过期已清理: client_id={}, updated_at={}",
+                "[系统] 快照过期已清理 客户端={} 更新时间={}",
                 client_id, snapshot.updated_at
             ));
             false

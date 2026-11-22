@@ -172,7 +172,7 @@ impl Drop for ProcessGroupGuard {
             // 进程组已退出（ESRCH）视为正常，不告警
             if err.raw_os_error() != Some(libc::ESRCH) {
                 runtime_log_warn(format!(
-                    "[终端] 进程组清理失败 pid={}: {err}",
+                    "[系统] 进程组清理失败 进程={}: {err}",
                     pid
                 ));
             }
@@ -190,7 +190,7 @@ fn kill_process_group(pid: Option<u32>) {
     if result != 0 {
         let err = std::io::Error::last_os_error();
         runtime_log_warn(format!(
-            "[终端] 进程组清理失败 pid={}: {err}",
+            "[系统] 进程组清理失败 进程={}: {err}",
             pid
         ));
     }

@@ -6,7 +6,7 @@ fn lock_remote_im_contact_runtime_states(
         Ok(states) => Ok(states),
         Err(poisoned) => {
             runtime_log_warn(
-                "[远程联系人状态机] 运行时锁中毒，已恢复并继续处理当前业务".to_string(),
+                "[远程IM] 运行时锁中毒，已恢复并继续处理当前业务".to_string(),
             );
             Ok(poisoned.into_inner())
         }
@@ -184,7 +184,7 @@ fn remote_im_group_reply_schedule_inspection(
         contact,
         "info",
         format!(
-            "[巡检] {}：{}，{:.1} 秒后看群（预计 {}）{}",
+            "[远程IM] 巡检 {}：{}，{:.1} 秒后看群（预计 {}）{}",
             action_label,
             remote_im_timer_kind_label(kind),
             delay.as_secs_f64(),
@@ -259,23 +259,23 @@ fn remote_im_enforce_mute_side_effects(
 ) {
     if let Err(err) = clear_remote_im_debounces_for_contact(state, contact_id) {
         runtime_log_warn(format!(
-            "[群聊巡检] 闭嘴清理降级，contact_id={}，error={}",
-            contact_id, err
+            "[远程IM] 闭嘴清理降级 原因={}",
+            err
         ));
     }
     let aborted = match abort_remote_im_reply_delegates_for_contact(state, contact_id, reason) {
         Ok(aborted) => aborted,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程联系人状态机] 闭嘴终止委托降级，contact_id={}，reason={}，error={}",
-                contact_id, reason, err
+                "[远程IM] 闭嘴终止委托降级 原因={} 详情={}",
+                reason, err
             ));
             0
         }
     };
     runtime_log_info(format!(
-        "[远程联系人状态机] 闭嘴善后 完成: contact_id={}, aborted_delegate_count={}, reason={}",
-        contact_id, aborted, reason
+        "[远程IM] 闭嘴善后完成 中止委托={} 原因={}",
+        aborted, reason
     ));
 }
 
@@ -379,11 +379,11 @@ fn remote_im_finish_inspection(
         Some(contact) => remote_im_append_contact_log(
             contact,
             "info",
-            format!("[巡检] 结束：处理={outcome}"),
+            format!("[远程IM] 巡检 结束：处理={outcome}"),
         ),
         // 联系人已删除时没有 contact 可用，直接写唯一日志。
         None => runtime_log_info(format!(
-            "[巡检] 结束：联系人={}，处理={}",
+            "[远程IM] 巡检结束 联系人={} 处理={}",
             label, outcome
         )),
     }
@@ -404,7 +404,7 @@ async fn remote_im_group_reply_handle_timer(
             runtime_log_push_roles(
                 "warn",
                 format!(
-                    "[巡检] 跳过：到点时排期表里已经没有这一轮（已被新排期顶掉或已消费），路径={}",
+                    "[远程IM] 巡检 跳过：到点时排期表里已经没有这一轮（已被新排期顶掉或已消费），路径={}",
                     remote_im_timer_kind_label(action.kind)
                 ),
                 Some(action.contact_id.clone()),
@@ -415,7 +415,7 @@ async fn remote_im_group_reply_handle_timer(
         if current.due_at != action.due_at {
             runtime_log_push_roles(
                 "warn",
-                "[巡检] 跳过：这是被覆盖的旧闹钟（醒来时已不是最新一轮）".to_string(),
+                "[远程IM] 巡检 跳过：这是被覆盖的旧闹钟（醒来时已不是最新一轮）".to_string(),
                 Some(action.contact_id.clone()),
                 Some("前台".to_string()),
             );
@@ -445,7 +445,7 @@ async fn remote_im_group_reply_handle_timer(
         &contact,
         "info",
         format!(
-            "[巡检] 开始看群：{}",
+            "[远程IM] 巡检 开始看群：{}",
             remote_im_timer_kind_label(action.kind)
         ),
     );
@@ -457,8 +457,8 @@ async fn remote_im_group_reply_handle_timer(
         }
         Ok(false) => {}
         Err(err) => runtime_log_warn(format!(
-            "[群聊巡检] 闭嘴状态读取失败，发送前还会再校验，contact_id={}，error={}",
-            contact.id, err
+            "[远程IM] 闭嘴状态读取失败，发送前还会再校验 原因={}",
+            err
         )),
     }
     // 能量门在读范围之前：点名只跳过能量与回复冷却（收发许可、渠道、闭嘴照旧），
@@ -571,8 +571,8 @@ async fn remote_im_group_reply_handle_timer(
             Ok(_) => previous = Some(entry.anchor_message_id.clone()),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[巡检] 降级：入场起点无法成为游标起点，contact_id={}，error={}",
-                    contact.id, err
+                    "[远程IM] 巡检降级：入场起点无法成为游标起点 原因={}",
+                    err
                 ));
             }
         }
@@ -676,7 +676,7 @@ async fn remote_im_group_reply_handle_timer(
         &contact,
         "info",
         format!(
-            "[巡检] 区间：{} 条消息，能量 {}，最新「{}」",
+            "[远程IM] 巡检 区间：{} 条消息，能量 {}，最新「{}」",
             range.len(),
             energy_label,
             batch_preview
@@ -700,8 +700,8 @@ async fn remote_im_group_reply_handle_timer(
         Err(err) => {
             handed_off = false;
             runtime_log_warn(format!(
-                "[巡检] 降级：判断环节失败，contact_id={}，error={}",
-                contact.id, err
+                "[远程IM] 巡检降级：判断环节失败 原因={}",
+                err
             ));
         }
     }
@@ -722,7 +722,7 @@ fn observe_remote_im_persisted_event(
         remote_im_append_contact_log(
             contact,
             "warn",
-            format!("[巡检通知] 跳过：区间里没有用户消息（消息数={message_count}）"),
+            format!("[远程IM] 巡检通知 跳过：区间里没有用户消息（消息数={message_count}）"),
         );
         return;
     };
@@ -732,7 +732,7 @@ fn observe_remote_im_persisted_event(
             remote_im_append_contact_log(
                 contact,
                 "info",
-                "[巡检通知] 跳过：联系人处于闭嘴状态".to_string(),
+                "[远程IM] 巡检通知 跳过：联系人处于闭嘴状态".to_string(),
             );
             let _ = clear_remote_im_debounces_for_contact(state, &contact.id);
             return;
@@ -741,7 +741,7 @@ fn observe_remote_im_persisted_event(
         Err(err) => remote_im_append_contact_log(
             contact,
             "warn",
-            format!("[巡检通知] 闭嘴状态读取失败，发送前再校验：{err}"),
+            format!("[远程IM] 巡检通知 闭嘴状态读取失败，发送前再校验：{err}"),
         ),
     }
     let key = remote_im_group_reply_state_key(state, &contact.id);
@@ -768,7 +768,7 @@ fn observe_remote_im_persisted_event(
                         contact,
                         "info",
                         format!(
-                            "[巡检通知] 升级：{}改为点名，提前看群",
+                            "[远程IM] 巡检通知 升级：{}改为点名，提前看群",
                             remote_im_timer_kind_label(current.kind)
                         ),
                     );
@@ -782,7 +782,7 @@ fn observe_remote_im_persisted_event(
                         contact,
                         "info",
                         format!(
-                            "[巡检通知] 静默：已有{}排期，不重置闹钟（本次消息数={message_count}）",
+                            "[远程IM] 巡检通知 静默：已有{}排期，不重置闹钟（本次消息数={message_count}）",
                             remote_im_timer_kind_label(current.kind)
                         ),
                     );

@@ -94,17 +94,16 @@ fn save_agents_inner(
 
     for agent_id in &removed_agent_ids {
         let started_at = std::time::Instant::now();
-        runtime_log_info(format!(
-            "[会话] 开始，任务=导出并删除私有记忆，status=开始，agent_id={}，trigger=agent_removed",
-            agent_id
-        ));
+        runtime_log_info(
+            "[聊天] 开始 任务=导出并删除私有记忆 状态=开始 触发=agent_removed".to_string(),
+        );
         let export = match memory_store_export_agent_private_memories(&state.data_path, agent_id) {
             Ok(export) => export,
             Err(error) => {
                 let elapsed_ms = started_at.elapsed().as_millis();
                 runtime_log_error(format!(
-                    "[会话] 失败，任务=导出并删除私有记忆，status=失败，agent_id={}，trigger=agent_removed，stage=export，duration_ms={}，error={}",
-                    agent_id, elapsed_ms, error
+                    "[聊天] 失败 任务=导出并删除私有记忆 状态=失败 触发=agent_removed 阶段=export 耗时={} 错误={}",
+                    elapsed_ms, error
                 ));
                 return Err(error);
             }
@@ -114,16 +113,15 @@ fn save_agents_inner(
             Err(error) => {
                 let elapsed_ms = started_at.elapsed().as_millis();
                 runtime_log_error(format!(
-                    "[会话] 失败，任务=导出并删除私有记忆，status=失败，agent_id={}，trigger=agent_removed，stage=delete，duration_ms={}，error={}",
-                    agent_id, elapsed_ms, error
+                    "[聊天] 失败 任务=导出并删除私有记忆 状态=失败 触发=agent_removed 阶段=delete 耗时={} 错误={}",
+                    elapsed_ms, error
                 ));
                 return Err(error);
             }
         };
         let elapsed_ms = started_at.elapsed().as_millis();
         runtime_log_info(format!(
-            "[会话] 完成，任务=导出并删除私有记忆，status=完成，agent_id={}，export.count={}，export.path={}，deleted={}，duration_ms={}",
-            agent_id,
+            "[聊天] 完成 任务=导出并删除私有记忆 状态=完成 export.数量={}，export.文件={} 已删除={} 耗时={}",
             export.count,
             export.path,
             deleted,
@@ -132,17 +130,16 @@ fn save_agents_inner(
     }
     for agent_id in &disabled_private_memory_agent_ids {
         let started_at = std::time::Instant::now();
-        runtime_log_info(format!(
-            "[会话] 开始，任务=导出并删除私有记忆，status=开始，agent_id={}，trigger=private_memory_disabled",
-            agent_id
-        ));
+        runtime_log_info(
+            "[聊天] 开始 任务=导出并删除私有记忆 状态=开始 触发=private_memory_disabled".to_string(),
+        );
         let export = match memory_store_export_agent_private_memories(&state.data_path, agent_id) {
             Ok(export) => export,
             Err(error) => {
                 let elapsed_ms = started_at.elapsed().as_millis();
                 runtime_log_error(format!(
-                    "[会话] 失败，任务=导出并删除私有记忆，status=失败，agent_id={}，trigger=private_memory_disabled，stage=export，duration_ms={}，error={}",
-                    agent_id, elapsed_ms, error
+                    "[聊天] 失败 任务=导出并删除私有记忆 状态=失败 触发=private_memory_disabled 阶段=export 耗时={} 错误={}",
+                    elapsed_ms, error
                 ));
                 return Err(error);
             }
@@ -152,16 +149,15 @@ fn save_agents_inner(
             Err(error) => {
                 let elapsed_ms = started_at.elapsed().as_millis();
                 runtime_log_error(format!(
-                    "[会话] 失败，任务=导出并删除私有记忆，status=失败，agent_id={}，trigger=private_memory_disabled，stage=delete，duration_ms={}，error={}",
-                    agent_id, elapsed_ms, error
+                    "[聊天] 失败 任务=导出并删除私有记忆 状态=失败 触发=private_memory_disabled 阶段=delete 耗时={} 错误={}",
+                    elapsed_ms, error
                 ));
                 return Err(error);
             }
         };
         let elapsed_ms = started_at.elapsed().as_millis();
         runtime_log_info(format!(
-            "[会话] 完成，任务=导出并删除私有记忆，status=完成，agent_id={}，export.count={}，export.path={}，deleted={}，duration_ms={}",
-            agent_id,
+            "[聊天] 完成 任务=导出并删除私有记忆 状态=完成 export.数量={}，export.文件={} 已删除={} 耗时={}",
             export.count,
             export.path,
             deleted,
@@ -316,8 +312,8 @@ fn set_agent_memory_recall_mode_inner(
         agents[agent_idx].memory_recall_mode = mode.clone();
         state_write_agents_cached(&state, &agents)?;
         runtime_log_info(format!(
-            "[记忆] 完成，任务=切换人格回忆模式，agent_id={}，mode={}",
-            agent_id, mode
+            "[记忆] 完成 任务=切换人格回忆模式 模式={}",
+            mode
         ));
     }
     Ok(SetAgentMemoryRecallModeResult {

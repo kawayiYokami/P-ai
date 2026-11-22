@@ -188,7 +188,7 @@ async fn weixin_oc_download_image_bytes(
         .map(ToString::to_string)
         .unwrap_or_else(|| weixin_oc_cdn_download_url(cdn_base_url, encrypted_query_param));
     runtime_log_info(format!(
-        "[个人微信媒体接收] 开始下载图片: url={}, has_full_url={}, param_len={}, has_aes_key={}",
+        "[远程IM] 开始下载图片 地址={} 完整地址={} 参数长度={} 密钥={}",
         download_url,
         full_url.is_some(),
         encrypted_query_param.len(),
@@ -210,7 +210,7 @@ async fn weixin_oc_download_image_bytes(
         .map_err(|err| format!("读取个人微信图片响应流失败: {err}"))?;
     let download_ms = started_at.elapsed().as_millis();
     runtime_log_info(format!(
-        "[个人微信媒体接收] 图片密文下载完成: status={}, cipher_bytes={}, download_ms={}",
+        "[远程IM] 图片密文下载完成 状态={} 密文字节={} 耗时={}ms",
         status,
         encrypted.len(),
         download_ms
@@ -222,7 +222,7 @@ async fn weixin_oc_download_image_bytes(
         let decrypted = weixin_oc_decrypt_media_ecb(encrypted.as_ref(), &key)
             .map_err(|err| format!("解密个人微信图片失败: {err}"))?;
         runtime_log_info(format!(
-            "[个人微信媒体接收] 图片解密完成: plain_bytes={}, decrypt_ms={}",
+            "[远程IM] 图片解密完成 明文字节={} 耗时={}ms",
             decrypted.len(),
             decrypt_start.elapsed().as_millis()
         ));
@@ -321,13 +321,13 @@ async fn weixin_oc_collect_media(
     let mut parts = Vec::<ChatIngressPart>::new();
     let cdn_base_url = credentials.normalized_cdn_base_url();
     runtime_log_info(format!(
-        "[个人微信媒体接收] 开始收集媒体: item_count={}",
+        "[远程IM] 开始收集媒体 条目数={}",
         item_list.len()
     ));
     for (idx, item) in item_list.iter().enumerate() {
         let item_type = item.item_type.unwrap_or(0);
         runtime_log_info(format!(
-            "[个人微信媒体接收] 处理 item[{}]: item_type={}",
+            "[远程IM] 处理条目 序号={} 类型={}",
             idx, item_type
         ));
         if item_type == 1 {
@@ -470,7 +470,7 @@ async fn weixin_oc_collect_media(
             Ok(raw) => raw,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM][个人微信事件] 单个附件下载失败，已跳过并继续，file_name={}，error={}",
+                    "[远程IM] 单个附件下载失败，已跳过并继续 文件={} 原因={}",
                     file_name, err
                 ));
                 parts.push(ChatIngressPart::Text {
@@ -485,7 +485,7 @@ async fn weixin_oc_collect_media(
             fallback_mime
         };
         runtime_log_info(format!(
-            "[个人微信媒体接收] 附件收集成功: item_type={}, name={}, mime={}, raw_bytes={}",
+            "[远程IM] 附件收集成功 类型={} 名称={} 格式={} 字节={}",
             item_type, file_name, mime, raw.len()
         ));
         parts.push(ChatIngressPart::Attachment {
@@ -496,7 +496,7 @@ async fn weixin_oc_collect_media(
         });
     }
     runtime_log_info(format!(
-        "[个人微信媒体接收] 媒体收集完成: parts_count={}",
+        "[远程IM] 媒体收集完成 数量={}",
         parts.len()
     ));
     WeixinOcCollectedMedia { parts }
@@ -583,7 +583,7 @@ async fn weixin_oc_request_upload_url(
         return Err("请求 getuploadurl 失败: 返回中缺少 upload_param / upload_full_url".to_string());
     }
     runtime_log_info(format!(
-        "[个人微信媒体发送] getuploadurl 完成: to_user_id={}, media_type={}, raw_size={}, upload_param_len={}, upload_full_url_present={}",
+        "[远程IM] 获取上传地址完成 接收者={} 媒体类型={} 字节={} 参数长度={} 完整地址={}",
         to_user_id.trim(),
         upload_media_type,
         raw.len(),
@@ -641,7 +641,7 @@ async fn weixin_oc_upload_to_cdn(
         ));
     }
     runtime_log_info(format!(
-        "[个人微信媒体发送] CDN 上传 完成: file_key={}, cipher_size={}, encrypted_query_param_len={}",
+        "[远程IM] CDN 上传完成 文件={} 密文字节={} 参数长度={}",
         file_key.trim(),
         weixin_oc_aes_padded_size(raw.len()),
         encrypted_query_param.len()
@@ -659,7 +659,7 @@ async fn weixin_oc_prepare_outbound_media_item(
     raw: &[u8],
 ) -> Result<Value, String> {
     runtime_log_info(format!(
-        "[个人微信媒体发送] 开始准备媒体: to_user_id={}, item_type={}, upload_media_type={}, file_name={}, raw_size={}",
+        "[远程IM] 开始准备媒体 接收者={} 类型={} 上传类型={} 文件={} 字节={}",
         to_user_id.trim(),
         item_type,
         upload_media_type,

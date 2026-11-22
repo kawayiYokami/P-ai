@@ -200,7 +200,7 @@ fn publish_agents_load_diagnostics(data_path: &PathBuf, messages: &[String]) {
 
 /// 记录一条本轮读取的诊断：写 error 日志 + 收进本轮结论，绝不让损坏静默发生。
 fn record_agents_load_diagnostic(messages: &mut Vec<String>, message: String) {
-    runtime_log_error(format!("[配置] {message}"));
+    runtime_log_error(format!("[系统] 配置 {message}"));
     messages.push(message);
 }
 
@@ -452,8 +452,8 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
         Ok(entries) => Some(entries),
         Err(err) => {
             // 目录列举失败只影响「清理过期文件」，不影响已经写完的内容，记一条日志即可。
-            runtime_log_warn(format!(
-                "[配置] 列举人格目录失败，本次跳过过期文件清理，路径={}，error={err}",
+            runtime_log_info(format!(
+                "[系统] 配置 列举人格目录失败，本次跳过过期文件清理 路径={} 错误={err}",
                 agents_dir.display()
             ));
             None
@@ -481,7 +481,7 @@ fn write_agents_dir(path: &PathBuf, agents: &[AgentProfile]) -> Result<bool, Str
             // 但用户这次编辑不能因此整次失败。
             if let Err(err) = fs::remove_file(&file_path) {
                 runtime_log_warn(format!(
-                    "[配置] 删除过期人格文件失败，路径={}，error={err}",
+                    "[系统] 配置 删除过期人格文件失败 路径={} 错误={err}",
                     file_path.display()
                 ));
                 continue;
@@ -605,9 +605,8 @@ fn ensure_system_notification_conversation_shard(path: &PathBuf) -> Result<bool,
         }
         Err(err) => {
             if system_notification_conversation_shard_has_artifacts(path)? {
-                runtime_log_warn(format!(
-                    "[系统通知会话] 跳过，任务=确保固定会话分片，原因=固定会话分片已存在但暂不可读，conversation_id={}，error={}",
-                    SYSTEM_NOTIFICATION_CONVERSATION_ID,
+                runtime_log_info(format!(
+                    "[系统] 系统通知会话 跳过 任务=确保固定会话分片 原因=固定会话分片已存在但暂不可读 错误={}",
                     err
                 ));
                 return Ok(false);
@@ -790,7 +789,7 @@ where
 {
     let content = fs::read_to_string(path).map_err(|err| format!("Read app_data failed: {err}"))?;
     serde_json::from_str::<T>(&content).map_err(|err| {
-        runtime_log_error(format!("[配置] 解析{label}失败 ({}): {err}", path.display()));
+        runtime_log_error(format!("[系统] 配置 解析{label}失败 ({}): {err}", path.display()));
         format!("Parse {label} failed ({}): {err}", path.display())
     })
 }
@@ -947,8 +946,8 @@ fn sync_assistant_workspace_label_for_unarchived_conversations(
             Ok(meta) => meta,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[终端工作空间] 跳过，任务=同步助理空间会话标签，conversation_id={}，error={}",
-                    conversation_id, err
+                    "[系统] 终端工作空间 跳过 任务=同步助理空间会话标签 错误={}",
+                    err
                 ));
                 continue;
             }
@@ -997,7 +996,7 @@ fn sync_assistant_workspace_label_for_unarchived_conversations(
     }
     if changed > 0 {
         runtime_log_info(format!(
-            "[终端工作空间] 完成，任务=同步助理空间会话标签，conversation_count={}",
+            "[系统] 终端工作空间 完成 任务=同步助理空间会话标签 会话数={}",
             changed
         ));
     }

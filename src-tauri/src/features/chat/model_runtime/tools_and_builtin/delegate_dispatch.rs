@@ -320,10 +320,8 @@ fn validate_delegate_target_is_teammate(
         return Ok(());
     }
     runtime_log_debug(format!(
-        "[委托校验] 目标不在可委托名单 source_agent_id={} source_agent_name={} target_agent_id={} target_agent_name={}",
-        preflight.source_agent.id,
+        "[工具] 目标不在可委托名单 来源人格名={} 目标人格名={}",
         preflight.source_agent.name,
-        preflight.target_agent.id,
         preflight.target_agent.name
     ));
     Err(format!(
@@ -427,10 +425,7 @@ fn spawn_delegate_task(
                     "delegate_tool_background_completion",
                 ) {
                     runtime_log_error(format!(
-                        "[委托线程] 投递委托完成引导消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
-                        delegate_for_publish.delegate_id,
-                        delegate_for_publish.target_agent_id,
-                        root_conversation_id,
+                        "[工具] 投递委托完成引导消息失败 原因={}",
                         err
                     ));
                 }
@@ -457,10 +452,7 @@ fn spawn_delegate_task(
                 .await
                 {
                     runtime_log_error(format!(
-                        "[委托线程] 投递委托失败消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
-                        delegate_for_publish.delegate_id,
-                        delegate_for_publish.target_agent_id,
-                        root_conversation_id,
+                        "[工具] 投递委托失败消息失败 原因={}",
                         enqueue_err
                     ));
                 }
@@ -528,8 +520,7 @@ async fn run_sync_delegate_on_child_task(
                 "同步委托等待超时",
             );
             runtime_log_warn(format!(
-                "[委托线程] 同步委托等待超时，已中止子任务: delegate_id={}, timeout_ms={}",
-                abort_delegate_id,
+                "[工具] 同步委托等待超时，已中止子任务 超时={}",
                 SYNC_DELEGATE_JOIN_TIMEOUT.as_millis()
             ));
             return Err(format!(
@@ -661,8 +652,7 @@ async fn builtin_delegate(
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[工具][委托] 缺省目标解析失败，任务=落到副手，agent_id={}，error={err}",
-                DEPUTY_AGENT_ID
+                "[工具] 缺省目标解析失败 任务=落到副手 原因={err}"
             ));
             return Ok(delegate_failed_result(
                 "副手人格不存在，请指定 agent_id 或恢复副手".to_string(),
@@ -686,10 +676,9 @@ async fn builtin_delegate(
     }
 
     if preflight.current_thread.is_some() {
-        runtime_log_info(format!(
-            "[工具][委托] 委托线程内禁止再次调用 delegate：mode=background, session_id={}",
-            session_id
-        ));
+        runtime_log_info(
+            "[工具] 委托线程内禁止再次调用 delegate 模式=background".to_string(),
+        );
         return Ok(delegate_failed_result(DELEGATE_THREAD_BACKGROUND_ONLY_REASON));
     }
     if let Some(reason) = same_persona_background_delegate_block_reason(

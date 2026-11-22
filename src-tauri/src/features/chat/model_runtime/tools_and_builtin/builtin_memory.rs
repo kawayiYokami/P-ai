@@ -318,7 +318,7 @@ fn upsert_memories(
         };
         let id_text = result.id.as_deref().unwrap_or("none");
         runtime_log_info(format!(
-            "[简单记忆回灌] 任务名=简单记忆回灌 状态=完成 触发条件={} id={} memory_type={} tags={} judgment_len={} tags_count={} 耗时毫秒={}",
+            "[聊天] 任务名=简单记忆回灌 状态=完成 触发条件={} 记忆编号={} 记忆类型={} 标签={} 判断长度={} 标签数={} 耗时毫秒={}",
             trigger,
             id_text,
             draft.memory_type,
@@ -607,7 +607,7 @@ fn builtin_memory_save(
         .collect::<Vec<_>>();
     if memory_contains_sensitive(&draft.judgment, &draft.tags) {
         runtime_log_warn(format!(
-            "[简单记忆回灌] 任务名=简单记忆回灌 状态=跳过 触发条件=敏感内容检测 id=none memory_type={} tags={} judgment_len={} tags_count={} 耗时毫秒=0",
+            "[聊天] 任务名=简单记忆回灌 状态=跳过 触发条件=敏感内容检测 记忆编号=none 记忆类型={} 标签={} 判断长度={} 标签数={} 耗时毫秒=0",
             draft.memory_type,
             draft.tags.join(","),
             draft.judgment.chars().count(),

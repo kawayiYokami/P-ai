@@ -388,7 +388,7 @@ async fn task_optimize_draft_internal(
 ) -> Result<TaskOptimizeDraftOutput, String> {
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[任务草稿优化] 开始，任务=结构化任务草稿，标题字符数={}，正文字符数={}，schedule_mode={}，run_at={}，repeat_every={}，repeat_unit={}，end_at={}",
+        "[系统] 任务草稿优化 开始 任务=结构化任务草稿 标题字符数={} 正文字符数={} 调度模式={} 执行时间={} 重复间隔={} 重复单位={} 结束时间={}",
         input.title.trim().chars().count(),
         input.content.trim().chars().count(),
         task_optimize_schedule_mode(&input.schedule_mode),
@@ -400,7 +400,7 @@ async fn task_optimize_draft_internal(
     // 未配置快速模型＝禁用快速请求：不调模型，只回一句明确原因（这是用户主动点的动作）。
     if current_tool_review_api_config_id(state)?.is_none() {
         runtime_log_info(format!(
-            "[任务草稿优化] 跳过，任务=结构化任务草稿，reason=未配置快速模型，耗时毫秒={}",
+            "[系统] 任务草稿优化 跳过 任务=结构化任务草稿 原因=未配置快速模型 耗时毫秒={}",
             started_at.elapsed().as_millis()
         ));
         return Err("未配置快速模型，无法优化任务草稿".to_string());
@@ -465,7 +465,7 @@ async fn task_optimize_draft_internal(
     match result {
         Ok(output) => {
             runtime_log_info(format!(
-                "[任务草稿优化] 完成，任务=结构化任务草稿，耗时毫秒={}，schedule_mode={}，run_at={}，repeat_every={}，repeat_unit={}，end_at={}，标题字符数={}，正文字符数={}",
+                "[系统] 任务草稿优化 完成 任务=结构化任务草稿 耗时毫秒={} 调度模式={} 执行时间={} 重复间隔={} 重复单位={} 结束时间={} 标题字符数={} 正文字符数={}",
                 started_at.elapsed().as_millis(),
                 output.schedule_mode,
                 output.run_at,
@@ -479,7 +479,7 @@ async fn task_optimize_draft_internal(
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[任务草稿优化] 失败，任务=结构化任务草稿，耗时毫秒={}，error={}",
+                "[系统] 任务草稿优化 失败 任务=结构化任务草稿 耗时毫秒={} 错误={}",
                 started_at.elapsed().as_millis(),
                 err
             ));

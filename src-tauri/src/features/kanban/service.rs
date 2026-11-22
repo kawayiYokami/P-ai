@@ -500,7 +500,7 @@ impl KanbanSession {
                 Ok((issues, _)) => issues,
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[看板] 跳过，任务=读取在办议题，leader_conversation_id={leader}，error={err}"
+                        "[系统] 看板 跳过 任务=读取在办议题 错误={err}"
                     ));
                     Vec::new()
                 }

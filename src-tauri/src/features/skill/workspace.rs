@@ -93,7 +93,7 @@ fn load_project_skill_summaries_from_dir(
 /// 失败时打印目录不存在、无 SKILL.md 或解析失败的具体原因，便于定位“项目 Skill 没进来”的环节。
 fn log_project_skill_scan_result(skills_dir: &Path, skills: &[SkillSummaryItem]) {
     runtime_log_debug(format!(
-        "[项目Skill] 目录扫描完成，dir={}，skills={}",
+        "[工具] 项目技能 目录扫描完成 目录={} 技能数={}",
         skills_dir.display(),
         skills.len()
     ));
@@ -114,7 +114,7 @@ pub(crate) fn ensure_conversation_project_skills(
     let now = std::time::SystemTime::now();
     let Ok(mut guard) = state.conversation_project_skills_cache.lock() else {
         runtime_log_warn(format!(
-            "[项目Skill] 缓存加锁失败，conversation_id={conversation_id}"
+            "[工具] 项目技能 缓存加锁失败"
         ));
         return Vec::new();
     };
@@ -143,7 +143,7 @@ pub(crate) fn ensure_conversation_project_skills(
         None => Vec::new(),
     };
     runtime_log_debug(format!(
-        "[项目Skill] 会话缓存建立完成，conversation_id={conversation_id}，project_dir={}，skills={}",
+        "[工具] 项目技能 会话缓存建立完成 项目目录={} 技能数={}",
         project_dir
             .as_deref()
             .map(|path| path.display().to_string())
@@ -588,7 +588,7 @@ pub(crate) fn save_workspace_skill_content(
 
     if let Err(err) = refresh_hidden_skill_snapshot(state) {
         runtime_log_warn(format!(
-            "[技能工作区] 保存技能后刷新技能快照失败：{err}"
+            "[工具] 技能工作区 保存技能后刷新技能快照失败：{err}"
         ));
     }
 
@@ -889,13 +889,13 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
             match refresh_hidden_skill_snapshot(state) {
                 Ok(()) => {
                     runtime_log_debug(
-                        "[技能工作区] 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
+                        "[工具] 技能工作区 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
                             .to_string(),
                     );
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[技能工作区] 结构化缓存未命中，重扫助理空间 skill 失败：{err}"
+                        "[工具] 技能工作区 结构化缓存未命中，重扫助理空间 skill 失败：{err}"
                     ));
                     scan_error = Some(err);
                 }
@@ -906,7 +906,7 @@ pub(crate) fn build_hidden_skill_snapshot_block_for_agent(
                     if scan_error.is_none() {
                         let err =
                             "隐藏技能快照缓存回填后仍未命中结构化缓存".to_string();
-                        runtime_log_warn(format!("[技能工作区] {err}"));
+                        runtime_log_warn(format!("[工具] 技能工作区 {err}"));
                         scan_error = Some(err);
                     }
                     Vec::new()
@@ -938,14 +938,14 @@ fn merged_available_skills(
             match refresh_hidden_skill_snapshot(state) {
                 Ok(()) => {
                     runtime_log_debug(
-                        "[技能工作区] 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
+                        "[工具] 技能工作区 结构化缓存未命中，已重扫助理空间 skill 并回填缓存。"
                             .to_string(),
                     );
                     global_enabled_skills(state, false).unwrap_or_default()
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[技能工作区] 结构化缓存未命中，重扫助理空间 skill 失败，本次跳过全局 skill：{err}"
+                        "[工具] 技能工作区 结构化缓存未命中，重扫助理空间 skill 失败，本次跳过全局 skill：{err}"
                     ));
                     Vec::new()
                 }
@@ -1256,7 +1256,7 @@ fn collect_workspace_load_snapshot(
     })?;
     if let Err(err) = update_hidden_skill_snapshot_cache(state, &snapshot.skills, None) {
         runtime_log_error(format!(
-            "[技能工作区] 更新隐藏技能快照缓存失败: skills={}, error={}",
+            "[工具] 技能工作区 更新隐藏技能快照缓存失败 技能数={} 错误={}",
             snapshot.skills.len(),
             err
         ));
@@ -1311,7 +1311,7 @@ async fn disconnect_workspace_mcp_runtime_clients(state: &AppState) {
             }
         }
         Err(err) => runtime_log_warn(format!(
-            "[工作区加载] reload 前清理 MCP 运行态失败，继续尝试重新加载：{}",
+            "[系统] 工作区加载 reload 前清理 MCP 运行态失败，继续尝试重新加载：{}",
             err
         )),
     }
@@ -1340,15 +1340,15 @@ pub(crate) async fn reload_workspace(
     disconnect_workspace_mcp_runtime_clients(state).await;
     clear_global_tool_schema_cache();
     if let Err(err) = clear_hidden_skill_snapshot_cache(state) {
-        runtime_log_warn(format!("[工作区加载] reload 前清空技能快照缓存失败：{}", err));
+        runtime_log_warn(format!("[系统] 工作区加载 reload 前清空技能快照缓存失败：{}", err));
     }
     load_workspace(state).await
 }
 
-pub(crate) fn log_workspace_load_result(prefix: &str, result: &RefreshMcpAndSkillsResult) {
+pub(crate) fn log_workspace_load_result(scene: &str, result: &RefreshMcpAndSkillsResult) {
     let line = format!(
-        "{} 状态=完成，成功加载={}，加载失败={}，需修复={}",
-        prefix, result.total_loaded, result.total_failed, result.needs_repair
+        "[工具] 工作区加载 状态=完成 场景={} 成功加载={} 加载失败={} 需修复={}",
+        scene, result.total_loaded, result.total_failed, result.needs_repair
     );
     if result.total_failed > 0 || result.needs_repair {
         runtime_log_warn(line);
@@ -1357,12 +1357,12 @@ pub(crate) fn log_workspace_load_result(prefix: &str, result: &RefreshMcpAndSkil
     }
     if !result.loaded_summary.trim().is_empty() {
         for line in result.loaded_summary.lines() {
-            runtime_log_info(format!("{} {}", prefix, line));
+            runtime_log_debug(format!("[工具] 工作区加载 场景={} {}", scene, line));
         }
     }
     if !result.failed_summary.trim().is_empty() {
         for line in result.failed_summary.lines() {
-            runtime_log_info(format!("{} {}", prefix, line));
+            runtime_log_debug(format!("[工具] 工作区加载 场景={} {}", scene, line));
         }
     }
 }

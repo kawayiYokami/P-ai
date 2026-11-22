@@ -7,7 +7,7 @@ fn lock_conversation_runtime_slots(
     match state.conversation_runtime_slots.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            runtime_log_info(format!("[聊天调度] 警告: conversation_runtime_slots 锁已 poison，正在继续恢复使用"));
+            runtime_log_info(format!("[聊天] 警告: conversation_runtime_slots 锁已 poison，正在继续恢复使用"));
             Ok(poisoned.into_inner())
         }
     }
@@ -20,7 +20,7 @@ fn lock_conversation_processing_claims(
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[聊天调度] 警告: conversation_processing_claims 锁已 poison，正在继续恢复使用"
+                "[聊天] 警告: conversation_processing_claims 锁已 poison，正在继续恢复使用"
             ));
             Ok(poisoned.into_inner())
         }
@@ -134,8 +134,8 @@ pub(crate) fn recall_queue_event(
     drop(slots);
     if removed.is_some() {
         runtime_log_info(format!(
-            "[聊天调度] 队列消息退回输入框: id={}, queue_len={}",
-            event_id, remaining_queue_len
+            "[聊天] 队列消息退回输入框 队列长度={}",
+            remaining_queue_len
         ));
         emit_chat_queue_snapshot(state);
         complete_pending_chat_events_with_error(
@@ -183,11 +183,10 @@ pub(crate) fn mark_queue_event_guided_with_log(
         }
     }
     drop(slots);
-    if let Some(conversation_id) = updated_conversation_id.as_deref() {
+    if let Some(_conversation_id) = updated_conversation_id.as_deref() {
         if emit_log {
             runtime_log_info(format!(
-                "[引导投送] 开始，任务=mark_queue_event_guided，conversation_id={}，event_id={}",
-                conversation_id, event_id
+                "[聊天] 开始 任务=mark_queue_event_guided"
             ));
         }
         emit_chat_queue_snapshot(state);
@@ -229,8 +228,8 @@ pub(crate) fn clear_conversation_queue(
     drop(slots);
     if removed_count > 0 {
         runtime_log_info(format!(
-            "[聊天调度] 清空会话队列: conversation_id={}, removed_count={}",
-            trimmed_conversation_id, removed_count
+            "[聊天] 清空会话队列 移除数={}",
+            removed_count
         ));
         emit_chat_queue_snapshot(state);
         complete_pending_chat_events_with_error(state, &removed_event_ids, error_message)?;
@@ -410,8 +409,7 @@ pub(crate) fn mark_goal_continue_suppressed_by_user_interrupt(
     let inserted = ids.insert(conversation_id.to_string());
     if inserted {
         runtime_log_info(format!(
-            "[目标续跑] 暂停，任务=用户中断，conversation_id={}，reason={}",
-            conversation_id,
+            "[聊天] 暂停 任务=用户中断 原因={}",
             reason.trim()
         ));
     }
@@ -434,8 +432,7 @@ pub(crate) fn clear_goal_continue_suppression(
     let removed = ids.remove(conversation_id);
     if removed {
         runtime_log_info(format!(
-            "[目标续跑] 恢复，任务=清除用户中断暂停，conversation_id={}，reason={}",
-            conversation_id,
+            "[聊天] 恢复 任务=清除用户中断暂停 原因={}",
             reason.trim()
         ));
     }

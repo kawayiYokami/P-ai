@@ -30,7 +30,7 @@ fn clean_exec_arguments(arguments: Value) -> Value {
         Some(cmd) => match clean_shell_command(cmd) {
             Ok(cleaned) => Some(cleaned),
             Err(err) => {
-                runtime_log_error(format!("[工具参数清洗] {err}，跳过本次清洗"));
+                runtime_log_warn(format!("[工具] {err}，跳过本次清洗"));
                 None
             }
         },

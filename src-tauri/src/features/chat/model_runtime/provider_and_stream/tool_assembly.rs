@@ -488,7 +488,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
                 ));
             }
         }
-        Err(err) => runtime_log_warn(format!("[工具Schema缓存] 加载 MCP 配置失败: {err}")),
+        Err(err) => runtime_log_warn(format!("[工具] 加载 MCP 配置失败: {err}")),
     }
 
     definitions
@@ -500,7 +500,7 @@ fn refresh_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSc
         Ok(mut guard) => {
             *guard = Some(definitions.clone());
         }
-        Err(err) => runtime_log_warn(format!("[工具Schema缓存] 刷新失败，缓存锁已损坏: {err}")),
+        Err(err) => runtime_log_warn(format!("[工具] 刷新失败，缓存锁已损坏: {err}")),
     }
     definitions
 }
@@ -510,7 +510,7 @@ fn clear_global_tool_schema_cache() {
         Ok(mut guard) => {
             *guard = None;
         }
-        Err(err) => runtime_log_warn(format!("[工具Schema缓存] 清空失败，缓存锁已损坏: {err}")),
+        Err(err) => runtime_log_warn(format!("[工具] 清空失败，缓存锁已损坏: {err}")),
     }
 }
 
@@ -521,7 +521,7 @@ fn read_global_tool_schema_cache(_state: Option<&AppState>) -> Vec<CachedRuntime
                 return definitions.clone();
             }
         }
-        Err(err) => runtime_log_warn(format!("[工具Schema缓存] 读取失败，缓存锁已损坏: {err}")),
+        Err(err) => runtime_log_warn(format!("[工具] 读取失败，缓存锁已损坏: {err}")),
     }
     Vec::new()
 }
@@ -817,7 +817,7 @@ fn resolve_legal_runtime_tools(
             } = &tool.source
             {
                 runtime_log_warn(format!(
-                    "[MCP工具装配] 跳过，server_id={}，server_name={}，tool_name={}，原因={}",
+                    "[工具] 跳过 服务={} 服务名={} 工具={} 原因={}",
                     server_id,
                     server_name,
                     tool.definition.name,
@@ -943,7 +943,7 @@ fn discoverable_runtime_tools_for_session(
 ) -> Vec<CachedRuntimeToolSchema> {
     let mut discoverable_tools = read_global_tool_schema_cache(Some(state));
     if discoverable_tools.is_empty() {
-        runtime_log_warn("[工具装配] Schema缓存为空，尝试按当前可发现能力重建".to_string());
+        runtime_log_debug("[工具] Schema缓存为空，尝试按当前可发现能力重建".to_string());
         discoverable_tools = refresh_global_tool_schema_cache(state);
     }
     // 电脑使用总开关：关闭时不提供 operate 工具（模型看不到、调不了）
@@ -952,7 +952,7 @@ fn discoverable_runtime_tools_for_session(
         .unwrap_or(true);
     if !desktop_operate_enabled {
         discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
-        runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
+        runtime_log_info("[工具] 电脑使用已关闭，operate 工具不挂载".to_string());
     }
     // MCP 按需加载：默认全折叠，只挂本会话已点名的临时名单。
     // 内置常驻不动；目录走 system 常驻，参数下轮尾部追加，按拿取顺序排。
@@ -1064,8 +1064,7 @@ pub(crate) fn resolve_runtime_tool_definitions(
         Ok(context) => Some(context),
         Err(err) => {
             runtime_log_warn(format!(
-                "[工具装配] 记忆工具降级，agent_id={}，error={err}",
-                agent.id
+                "[工具] 记忆工具降级 原因={err}"
             ));
             None
         }
@@ -1111,7 +1110,7 @@ pub(crate) async fn assemble_runtime_tools(
         return empty_runtime_tool_assembly(Vec::new());
     }
     let Some(state) = app_state else {
-        runtime_log_warn("[工具装配] 跳过，原因=缺少AppState，聊天继续但本轮不挂载工具".to_string());
+        runtime_log_debug("[工具] 跳过 原因=缺少AppState，聊天继续但本轮不挂载工具".to_string());
         return empty_runtime_tool_assembly(Vec::new());
     };
     // 执行上下文就是当前人格本身：权限、下级、模型全部从人格上取。
@@ -1121,8 +1120,7 @@ pub(crate) async fn assemble_runtime_tools(
         Ok(context) => Some(context),
         Err(err) => {
             runtime_log_warn(format!(
-                "[工具装配] 记忆工具降级，agent_id={}，error={err}",
-                agent.id
+                "[工具] 记忆工具降级 原因={err}"
             ));
             None
         }
@@ -1168,7 +1166,7 @@ pub(crate) async fn assemble_runtime_tools(
                 let executor_name = executor.name();
                 if executor_name != descriptor.definition.name {
                     runtime_log_warn(format!(
-                        "[工具装配] 单工具降级，tool={}，source={}，error=执行器名称不一致（executor={}）",
+                        "[工具] 单工具降级 工具={} 来源={} 原因=执行器名称不一致（执行器={}）",
                         descriptor.definition.name,
                         descriptor.source_label(),
                         executor_name
@@ -1188,7 +1186,7 @@ pub(crate) async fn assemble_runtime_tools(
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[工具装配] 单工具降级，tool={}，source={}，error={err}",
+                    "[工具] 单工具降级 工具={} 来源={} 原因={err}",
                     descriptor.definition.name,
                     descriptor.source_label()
                 ));
@@ -1454,7 +1452,7 @@ fn notify_desktop_operation_started(state: &AppState, script: &str) {
         Ok(config) => config.desktop_operation_notice_enabled,
         Err(err) => {
             runtime_log_warn(format!(
-                "[桌面操作提醒] 跳过，任务=读取通知设置失败，error={err}"
+                "[工具] 跳过 任务=读取通知设置失败 原因={err}"
             ));
             return;
         }
@@ -1478,7 +1476,7 @@ fn notify_desktop_operation_started(state: &AppState, script: &str) {
     tauri::async_runtime::spawn(async move {
         if let Err(err) = send_native_notification(&app_handle, "PAI 正在操作你的电脑", &body, false)
         {
-            runtime_log_warn(format!("[桌面操作提醒] 通知发送失败：{err}"));
+            runtime_log_warn(format!("[工具] 通知发送失败：{err}"));
         }
     });
 }
@@ -1872,7 +1870,7 @@ impl RuntimeToolDyn for BuiltinAdviseTool {
             // 建议内容由收尾步骤直接从本轮的工具调用参数里读，这里只回执。
             let args: Value = serde_json::from_str(&args_json).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[护航] advise 工具已调用，user_suggestion={}，assistant_guidance={}",
+                "[聊天] advise 工具已调用 用户建议={} 助理指引={}",
                 args.get("user_suggestion").map_or(false, |value| !value.is_null()),
                 args.get("assistant_guidance")
                     .and_then(Value::as_str)
@@ -1945,14 +1943,14 @@ impl RuntimeValueTool for BuiltinOperateTool {
                 .unwrap_or(true);
             if !operate_enabled {
                 let err = ToolInvokeError::from("电脑使用已关闭，无法操作电脑".to_string());
-                runtime_log_warn(format!("[工具执行] operate 被电脑使用总开关拦截: 错误={err}"));
+                runtime_log_info(format!("[工具] operate 被电脑使用总开关拦截 错误={err}"));
                 return Err(err);
             }
             // 截图始终可执行：驱动模型不支持图片时仍返回保存路径，
             // 是否携带 base64 由模型能力决定（不支持时跳过编码省 CPU）。
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=operate args={}",
+                "[工具] 内置工具执行开始 工具=operate 参数={}",
                 debug_value_snippet(&args_value, 240)
             ));
             let result = run_operate_tool(args, &screenshots_root, model_supports_image)
@@ -1964,10 +1962,10 @@ impl RuntimeValueTool for BuiltinOperateTool {
                 });
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=operate result={}",
+                    "[工具] 内置工具执行完成 工具=operate 结果={}",
                     debug_value_snippet(v, 240)
                 )),
-                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 operate 执行失败: 错误={err}")),
+                Err(err) => runtime_log_error(format!("[工具] 内置工具 operate 执行失败 错误={err}")),
             }
             result
         })
@@ -1992,7 +1990,7 @@ impl RuntimeValueTool for BuiltinWindowsTool {
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
         runtime_log_debug(format!(
-            "[工具调试] 内置工具执行开始 name=windows args={}",
+            "[工具] 内置工具执行开始 工具=windows 参数={}",
             debug_value_snippet(&args_value, 240)
         ));
         Box::pin(async move {
@@ -2008,10 +2006,10 @@ impl RuntimeValueTool for BuiltinWindowsTool {
                 });
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=windows result={}",
+                    "[工具] 内置工具执行完成 工具=windows 结果={}",
                     debug_value_snippet(v, 240)
                 )),
-                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 windows 执行失败: 错误={err}")),
+                Err(err) => runtime_log_error(format!("[工具] 内置工具 windows 执行失败 错误={err}")),
             }
             result
         })
@@ -2037,7 +2035,7 @@ impl RuntimeValueTool for BuiltinReadFileTool {
         Box::pin(async move {
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=read args={}",
+                "[工具] 内置工具执行开始 工具=read 参数={}",
                 debug_value_snippet(&args_value, 240)
             ));
             let result = builtin_read_file(
@@ -2050,10 +2048,10 @@ impl RuntimeValueTool for BuiltinReadFileTool {
             .map_err(ToolInvokeError::from);
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=read result={}",
+                    "[工具] 内置工具执行完成 工具=read 结果={}",
                     debug_value_snippet(v, 240)
                 )),
-                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 read 执行失败: 错误={err}")),
+                Err(err) => runtime_log_error(format!("[工具] 内置工具 read 执行失败 错误={err}")),
             }
             result
         })
@@ -2081,7 +2079,7 @@ impl RuntimeValueTool for BuiltinReadMediaTool {
         Box::pin(async move {
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=read_media args={}",
+                "[工具] 内置工具执行开始 工具=read_media 参数={}",
                 debug_value_snippet(&args_value, 240)
             ));
             let result = builtin_read_media(
@@ -2096,10 +2094,10 @@ impl RuntimeValueTool for BuiltinReadMediaTool {
             .map_err(ToolInvokeError::from);
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=read_media result={}",
+                    "[工具] 内置工具执行完成 工具=read_media 结果={}",
                     debug_value_snippet(v, 240)
                 )),
-                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 read_media 执行失败: 错误={err}")),
+                Err(err) => runtime_log_error(format!("[工具] 内置工具 read_media 执行失败 错误={err}")),
             }
             result
         })

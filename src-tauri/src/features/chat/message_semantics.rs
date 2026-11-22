@@ -451,7 +451,7 @@ fn populate_assistant_meme_annotations(
         .collect::<Vec<_>>()
         .join(",");
     runtime_log_debug(format!(
-        "[表情替换] 生成，text_len={}，annotation_count={}，tokens=[{}]，text={}",
+        "[聊天] 生成 文本长度={} 标注数={} 表情词=[{}] 文本={}",
         assistant_text.chars().count(),
         annotations.len(),
         annotation_tokens,

@@ -43,7 +43,7 @@ fn send_tool_status_event(
         "投递失败"
     };
     runtime_log_debug(format!(
-        "[工具调用] 名称={} 状态={} 消息={} 事件投递结果={}",
+        "[工具] 名称={} 状态={} 消息={} 事件投递结果={}",
         tool_name, unified_status, message, delivery_desc
     ));
 }

@@ -53,11 +53,11 @@ async fn start_web_access_server(
         .await;
     match outcome {
         Ok(LocalPortServiceStartOutcome::SkippedAlreadyRunning) => {
-            runtime_log_warn(format!("[网络访问] 跳过重复启动：服务已在运行或正在启动"));
+            runtime_log_info(format!("[系统] 跳过重复启动：服务已在运行或正在启动"));
         }
         Ok(LocalPortServiceStartOutcome::Started) => {}
         Err(err) => {
-            runtime_log_error(format!("[网络访问] 启动流程失败: {}", err));
+            runtime_log_error(format!("[系统] 启动流程失败: {}", err));
         }
     }
 }
@@ -99,14 +99,14 @@ async fn shutdown_ide_context_bridge_server_inner() {
                 port_service
                     .add_log(WEB_ACCESS_SERVICE_ID, "info", "服务已停止")
                     .await;
-                runtime_log_info(format!("[网络访问] 已停止"));
+                runtime_log_info(format!("[系统] 已停止"));
             }
             Ok(Err(err)) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
                 port_service
                     .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.to_string()))
                     .await;
-                runtime_log_error(format!("[网络访问] 等待服务任务退出失败: {}", err));
+                runtime_log_error(format!("[系统] 等待服务任务退出失败: {}", err));
             }
             Err(_) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
@@ -116,12 +116,12 @@ async fn shutdown_ide_context_bridge_server_inner() {
                         Some("等待服务任务退出超时，已强制清理状态".to_string()),
                     )
                     .await;
-                runtime_log_error(format!("[网络访问] 等待服务任务退出超时，已强制清理状态"));
+                runtime_log_error(format!("[系统] 等待服务任务退出超时，已强制清理状态"));
             }
         },
         None => {
             IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-            runtime_log_info(format!("[网络访问] 停机时未找到服务任务句柄，已清理状态"));
+            runtime_log_info(format!("[系统] 停机时未找到服务任务句柄，已清理状态"));
         }
     }
     if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
@@ -143,7 +143,7 @@ pub(crate) async fn shutdown_web_access_server() {
         })
         .await
     {
-        runtime_log_error(format!("[网络访问] 停止流程失败: {}", err));
+        runtime_log_error(format!("[系统] 停止流程失败: {}", err));
     }
 }
 
@@ -161,7 +161,7 @@ async fn restart_web_access_server(
         })
         .await
     {
-        runtime_log_error(format!("[网络访问] 重启流程失败: {}", err));
+        runtime_log_error(format!("[系统] 重启流程失败: {}", err));
     }
 }
 
@@ -192,7 +192,7 @@ async fn ide_context_ws_handle_connection(
     {
         Ok(ws_stream) => ws_stream,
         Err(err) => {
-            runtime_log_error(format!("[IDE 上下文桥] WebSocket 握手失败 {}: {}", peer_addr, err));
+            runtime_log_error(format!("[系统] WebSocket 握手失败 {}: {}", peer_addr, err));
             return;
         }
     };
@@ -209,10 +209,10 @@ async fn ide_context_ws_handle_connection(
         return;
     }
     if path != IDE_CONTEXT_BRIDGE_PATH {
-        runtime_log_info(format!("[IDE 上下文桥] 非法路径 {} from {}", path, peer_addr));
+        runtime_log_info(format!("[系统] 非法路径 {} from {}", path, peer_addr));
         return;
     }
-    runtime_log_info(format!("[IDE 上下文桥] 客户端已连接: {}", peer_addr));
+    runtime_log_info(format!("[系统] 客户端已连接: {}", peer_addr));
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut connected_client_id = String::new();
     let mut authenticated = ide_context_peer_is_local(&peer_addr);
@@ -270,7 +270,7 @@ async fn ide_context_ws_handle_connection(
                                                 publish_ide_context_bridge_discovery(port, &remote_password)
                                             {
                                                 runtime_log_error(format!(
-                                                    "[IDE 上下文桥] 过期后重写发现文件失败: {}",
+                                                    "[系统] 过期后重写发现文件失败: {}",
                                                     publish_err
                                                 ));
                                             }
@@ -328,7 +328,7 @@ async fn ide_context_ws_handle_connection(
             Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
             Ok(_) => {}
             Err(err) => {
-                runtime_log_error(format!("[IDE 上下文桥] 客户端消息错误 {}: {}", peer_addr, err));
+                runtime_log_error(format!("[系统] 客户端消息错误 {}: {}", peer_addr, err));
                 break;
             }
         }
@@ -340,11 +340,11 @@ async fn ide_context_ws_handle_connection(
                 snapshots.remove(&connected_client_id);
             }
             Err(_) => {
-                runtime_log_error(format!("[IDE 上下文桥] 清理客户端缓存失败: {}", connected_client_id));
+                runtime_log_error(format!("[系统] 清理客户端缓存失败: {}", connected_client_id));
             }
         }
     }
-    runtime_log_info(format!("[IDE 上下文桥] 客户端已断开: {}", peer_addr));
+    runtime_log_info(format!("[系统] 客户端已断开: {}", peer_addr));
 }
 
 async fn ide_context_chat_ws_handle_connection(
@@ -354,7 +354,7 @@ async fn ide_context_chat_ws_handle_connection(
     state: AppState,
     ide_context_runtime: IdeContextRuntime,
 ) {
-    runtime_log_info(format!("[VSCode 侧边栏] 客户端已连接: {}", peer_addr));
+    runtime_log_info(format!("[系统] 客户端已连接: {}", peer_addr));
     let client_id = Uuid::new_v4().to_string();
     let mut authenticated = ide_context_peer_is_local(&peer_addr);
     let connection_id = web_access_register_connection(
@@ -508,7 +508,7 @@ async fn ide_context_chat_ws_handle_connection(
                                                         publish_ide_context_bridge_discovery(current_port, &remote_password)
                                                     {
                                                         runtime_log_error(format!(
-                                                            "[VSCode 侧边栏] 过期后重写发现文件失败: {}",
+                                                            "[系统] 过期后重写发现文件失败: {}",
                                                             publish_err
                                                         ));
                                                     }
@@ -568,7 +568,7 @@ async fn ide_context_chat_ws_handle_connection(
             Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
             Ok(_) => {}
             Err(err) => {
-                runtime_log_error(format!("[VSCode 侧边栏] 客户端消息错误 {}: {}", peer_addr, err));
+                runtime_log_error(format!("[系统] 客户端消息错误 {}: {}", peer_addr, err));
                 break;
             }
         }
@@ -583,10 +583,10 @@ async fn ide_context_chat_ws_handle_connection(
     if opened_conversation_id.is_some() {
         let sidebar_label = ide_chat_sidebar_window_label(&client_id);
         if let Err(err) = ide_chat_release_sidebar_conversation(&state, &sidebar_label) {
-            runtime_log_error(format!("[VSCode 侧边栏] 释放会话占用失败: {}", err));
+            runtime_log_error(format!("[系统] 释放会话占用失败: {}", err));
         }
     }
     attachment_transfer_abort_owner(&client_id).await;
     writer.abort();
-    runtime_log_info(format!("[VSCode 侧边栏] 客户端已断开: {}", peer_addr));
+    runtime_log_info(format!("[系统] 客户端已断开: {}", peer_addr));
 }

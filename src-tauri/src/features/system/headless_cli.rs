@@ -265,7 +265,7 @@ async fn headless_cli_run_once(args: HeadlessCliArgs) -> Result<(), String> {
     let workspace_result = load_workspace(&state)
         .await
         .map_err(|err| format!("加载工作区（skill/MCP）失败: {err}"))?;
-    log_workspace_load_result("[工作区加载]", &workspace_result);
+    log_workspace_load_result("工作区加载", &workspace_result);
     let runtime_org = load_runtime_organization_snapshot(&state)?;
     let app_config = runtime_org.config.clone();
     if !app_config
@@ -349,7 +349,7 @@ async fn headless_cli_wait_mcp_ready(state: &AppState) {
             .collect(),
         Err(err) => {
             runtime_log_warn(format!(
-                "[工作区加载] 读取 MCP 服务器清单失败，跳过探测等待：{err}"
+                "[系统] 读取 MCP 服务器清单失败，跳过探测等待：{err}"
             ));
             Vec::new()
         }
@@ -363,12 +363,12 @@ async fn headless_cli_wait_mcp_ready(state: &AppState) {
             .unwrap_or(false)
     }) {
         if !logged_pending {
-            runtime_log_info("[工作区加载] 等待 MCP 探测落定".to_string());
+            runtime_log_info("[系统] 等待 MCP 探测落定".to_string());
             logged_pending = true;
         }
         if started.elapsed() >= HEADLESS_CLI_MCP_READY_WAIT_LIMIT {
             runtime_log_warn(format!(
-                "[工作区加载] 等待 MCP 探测超过上限，继续执行（本轮可能缺少 MCP 工具），elapsed_ms={}",
+                "[系统] 等待 MCP 探测超过上限，继续执行（本轮可能缺少 MCP 工具） 耗时={}",
                 started.elapsed().as_millis()
             ));
             break;

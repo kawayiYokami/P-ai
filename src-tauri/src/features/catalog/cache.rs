@@ -36,7 +36,7 @@ fn read_remote_catalog_cache(
         Ok(cache) => cache,
         Err(err) => {
             runtime_log_warn(format!(
-                "解析远端清单缓存失败，按无缓存处理（{}）：{err}",
+                "[工具] 远端清单缓存 解析失败 按无缓存处理 文件={} 错误={err}",
                 path.display()
             ));
             return Ok(None);
@@ -99,7 +99,7 @@ where
             Ok(payload) => Ok((write_remote_catalog_cache(state, file_name, &payload)?, false)),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[{log_tag}] 刷新失败，回退旧缓存：error={err:?}, updated_at={}, fetched_at_ms={}",
+                    "[工具] 远端清单缓存 刷新失败 回退旧缓存 缓存={log_tag} 错误={err} 更新时间={} 获取时间={}",
                     cache.updated_at, cache.fetched_at_ms
                 ));
                 Ok((cache, true))

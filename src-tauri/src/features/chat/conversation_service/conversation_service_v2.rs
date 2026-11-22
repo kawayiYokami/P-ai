@@ -856,8 +856,7 @@ impl ConversationServiceV2 {
             return Err("overwrite snapshot conversation.id is required.".to_string());
         }
         runtime_log_info(format!(
-            "[会话V2] 开始，任务=特批覆写会话，conversation_id={}，source={}，job_id={}，operator={}，reason={}，message_count={}",
-            snapshot.id,
+            "[聊天] 开始 任务=特批覆写会话 来源={} 作业编号={} 操作人={} 原因={} 消息数={}",
             audit.source.as_str(),
             audit.job_id,
             audit.operator,
@@ -868,8 +867,7 @@ impl ConversationServiceV2 {
         message_store::chat_store_write_snapshot(&store_paths, snapshot)?;
         state_mark_conversation_metadata_direct_persisted(state, &snapshot.id)?;
         runtime_log_info(format!(
-            "[会话V2] 完成，任务=特批覆写会话，conversation_id={}，source={}，job_id={}，operator={}，message_count={}",
-            snapshot.id,
+            "[聊天] 完成 任务=特批覆写会话 来源={} 作业编号={} 操作人={} 消息数={}",
             audit.source.as_str(),
             audit.job_id,
             audit.operator,
@@ -1072,8 +1070,8 @@ impl ConversationServiceV2 {
         };
         if let Err(err) = update_result {
             runtime_log_warn(format!(
-                "[会话未读] 警告，任务=同步未读数metadata缓存，会话ID={}，unread_count={}，error={}",
-                conversation.id, conversation.unread_count, err
+                "[聊天] 警告 任务=同步未读数metadata缓存 未读数={} 原因={}",
+                conversation.unread_count, err
             ));
         }
     }
@@ -1333,9 +1331,9 @@ impl ConversationServiceV2 {
             state,
             normalized_conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=元数据更新后推送单会话，conversation_id={}，error={}",
-                normalized_conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=元数据更新后推送单会话 原因={}",
+                err
             ));
         }
         Ok(conversation)
@@ -1353,8 +1351,8 @@ impl ConversationServiceV2 {
             Err(meta_err) => match state_read_conversation_cached(state, conversation_id) {
                 Ok(conversation) => {
                     runtime_log_warn(format!(
-                        "[会话元数据] 消息仓库轻量读取失败，使用当前运行时缓存继续，conversation_id={}，error={}",
-                        conversation_id.trim(), meta_err
+                        "[聊天] 消息仓库轻量读取失败，使用当前运行时缓存继续 原因={}",
+                        meta_err
                     ));
                     message_store::ConversationShardMeta::from_conversation(&conversation)
                 }
@@ -1567,9 +1565,9 @@ impl ConversationServiceV2 {
             state,
             conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=单消息写入后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=单消息写入后推送单会话 原因={}",
+                err
             ));
         }
         Ok(())
@@ -1595,10 +1593,7 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        runtime_log_info(format!(
-            "[会话消息写入] 节点，任务=元数据读取完成，conversation_id={}",
-            normalized_conversation_id
-        ));
+        runtime_log_info("[聊天] 节点 任务=元数据读取完成".to_string());
         let updated_at = message.created_at.clone();
         let last_user_at = if message.role.trim() == "user" {
             Some(message.created_at.clone())
@@ -1632,10 +1627,7 @@ impl ConversationServiceV2 {
                 Ok(())
             },
         )?;
-        runtime_log_info(format!(
-            "[会话消息写入] 节点，任务=元数据缓存更新完成，conversation_id={}",
-            normalized_conversation_id
-        ));
+        runtime_log_info("[聊天] 节点 任务=元数据缓存更新完成".to_string());
         let metadata_conversation =
             self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
         state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
@@ -1648,10 +1640,7 @@ impl ConversationServiceV2 {
             &ready_meta,
             std::slice::from_ref(message),
         )?;
-        runtime_log_info(format!(
-            "[会话消息写入] 节点，任务=存储写入完成，conversation_id={}",
-            normalized_conversation_id
-        ));
+        runtime_log_info("[聊天] 节点 任务=存储写入完成".to_string());
         self.mark_conversation_metadata_cached_persisted(state, normalized_conversation_id)?;
         Ok(())
     }
@@ -1754,9 +1743,9 @@ impl ConversationServiceV2 {
             state,
             normalized_conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=批量消息写入后推送单会话，conversation_id={}，error={}",
-                normalized_conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=批量消息写入后推送单会话 原因={}",
+                err
             ));
         }
         Ok(())
@@ -1867,13 +1856,9 @@ impl ConversationServiceV2 {
         // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
         if was_draft {
             match create_next_draft_conversation_inherited(state, &promoted_conversation) {
-                Ok(new_draft_id) => runtime_log_info(format!(
-                    "[会话草稿] 完成，任务=首条用户消息转正，conversation_id={}，new_draft_conversation_id={}",
-                    conversation_id, new_draft_id
-                )),
+                Ok(_) => runtime_log_info("[聊天] 完成 任务=首条用户消息转正".to_string()),
                 Err(err) => runtime_log_warn(format!(
-                    "[会话草稿] 创建备用草稿失败，等待下次打开时重建，conversation_id={}，error={err}",
-                    conversation_id
+                    "[聊天] 创建备用草稿失败，等待下次打开时重建 原因={err}"
                 )),
             }
         }
@@ -1881,9 +1866,9 @@ impl ConversationServiceV2 {
             state,
             conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=用户消息写入后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=用户消息写入后推送单会话 原因={}",
+                err
             ));
         }
         Ok(())
@@ -1981,9 +1966,9 @@ impl ConversationServiceV2 {
             state,
             conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=远程入站直接写入后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=远程入站直接写入后推送单会话 原因={}",
+                err
             ));
         }
         emit_conversation_message_appended_event(state, conversation_id, message);
@@ -2072,18 +2057,13 @@ impl ConversationServiceV2 {
             || !source_conversation_meta.visible_in_foreground_lists
             || self.conversation_meta_is_system_notification_meta_view(&source_conversation_meta)
         {
-            runtime_log_warn(format!(
-                "[自动推送] 跳过，任务=解析推送源会话，source_conversation_id={}，remote_contact_id={}，reason=source_conversation_not_eligible",
-                normalized_source_conversation_id,
-                normalized_remote_contact_id
-            ));
+            runtime_log_debug(
+                "[聊天] 跳过 任务=解析推送源会话 原因=source_conversation_not_eligible"
+                    .to_string(),
+            );
             return Ok(());
         }
-        runtime_log_info(format!(
-            "[自动推送] 开始，任务=解析远程联系人通知目标，source_conversation_id={}，remote_contact_id={}",
-            normalized_source_conversation_id,
-            normalized_remote_contact_id
-        ));
+        runtime_log_info("[聊天] 开始 任务=解析远程联系人通知目标".to_string());
         let target_conversation_id =
             self.resolve_remote_im_contact_conversation_id_for_notification(
                 state,
@@ -2092,13 +2072,7 @@ impl ConversationServiceV2 {
         let body =
             build_session_notification_body(state, normalized_source_conversation_id, content)?;
         let message = build_session_notification_message(&body);
-        runtime_log_info(format!(
-            "[自动推送] 开始，任务=通知转发入队，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_id={}",
-            normalized_source_conversation_id,
-            target_conversation_id,
-            normalized_remote_contact_id,
-            message.id
-        ));
+        runtime_log_info("[聊天] 开始 任务=通知转发入队".to_string());
         enqueue_session_notification_dispatch(
             state,
             &target_conversation_id,
@@ -2106,13 +2080,7 @@ impl ConversationServiceV2 {
             &message,
             "auto_push_session",
         )?;
-        runtime_log_info(format!(
-            "[自动推送] 完成，任务=通知转发入队，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_id={}",
-            normalized_source_conversation_id,
-            target_conversation_id,
-            normalized_remote_contact_id,
-            message.id
-        ));
+        runtime_log_info("[聊天] 完成 任务=通知转发入队".to_string());
         Ok(())
     }
 

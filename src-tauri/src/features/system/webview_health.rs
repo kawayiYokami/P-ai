@@ -291,7 +291,7 @@ fn dispatch_process_failure_recovery(
             let label = thread_label;
             let started_at = std::time::Instant::now();
             runtime_log_info(format!(
-                "[WebView2] 恢复开始：window_label={}，action={}",
+                "[系统] 恢复开始 窗口={} 动作={}",
                 label,
                 recovery.label()
             ));
@@ -302,13 +302,13 @@ fn dispatch_process_failure_recovery(
             };
             match &result {
                 Ok(()) => runtime_log_info(format!(
-                    "[WebView2] 恢复完成：window_label={}，action={}，elapsed_ms={}",
+                    "[系统] 恢复完成 窗口={} 动作={} 耗时={}",
                     label,
                     recovery.label(),
                     started_at.elapsed().as_millis()
                 )),
                 Err(err) => runtime_log_error(format!(
-                    "[WebView2] 恢复失败：window_label={}，action={}，elapsed_ms={}，error={}",
+                    "[系统] 恢复失败 窗口={} 动作={} 耗时={} 错误={}",
                     label,
                     recovery.label(),
                     started_at.elapsed().as_millis(),
@@ -319,7 +319,7 @@ fn dispatch_process_failure_recovery(
         })
     {
         runtime_log_error(format!(
-            "[WebView2] 派发恢复动作失败：window_label={label}，error={err}"
+            "[系统] 派发恢复动作失败 窗口={label} 错误={err}"
         ));
         update_window_failure_state(&label, |state| state.recovery_in_flight = false);
     }
@@ -336,7 +336,7 @@ fn attach_webview_process_failed_monitor_windows(window: &tauri::WebviewWindow, 
         let environment = platform.environment();
         let runtime_version = read_webview_runtime_version(&environment);
         runtime_log_info(format!(
-            "[WebView2] 进程失败监控已挂载：window_label={}，runtime_version={}",
+            "[系统] 进程失败监控已挂载 窗口={} 运行时版本={}",
             register_label, runtime_version
         ));
         log_webview_environment_footprint(&environment);
@@ -346,7 +346,7 @@ fn attach_webview_process_failed_monitor_windows(window: &tauri::WebviewWindow, 
             Ok(core) => core,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[WebView2] 读取 CoreWebView2 失败，跳过进程失败监控：window_label={}，error={}",
+                    "[系统] 读取 CoreWebView2 失败，跳过进程失败监控 窗口={} 错误={}",
                     register_label, err
                 ));
                 return;
@@ -371,13 +371,13 @@ fn attach_webview_process_failed_monitor_windows(window: &tauri::WebviewWindow, 
         let mut token = 0i64;
         if let Err(err) = unsafe { core.add_ProcessFailed(&handler, &mut token) } {
             runtime_log_error(format!(
-                "[WebView2] 注册进程失败监控失败：window_label={register_label}，error={err}"
+                "[系统] 注册进程失败监控失败 窗口={register_label} 错误={err}"
             ));
         }
     });
     if let Err(err) = result {
         runtime_log_warn(format!(
-            "[WebView2] 挂载进程失败监控失败：window_label={label}，error={err}"
+            "[系统] 挂载进程失败监控失败 窗口={label} 错误={err}"
         ));
     }
 }
@@ -393,7 +393,7 @@ fn read_webview_runtime_version(
     match unsafe { environment.BrowserVersionString(&mut value) } {
         Ok(()) => take_pwstr(value),
         Err(err) => {
-            runtime_log_warn(format!("[WebView2] 读取 runtime 版本失败：error={err}"));
+            runtime_log_warn(format!("[系统] 读取 runtime 版本失败 错误={err}"));
             "未知".to_string()
         }
     }
@@ -418,10 +418,10 @@ fn log_webview_environment_footprint(
     let mut folder = PWSTR::null();
     match unsafe { environment11.FailureReportFolderPath(&mut folder) } {
         Ok(()) => runtime_log_info(format!(
-            "[WebView2] 崩溃转储目录：{}",
+            "[系统] 崩溃转储目录：{}",
             take_pwstr(folder)
         )),
-        Err(err) => runtime_log_warn(format!("[WebView2] 读取崩溃转储目录失败：error={err}")),
+        Err(err) => runtime_log_warn(format!("[系统] 读取崩溃转储目录失败 错误={err}")),
     }
 }
 

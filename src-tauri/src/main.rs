@@ -136,7 +136,7 @@ fn windows_set_process_app_user_model_id() {
     let result = unsafe { SetCurrentProcessExplicitAppUserModelID(aumid_wide.as_ptr()) };
     if result != 0 {
         runtime_log_warn(format!(
-            "[通知] 设置进程 AppUserModelID 失败: 0x{:X}",
+            "[系统] 通知 设置进程 AppUserModelID 失败: 0x{:X}",
             result
         ));
     }
@@ -162,7 +162,7 @@ fn windows_set_process_app_user_model_id() {
         )
     };
     if status != ERROR_SUCCESS {
-        runtime_log_warn(format!("[通知] 注册 AUMID 键失败: 0x{:X}", status));
+        runtime_log_warn(format!("[系统] 通知 注册 AUMID 键失败: 0x{:X}", status));
         return;
     }
     let set_value = |name: &str, value: &str| {
@@ -179,7 +179,7 @@ fn windows_set_process_app_user_model_id() {
             )
         };
         if status != ERROR_SUCCESS {
-            runtime_log_warn(format!("[通知] 写入 AUMID {name} 失败: 0x{:X}", status));
+            runtime_log_warn(format!("[系统] 通知 写入 AUMID {name} 失败: 0x{:X}", status));
         }
     };
     set_value("DisplayName", DISPLAY_NAME);
@@ -229,12 +229,12 @@ fn unix_extend_process_path_from_login_shell() {
     {
         Ok(child) => child,
         Err(err) => {
-            runtime_log_warn(format!("[启动] 启动登录 shell 失败: err={err}"));
+            runtime_log_warn(format!("[系统] 启动 启动登录 shell 失败 错误={err}"));
             return;
         }
     };
     let Some(stdout_pipe) = child.stdout.take() else {
-        runtime_log_warn("[启动] 获取登录 shell stdout 失败，跳过环境同步".to_string());
+        runtime_log_warn("[系统] 启动 获取登录 shell stdout 失败，跳过环境同步".to_string());
         return;
     };
     // 读线程负责读 stdout 直到 EOF：shell 退出但 rc 启动的后台进程仍持有
@@ -257,14 +257,14 @@ fn unix_extend_process_path_from_login_shell() {
             Ok(Some(status)) if stdout.is_some() => break status,
             Ok(_) => {}
             Err(err) => {
-                runtime_log_warn(format!("[启动] 等待登录 shell 退出失败: err={err}"));
+                runtime_log_warn(format!("[系统] 启动 等待登录 shell 退出失败 错误={err}"));
                 return;
             }
         }
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            runtime_log_warn("[启动] 读取登录 shell PATH 超时，跳过环境同步".to_string());
+            runtime_log_warn("[系统] 启动 读取登录 shell PATH 超时，跳过环境同步".to_string());
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -272,25 +272,25 @@ fn unix_extend_process_path_from_login_shell() {
     let stdout = stdout.unwrap_or_default();
     if !status.success() {
         runtime_log_warn(format!(
-            "[启动] 读取登录 shell PATH 失败: exit_code={}",
+            "[系统] 启动 读取登录 shell PATH 失败 退出码={}",
             status.code().unwrap_or(-1)
         ));
         return;
     }
     let Some(path_start) = stdout.rfind(PATH_BEGIN).map(|index| index + PATH_BEGIN.len()) else {
-        runtime_log_warn(format!("[启动] 登录 shell 未返回 PATH 标记，跳过环境同步"));
+        runtime_log_warn(format!("[系统] 启动 登录 shell 未返回 PATH 标记，跳过环境同步"));
         return;
     };
     let Some(path_end) = stdout[path_start..]
         .find(PATH_END)
         .map(|index| path_start + index)
     else {
-        runtime_log_warn(format!("[启动] 登录 shell PATH 标记不完整，跳过环境同步"));
+        runtime_log_warn(format!("[系统] 启动 登录 shell PATH 标记不完整，跳过环境同步"));
         return;
     };
     let login_path = std::ffi::OsString::from(stdout[path_start..path_end].trim());
     if login_path.is_empty() {
-        runtime_log_warn(format!("[启动] 登录 shell PATH 为空，跳过环境同步"));
+        runtime_log_warn(format!("[系统] 启动 登录 shell PATH 为空，跳过环境同步"));
         return;
     }
 
@@ -302,11 +302,11 @@ fn unix_extend_process_path_from_login_shell() {
         }
     }
     let Ok(path) = std::env::join_paths(merged) else {
-        runtime_log_warn(format!("[启动] 合并登录 shell PATH 失败，跳过环境同步"));
+        runtime_log_warn(format!("[系统] 启动 合并登录 shell PATH 失败，跳过环境同步"));
         return;
     };
     std::env::set_var("PATH", path);
-    runtime_log_info(format!("[启动] 已同步登录 shell PATH"));
+    runtime_log_info(format!("[系统] 启动 已同步登录 shell PATH"));
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -414,12 +414,12 @@ async fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool,
         )
         .is_err()
     {
-        runtime_log_warn(format!("[启动] 前端就绪后启动后台服务：已请求过，跳过重复启动"));
+        runtime_log_info(format!("[系统] 启动 前端就绪后启动后台服务：已请求过，跳过重复启动"));
         return Ok(false);
     }
 
     refresh_conversation_meta_after_migration(startup_state.clone()).await;
-    runtime_log_info(format!("[启动] 迁移门闩已完成，开始异步启动后台服务"));
+    runtime_log_info(format!("[系统] 启动 迁移门闩已完成，开始异步启动后台服务"));
     tauri::async_runtime::spawn(async move {
         start_background_services_after_frontend_ready(app, startup_state).await;
     });
@@ -441,18 +441,18 @@ async fn refresh_conversation_meta_after_migration(state: AppState) {
     .await;
     match result {
         Ok(Ok((total, refreshed))) => runtime_log_info(format!(
-            "[启动] 完成，任务=迁移后会话meta预热，conversation_count={}，refreshed={}，elapsed_ms={}",
+            "[系统] 启动 完成 任务=迁移后会话meta预热 会话数={} 刷新数={} 耗时={}",
             total,
             refreshed,
             started.elapsed().as_millis()
         )),
         Ok(Err(err)) => runtime_log_warn(format!(
-            "[启动] 失败，任务=迁移后会话meta预热，error={}，elapsed_ms={}",
+            "[系统] 启动 失败 任务=迁移后会话meta预热 错误={} 耗时={}",
             err,
             started.elapsed().as_millis()
         )),
         Err(err) => runtime_log_warn(format!(
-            "[启动] 失败，任务=迁移后会话meta预热，error={}，elapsed_ms={}",
+            "[系统] 启动 失败 任务=迁移后会话meta预热 错误={} 耗时={}",
             err,
             started.elapsed().as_millis()
         )),
@@ -464,19 +464,19 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     let app_state = app_handle.state::<AppState>();
 
     let log_step = |step: &str| {
-        runtime_log_info(format!("[启动-延迟] 开始: {step}"));
+        runtime_log_info(format!("[系统] 启动延迟 开始: {step}"));
     };
 
     log_step("注册快捷键");
     if let Err(err) = register_default_hotkey(&app_handle) {
-        runtime_log_error(format!("[启动-延迟] 注册默认快捷键失败: {err}"));
+        runtime_log_error(format!("[系统] 启动延迟 注册默认快捷键失败: {err}"));
     }
     log_step("挂载 WebView2 进程失败监控");
     #[cfg(target_os = "windows")]
     webview_health::attach_webview_process_failed_monitors(&app_handle);
     log_step("启动持久化服务");
     if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
-        runtime_log_error(format!("[启动-延迟] 启动会话后台持久化服务失败: {err}"));
+        runtime_log_error(format!("[系统] 启动延迟 启动会话后台持久化服务失败: {err}"));
     }
     // 工作区加载（铺 skills、填快照缓存、派发 MCP 探测）只依赖 AppState，与前端无耦合，
     // 因此归入后端阶段 2 启动序列，不再搭前端就绪回调的便车；无头入口走同一条加载。
@@ -484,22 +484,22 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     // 所以内联 await 不会拖住阶段 2 后续步骤，也保留了「加载先于后续启动步骤」的串行顺序。
     log_step("加载工作区（skill/MCP）");
     match load_workspace(app_state.inner()).await {
-        Ok(result) => log_workspace_load_result("[工作区加载]", &result),
-        Err(err) => runtime_log_error(format!("[工作区加载] 状态=失败，error={err}")),
+        Ok(result) => log_workspace_load_result("工作区加载", &result),
+        Err(err) => runtime_log_error(format!("[系统] 工作区加载 状态=失败 错误={err}")),
     }
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         let wayland_only =
             cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some();
         if wayland_only {
-            runtime_log_info("[启动-延迟] Wayland 会话不支持按键监听，跳过录音热键探针".to_string());
+            runtime_log_info("[系统] 启动延迟 Wayland 会话不支持按键监听，跳过录音热键探针".to_string());
         } else {
             log_step("启动录音热键探针");
             if let Err(err) = start_record_hotkey_probe(
                 app_handle.clone(),
                 app_state.config_path.clone(),
             ) {
-                runtime_log_error(format!("[启动-延迟] 启动录音热键探针失败: {err}"));
+                runtime_log_error(format!("[系统] 启动延迟 启动录音热键探针失败: {err}"));
             }
         }
     }
@@ -508,19 +508,19 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         Ok(mut config) => {
             if run_startup_self_checks(&mut config) {
                 if let Err(err) = state_write_config_cached(app_state.inner(), &config) {
-                    runtime_log_error(format!("[启动自检] 写入修复后的配置失败: {err}"));
+                    runtime_log_error(format!("[系统] 启动自检 写入修复后的配置失败: {err}"));
                 } else {
-                    runtime_log_info(format!("[启动自检] 完成，已将副手模型从默认人格修正为副手"));
+                    runtime_log_info(format!("[系统] 启动自检 完成，已将副手模型从默认人格修正为副手"));
                 }
             }
         }
         Err(err) => {
-            runtime_log_error(format!("[启动自检] 读取配置失败: {err}"));
+            runtime_log_error(format!("[系统] 启动自检 读取配置失败: {err}"));
         }
     }
     log_step("初始化记忆存储");
     if let Err(err) = memory_store_open(&app_state.data_path) {
-        runtime_log_error(format!("[启动-延迟] 初始化记忆存储失败: {err}"));
+        runtime_log_error(format!("[系统] 启动延迟 初始化记忆存储失败: {err}"));
     }
     // 启动期记忆向量增量同步: 复用 memory_store_sync_provider_index 的差集逻辑
     // (补未向量化的记忆、清孤儿 chunk)。异步执行, 不阻塞启动; 失败由日志记录,
@@ -535,7 +535,7 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         match result {
             Ok(Ok(report)) => {
                 runtime_log_info(format!(
-                    "[记忆向量同步] 完成，任务=startup_sync，status={}，deleted={}，added={}，耗时毫秒={}",
+                    "[记忆] 向量同步 完成 任务=启动期同步 状态={} 删除数={} 新增数={} 耗时毫秒={}",
                     report.status,
                     report.deleted,
                     report.added,
@@ -544,14 +544,14 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             }
             Ok(Err(err)) => {
                 runtime_log_warn(format!(
-                    "[记忆向量同步] 失败，任务=startup_sync，异常={}，耗时毫秒={}",
+                    "[记忆] 向量同步 失败 任务=启动期同步 异常={} 耗时毫秒={}",
                     err,
                     started.elapsed().as_millis(),
                 ));
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[记忆向量同步] 失败，任务=startup_sync，异常=join_error，详情={}，耗时毫秒={}",
+                    "[记忆] 向量同步 失败 任务=启动期同步 异常=线程异常 详情={} 耗时毫秒={}",
                     err,
                     started.elapsed().as_millis(),
                 ));
@@ -560,24 +560,24 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     });
     log_step("初始化任务存储");
     if let Err(err) = task_store_open(&app_state.data_path) {
-        runtime_log_error(format!("[启动-延迟] 初始化任务存储失败: {err}"));
+        runtime_log_error(format!("[系统] 启动延迟 初始化任务存储失败: {err}"));
     }
     log_step("初始化委托存储");
     if let Err(err) = delegate_store_open(&app_state.data_path) {
-        runtime_log_error(format!("[启动-延迟] 初始化委托存储失败：{err}"));
+        runtime_log_error(format!("[系统] 启动延迟 初始化委托存储失败：{err}"));
     } else {
         if let Err(err) = delegate_snapshot_cache_ensure_loaded(&app_state.data_path) {
-            runtime_log_error(format!("[启动-延迟] 初始化委托快照失败：{err}"));
+            runtime_log_error(format!("[系统] 启动延迟 初始化委托快照失败：{err}"));
         }
         match delegate_store_interrupt_unfinished_remote_replies(&app_state.data_path) {
             Ok(delegate_ids) => {
                 for delegate_id in delegate_ids {
                     if let Err(err) = delegate_runtime_thread_archive(app_state.inner(), &delegate_id, &now_iso()) {
-                        runtime_log_error(format!("[启动-延迟] 归档中断远程委托失败，delegate_id={delegate_id}，error={err}"));
+                        runtime_log_error(format!("[系统] 启动延迟 归档中断远程委托失败 错误={err}"));
                     }
                 }
             }
-            Err(err) => runtime_log_error(format!("[启动-延迟] 收口未完成远程委托失败：{err}")),
+            Err(err) => runtime_log_error(format!("[系统] 启动延迟 收口未完成远程委托失败：{err}")),
         }
     }
     let ide_context_runtime = app_handle.state::<IdeContextRuntime>().inner().clone();
@@ -589,9 +589,9 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     .await;
     let _ = sync_default_tray_icon(&app_handle);
     if should_enable_devtools() {
-        runtime_log_warn(format!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools"));
+        runtime_log_info(format!("[系统] 启动延迟 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools"));
     }
-    runtime_log_info(format!("[启动-延迟] 阶段 2 初始化完成"));
+    runtime_log_info(format!("[系统] 启动延迟 阶段 2 初始化完成"));
 }
 
 async fn start_background_services_after_frontend_ready(
@@ -623,12 +623,12 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                         Ok(())
                     })
             {
-                runtime_log_error(format!("[启动] 远程 IM 私有状态迁移失败，继续按现有配置启动: {}", err));
+                runtime_log_error(format!("[系统] 启动 远程 IM 私有状态迁移失败，继续按现有配置启动: {}", err));
             }
             config
         }
         Err(err) => {
-            runtime_log_warn(format!("[启动] 前端就绪后读取远程 IM 配置失败，跳过启动: {:?}", err));
+            runtime_log_warn(format!("[系统] 启动 前端就绪后读取远程 IM 配置失败，跳过启动: {}", err));
             return;
         }
     };
@@ -643,7 +643,7 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
     let mut started_napcat_channels = Vec::new();
     for channel in &napcat_channels {
         onebot_v11_ws_manager()
-            .add_log(&channel.id, "info", "[启动] 前端就绪，准备启动 OneBot v11 WS 服务")
+            .add_log(&channel.id, "info", "[系统] 启动 前端就绪，准备启动 OneBot v11 WS 服务")
             .await;
         let effective_channel =
             match remote_im_channel_with_effective_credentials(&event_state, channel) {
@@ -653,11 +653,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                         .add_log(
                             &channel.id,
                             "error",
-                            "[启动] OneBot v11 渠道私有状态读取失败，详情请查看后端诊断日志",
+                            "[系统] 启动 OneBot v11 渠道私有状态读取失败，详情请查看后端诊断日志",
                         )
                         .await;
                     runtime_log_error(format!(
-                        "[启动] OneBot v11 渠道私有状态读取失败: channel_id={}, error={}",
+                        "[系统] 启动 OneBot v11 渠道私有状态读取失败 渠道={} 错误={}",
                         channel.id, err
                     ));
                     continue;
@@ -672,11 +672,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                     .add_log(
                         &channel.id,
                         "error",
-                        &format!("[启动] OneBot v11 WS 服务启动失败: {}", err),
+                        &format!("[系统] 启动 OneBot v11 WS 服务启动失败: {}", err),
                     )
                     .await;
                 runtime_log_error(format!(
-                    "[启动] 前端就绪后启动 OneBot v11 WS 服务失败: channel_id={}, error={}",
+                    "[系统] 启动 前端就绪后启动 OneBot v11 WS 服务失败 渠道={} 错误={}",
                     channel.id, err
                 ));
             }
@@ -693,11 +693,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                 .add_log(
                     &channel_id,
                     "error",
-                    &format!("[启动] OneBot v11 事件消费器启动失败: {}", err),
+                    &format!("[系统] 启动 OneBot v11 事件消费器启动失败: {}", err),
                 )
                 .await;
             runtime_log_error(format!(
-                "[启动] 前端就绪后启动 OneBot v11 事件消费器失败: channel_id={}, error={}",
+                "[系统] 启动 前端就绪后启动 OneBot v11 事件消费器失败 渠道={} 错误={}",
                 channel_id, err
             ));
         }
@@ -715,7 +715,7 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
         tauri::async_runtime::spawn(async move {
             let channel_id = channel.id.clone();
             manager
-                .add_log(&channel_id, "info", "[启动] 前端就绪，准备启动钉钉 Stream 渠道")
+                .add_log(&channel_id, "info", "[系统] 启动 前端就绪，准备启动钉钉 Stream 渠道")
                 .await;
             let effective_channel =
                 match remote_im_channel_with_effective_credentials(&state_clone, &channel) {
@@ -725,11 +725,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                             .add_log(
                                 &channel_id,
                                 "error",
-                                "[启动] 钉钉渠道私有状态读取失败，详情请查看后端诊断日志",
+                                "[系统] 启动 钉钉渠道私有状态读取失败，详情请查看后端诊断日志",
                             )
                             .await;
                         runtime_log_error(format!(
-                            "[启动] 钉钉渠道私有状态读取失败: channel_id={}, error={}",
+                            "[系统] 启动 钉钉渠道私有状态读取失败 渠道={} 错误={}",
                             channel_id, err
                         ));
                         return;
@@ -740,11 +740,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                     .add_log(
                         &channel_id,
                         "error",
-                        &format!("[启动] 钉钉 Stream 渠道启动失败: {}", err),
+                        &format!("[系统] 启动 钉钉 Stream 渠道启动失败: {}", err),
                     )
                     .await;
                 runtime_log_error(format!(
-                    "[启动] 前端就绪后启动钉钉 Stream 渠道失败: channel_id={}, error={}",
+                    "[系统] 启动 前端就绪后启动钉钉 Stream 渠道失败 渠道={} 错误={}",
                     channel_id, err
                 ));
             }
@@ -765,7 +765,7 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                 .add_log(
                     &channel_id,
                     "info",
-                    "[启动] 前端就绪，准备启动 QQ 官方机器人渠道",
+                    "[系统] 启动 前端就绪，准备启动 QQ 官方机器人渠道",
                 )
                 .await;
             let effective_channel =
@@ -776,11 +776,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                             .add_log(
                                 &channel_id,
                                 "error",
-                                "[启动] QQ 官方机器人渠道私有状态读取失败，详情请查看后端诊断日志",
+                                "[系统] 启动 QQ 官方机器人渠道私有状态读取失败，详情请查看后端诊断日志",
                             )
                             .await;
                         runtime_log_error(format!(
-                            "[启动] QQ 官方机器人渠道私有状态读取失败: channel_id={}, error={}",
+                            "[系统] 启动 QQ 官方机器人渠道私有状态读取失败 渠道={} 错误={}",
                             channel_id, err
                         ));
                         return;
@@ -794,11 +794,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                     .add_log(
                         &channel_id,
                         "error",
-                        "[启动] QQ 官方机器人渠道启动失败，详情请查看后端诊断日志",
+                        "[系统] 启动 QQ 官方机器人渠道启动失败，详情请查看后端诊断日志",
                     )
                     .await;
                 runtime_log_error(format!(
-                    "[启动] 前端就绪后启动 QQ 官方机器人渠道失败: channel_id={}, error={}",
+                    "[系统] 启动 前端就绪后启动 QQ 官方机器人渠道失败 渠道={} 错误={}",
                     channel_id, err
                 ));
             }
@@ -815,7 +815,7 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
         let state_clone = event_state.clone();
         tauri::async_runtime::spawn(async move {
             weixin_oc_manager()
-                .add_log(&channel.id, "info", "[启动] 前端就绪，准备启动个人微信渠道")
+                .add_log(&channel.id, "info", "[系统] 启动 前端就绪，准备启动个人微信渠道")
                 .await;
             if let Err(err) = weixin_oc_manager()
                 .reconcile_channel_runtime(&channel, state_clone)
@@ -825,11 +825,11 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                     .add_log(
                         &channel.id,
                         "error",
-                        "[启动] 个人微信渠道启动失败，详情请查看后端诊断日志",
+                        "[系统] 启动 个人微信渠道启动失败，详情请查看后端诊断日志",
                     )
                     .await;
                 runtime_log_error(format!(
-                    "[启动] 前端就绪后启动个人微信渠道失败: channel_id={}, error={}",
+                    "[系统] 启动 前端就绪后启动个人微信渠道失败 渠道={} 错误={}",
                     channel.id, err
                 ));
             }
@@ -847,7 +847,7 @@ static APP_SHUTDOWN_STATE: std::sync::atomic::AtomicU8 =
 
 fn show_background_shutdown_timeout_dialog(app: &AppHandle) {
     let message = "自动关闭失败，请手动关闭应用重启";
-    runtime_log_info(format!("[退出] {message}"));
+    runtime_log_info(format!("[系统] 退出 {message}"));
     app.dialog()
         .message(message)
         .title("自动关闭失败")
@@ -857,7 +857,7 @@ fn show_background_shutdown_timeout_dialog(app: &AppHandle) {
 
 fn show_background_shutdown_timeout_dialog_then_exit(app: &AppHandle, code: i32) {
     let message = "自动关闭失败，请手动关闭应用重启";
-    runtime_log_info(format!("[退出] {message}"));
+    runtime_log_info(format!("[系统] 退出 {message}"));
     let app_handle = app.clone();
     app.dialog()
         .message(message)
@@ -881,18 +881,18 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
         {
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
-        runtime_log_info(format!("[退出] 已等待进行中的后台服务优雅停机完成"));
+        runtime_log_info(format!("[系统] 退出 已等待进行中的后台服务优雅停机完成"));
         return;
     }
 
     let state = app.state::<AppState>().inner().clone();
     let started_at = std::time::Instant::now();
-    runtime_log_info(format!("[退出] 开始优雅停机后台服务"));
+    runtime_log_info(format!("[系统] 退出 开始优雅停机后台服务"));
 
     let config = match state_read_config_cached(&state) {
         Ok(config) => Some(config),
         Err(err) => {
-            runtime_log_warn(format!("[退出] 读取配置失败，继续按兜底方式停机: {err}"));
+            runtime_log_warn(format!("[系统] 退出 读取配置失败，继续按兜底方式停机: {err}"));
             None
         }
     };
@@ -909,12 +909,12 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                     let stop_started = std::time::Instant::now();
                     match onebot_v11_ws_manager().stop_channel(&channel_id).await {
                         Ok(()) => runtime_log_info(format!(
-                            "[退出] OneBot 渠道已停止: channel_id={}，duration_ms={}",
+                            "[系统] 退出 OneBot 渠道已停止 渠道={} 耗时={}",
                             channel_id,
                             stop_started.elapsed().as_millis()
                         )),
                         Err(err) => runtime_log_error(format!(
-                            "[退出] OneBot 渠道停止异常，底层已执行强制清理: channel_id={}，duration_ms={}，error={}",
+                            "[系统] 退出 OneBot 渠道停止异常，底层已执行强制清理 渠道={} 耗时={} 错误={}",
                             channel_id,
                             stop_started.elapsed().as_millis(),
                             err
@@ -930,12 +930,12 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                     .await
                     {
                         Ok(()) => runtime_log_info(format!(
-                            "[退出] 钉钉渠道已停止: channel_id={}，duration_ms={}",
+                            "[系统] 退出 钉钉渠道已停止 渠道={} 耗时={}",
                             channel_id,
                             stop_started.elapsed().as_millis()
                         )),
                         Err(_) => runtime_log_error(format!(
-                            "[退出] 钉钉渠道停止超时: channel_id={}，timeout_ms=10000",
+                            "[系统] 退出 钉钉渠道停止超时 渠道={} 超时=10000",
                             channel_id
                         )),
                     }
@@ -949,12 +949,12 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                     .await
                     {
                         Ok(()) => runtime_log_info(format!(
-                            "[退出] 个人微信渠道已停止: channel_id={}，duration_ms={}",
+                            "[系统] 退出 个人微信渠道已停止 渠道={} 耗时={}",
                             channel_id,
                             stop_started.elapsed().as_millis()
                         )),
                         Err(_) => runtime_log_error(format!(
-                            "[退出] 个人微信渠道停止超时: channel_id={}，timeout_ms=10000",
+                            "[系统] 退出 个人微信渠道停止超时 渠道={} 超时=10000",
                             channel_id
                         )),
                     }
@@ -968,12 +968,12 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                     .await
                     {
                         Ok(()) => runtime_log_info(format!(
-                            "[退出] QQ 官方机器人渠道已停止: channel_id={}，duration_ms={}",
+                            "[系统] 退出 QQ 官方机器人渠道已停止 渠道={} 耗时={}",
                             channel_id,
                             stop_started.elapsed().as_millis()
                         )),
                         Err(_) => runtime_log_error(format!(
-                            "[退出] QQ 官方机器人渠道停止超时: channel_id={}，timeout_ms=10000",
+                            "[系统] 退出 QQ 官方机器人渠道停止超时 渠道={} 超时=10000",
                             channel_id
                         )),
                     }
@@ -990,7 +990,7 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
     let ide_bridge_started_at = std::time::Instant::now();
     shutdown_web_access_server().await;
     runtime_log_info(format!(
-        "[退出] Web 访问服务已停止: duration_ms={}",
+        "[系统] 退出 Web 访问服务已停止 耗时={}",
         ide_bridge_started_at.elapsed().as_millis()
     ));
 
@@ -1012,12 +1012,12 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
                         .await
                         {
                             Ok(()) => runtime_log_info(format!(
-                                "[退出] MCP 已断开: server_id={}，duration_ms={}",
+                                "[系统] 退出 MCP 已断开 服务={} 耗时={}",
                                 server_id,
                                 disconnect_started.elapsed().as_millis()
                             )),
                             Err(_) => runtime_log_error(format!(
-                                "[退出] MCP 断开超时: server_id={}，timeout_ms=10000",
+                                "[系统] 退出 MCP 断开超时 服务={} 超时=10000",
                                 server_id
                             )),
                         }
@@ -1027,7 +1027,7 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
             join_all(shutdown_futures).await;
         }
         Err(err) => {
-            runtime_log_warn(format!("[退出] 读取 MCP 工作区失败，跳过逐个断开: {err}"));
+            runtime_log_warn(format!("[系统] 退出 读取 MCP 工作区失败，跳过逐个断开: {err}"));
         }
     }
 
@@ -1036,19 +1036,19 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
     let persist_flush_started_at = std::time::Instant::now();
     match flush_pending_persists_blocking(&state) {
         Ok(wrote) => runtime_log_info(format!(
-            "[退出] 持久化队列已排空: wrote={}，duration_ms={}",
+            "[系统] 退出 持久化队列已排空 写入数={} 耗时={}",
             wrote,
             persist_flush_started_at.elapsed().as_millis()
         )),
         Err(err) => runtime_log_error(format!(
-            "[退出] 持久化队列排空失败，可能丢失最后一次写入: duration_ms={}，error={}",
+            "[系统] 退出 持久化队列排空失败，可能丢失最后一次写入 耗时={} 错误={}",
             persist_flush_started_at.elapsed().as_millis(),
             err
         )),
     }
 
     runtime_log_info(format!(
-        "[退出] 后台服务优雅停机完成: duration_ms={}",
+        "[系统] 退出 后台服务优雅停机完成 耗时={}",
         started_at.elapsed().as_millis()
     ));
     APP_SHUTDOWN_STATE.store(APP_SHUTDOWN_STATE_DONE, std::sync::atomic::Ordering::SeqCst);
@@ -1067,7 +1067,7 @@ async fn graceful_shutdown_background_services_with_timeout(app: &AppHandle) -> 
                 APP_SHUTDOWN_STATE_IDLE,
                 std::sync::atomic::Ordering::SeqCst,
             );
-            runtime_log_error(format!("[退出] 后台服务自动关闭超过 {} 秒", BACKGROUND_SHUTDOWN_TIMEOUT_SECS));
+            runtime_log_error(format!("[系统] 退出 后台服务自动关闭超过 {} 秒", BACKGROUND_SHUTDOWN_TIMEOUT_SECS));
             false
         }
     }
@@ -1152,7 +1152,7 @@ fn main() {
         // 这条分支不构建 Tauri app，插件装不上：先用 CLI logger 把积压日志落盘。
         runtime_log_switch_to_cli_file_logger();
         if let Err(err) = run_desktop_screenshot_mcp_server() {
-            runtime_log_info(format!("{err}"));
+            runtime_log_error(format!("[系统] 截图服务 启动失败 错误={err}"));
         }
         return;
     }
@@ -1163,7 +1163,7 @@ fn main() {
         }
         Ok(false) => {}
         Err(err) => {
-            runtime_log_error(format!("[自动更新] 便携版 helper 启动失败: {err}"));
+            runtime_log_error(format!("[系统] 自动更新 便携版 helper 启动失败: {err}"));
             runtime_log_switch_to_cli_file_logger();
             return;
         }
@@ -1172,7 +1172,7 @@ fn main() {
     let _tauri_runtime = match install_tauri_async_runtime() {
         Ok(runtime) => runtime,
         Err(err) => {
-            runtime_log_error(format!("[启动] 初始化 Tokio 运行时失败: {err}"));
+            runtime_log_error(format!("[系统] 启动 初始化 Tokio 运行时失败: {err}"));
             runtime_log_switch_to_cli_file_logger();
             return;
         }
@@ -1181,16 +1181,16 @@ fn main() {
     let state = match AppState::new() {
         Ok(state) => state,
         Err(err) => {
-            runtime_log_error(format!("[启动] 初始化应用状态失败: {err}"));
+            runtime_log_error(format!("[系统] 启动 初始化应用状态失败: {err}"));
             runtime_log_switch_to_cli_file_logger();
             return;
         }
     };
     if let Err(err) = cleanup_portable_update_temp_artifacts_for_current_runtime() {
-        runtime_log_error(format!("[自动更新] 清理便携版更新临时文件失败: {err}"));
+        runtime_log_error(format!("[系统] 自动更新 清理便携版更新临时文件失败: {err}"));
     }
     if let Err(err) = run_state_migration_if_needed(&state) {
-        runtime_log_error(format!("[启动] 执行 state 迁移失败: {err}"));
+        runtime_log_error(format!("[系统] 启动 执行 state 迁移失败: {err}"));
     }
     init_last_panic_snapshot_slot(state.last_panic_snapshot.clone());
     {
@@ -1227,13 +1227,13 @@ fn main() {
 
     let builder = tauri::Builder::default();
     let builder = if cfg!(debug_assertions) {
-        runtime_log_warn(format!("[单实例] 当前为调试构建，跳过单实例拦截"));
+        runtime_log_info(format!("[系统] 单实例 当前为调试构建，跳过单实例拦截"));
         builder
     } else {
         builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // 开机自启拉起被单实例拦下时保持静默，不替用户弹窗
             if args.iter().any(|arg| arg.as_str() == AUTOSTART_LAUNCH_FLAG) {
-                runtime_log_info("[单实例] 检测到开机自启拉起，已有实例在运行，保持静默".to_string());
+                runtime_log_info("[系统] 单实例 检测到开机自启拉起，已有实例在运行，保持静默".to_string());
                 return;
             }
             let chat_is_visible = app
@@ -1249,18 +1249,18 @@ fn main() {
                         startup_window_label_for_config(&config)
                     }
                     Err(err) => {
-                        runtime_log_error(format!("[单实例] 读取启动窗口配置失败: {err}"));
+                        runtime_log_error(format!("[系统] 单实例 读取启动窗口配置失败: {err}"));
                         "main"
                     }
                 }
             };
             if let Err(err) = show_window(app, target) {
                 runtime_log_error(format!(
-                    "[单实例] 激活已有实例失败: target={}, error={}",
+                    "[系统] 单实例 激活已有实例失败 目标窗口={} 错误={}",
                     target, err
                 ));
             } else {
-                runtime_log_info(format!("[单实例] 已拦截重复启动并激活现有实例: target={}", target));
+                runtime_log_info(format!("[系统] 单实例 已拦截重复启动并激活现有实例 目标窗口={}", target));
             }
         }))
     };
@@ -1300,13 +1300,13 @@ fn main() {
                     *handle_slot = Some(app_handle.clone());
                 }
                 Err(e) => {
-                    runtime_log_error(format!("[启动] 写入应用句柄槽位失败: {e}"));
+                    runtime_log_error(format!("[系统] 启动 写入应用句柄槽位失败: {e}"));
                 }
             }
             if let Err(err) = build_tray(&app_handle) {
-                runtime_log_error(format!("[启动] 构建托盘失败: {err}"));
+                runtime_log_error(format!("[系统] 启动 构建托盘失败: {err}"));
             } else {
-                runtime_log_info(format!("[启动] 构建托盘完成"));
+                runtime_log_info(format!("[系统] 启动 构建托盘完成"));
             }
 
             // ========== 阶段 1：最小启动，尽快让前端可见 ==========
@@ -1314,7 +1314,7 @@ fn main() {
             // 旧配置键只在迁移模块内可见，且任何一次配置落盘都会让它消失；
             // 这里必须早于启动窗口判定与后续所有配置写。
             if let Err(err) = agent_org_salvage_legacy_expert_model_key(app_state.inner()) {
-                runtime_log_warn(format!("[启动] 抢救旧专家模型配置键失败: {err}"));
+                runtime_log_warn(format!("[系统] 启动 抢救旧专家模型配置键失败: {err}"));
             }
             initialize_window_layout_store(&app_handle);
             attach_window_layout_persistence(&app_handle);
@@ -1327,16 +1327,16 @@ fn main() {
                     startup_window_label_for_config(&config)
                 }
                 Err(err) => {
-                    runtime_log_error(format!("[启动] 读取启动窗口配置失败: {err}"));
+                    runtime_log_error(format!("[系统] 启动 读取启动窗口配置失败: {err}"));
                     "main"
                 }
             };
             if launched_by_autostart {
                 runtime_log_info(format!(
-                    "[启动] 开机自启拉起，静默驻留托盘，不显示窗口（原启动窗口={startup_window_label}）"
+                    "[系统] 启动 开机自启拉起，静默驻留托盘，不显示窗口（原启动窗口={startup_window_label}）"
                 ));
             } else if let Err(err) = show_window(&app_handle, startup_window_label) {
-                runtime_log_error(format!("[启动] 显示启动窗口失败: target={startup_window_label}, error={err}"));
+                runtime_log_error(format!("[系统] 启动 显示启动窗口失败 目标窗口={startup_window_label} 错误={err}"));
                 if let Some(window) = app_handle.get_webview_window(startup_window_label) {
                     let _ = window.unminimize();
                     let _ = window.show();
@@ -1347,12 +1347,12 @@ fn main() {
             let migration_state = app_handle.state::<AppState>().inner().clone();
             match prepare_message_store_migration_runtime(&migration_state) {
                 Ok(true) => {
-                    runtime_log_info(format!("[启动] 检测到消息存储待迁移，后台自动开始"));
+                    runtime_log_info(format!("[系统] 启动 检测到消息存储待迁移，后台自动开始"));
                     spawn_message_store_migration_task(migration_state);
                 }
                 Ok(false) => {}
                 Err(err) => {
-                    runtime_log_error(format!("[启动] 消息存储迁移版本预判失败：{err}"));
+                    runtime_log_error(format!("[系统] 启动 消息存储迁移版本预判失败：{err}"));
                     message_store_migration_runtime_mark_failed(err);
                 }
             }
@@ -1360,7 +1360,7 @@ fn main() {
                 .state::<AppState>()
                 .backend_ready
                 .store(true, std::sync::atomic::Ordering::Release);
-            runtime_log_info(format!("[启动] 后端已就绪（阶段 1 完成）"));
+            runtime_log_info(format!("[系统] 启动 后端已就绪（阶段 1 完成）"));
 
             start_github_auto_update_worker(app_handle.clone());
 
@@ -1793,7 +1793,7 @@ fn main() {
         .unwrap_or_else(|err| {
             // 插件 setup 没跑，pending 里的启动日志和这句错误本来都会随进程退出蒸发。
             runtime_log_switch_to_cli_file_logger();
-            runtime_log_error(format!("[启动] 运行 Tauri 应用失败: {err}"));
+            runtime_log_error(format!("[系统] 启动 运行 Tauri 应用失败: {err}"));
         });
 }
 

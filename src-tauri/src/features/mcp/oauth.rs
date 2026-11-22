@@ -334,13 +334,13 @@ async fn mcp_oauth_start_login(
     // 打开系统浏览器
     if let Err(err) = webbrowser::open(&auth_url) {
         runtime_log_warn(format!(
-            "[MCP OAuth] 尝试用 webbrowser 打开授权页失败: {}，请手动在浏览器中访问: {}",
+            "[工具] MCP 授权 尝试用 webbrowser 打开授权页失败: {}，请手动在浏览器中访问: {}",
             err, auth_url
         ));
     }
 
     runtime_log_info(format!(
-        "[MCP OAuth] 开始授权 server_id={} redirect_uri={}",
+        "[工具] MCP 授权 开始授权 服务={} 回调地址={}",
         server_id, redirect_uri
     ));
 
@@ -379,7 +379,7 @@ async fn mcp_oauth_run_callback_listener(
 
     loop {
         if cancel_flag.load(Ordering::SeqCst) {
-            runtime_log_info(format!("[MCP OAuth] 用户取消授权 server_id={}", server_id));
+            runtime_log_info(format!("[工具] MCP 授权 用户取消授权 服务={}", server_id));
             return;
         }
 
@@ -392,7 +392,7 @@ async fn mcp_oauth_run_callback_listener(
                 session.status = "expired".to_string();
                 session.message = "OAuth 授权超时，请重试。".to_string();
             }
-            runtime_log_warn(format!("[MCP OAuth] 授权超时 server_id={}", server_id));
+            runtime_log_warn(format!("[工具] MCP 授权 授权超时 服务={}", server_id));
             return;
         }
 
@@ -454,7 +454,7 @@ async fn mcp_oauth_run_callback_listener(
                         }
 
                         runtime_log_warn(format!(
-                            "[MCP OAuth] 授权回调返回错误 server_id={} error={}",
+                            "[工具] MCP 授权 授权回调返回错误 服务={} 错误={}",
                             server_id, detail
                         ));
                         return;
@@ -492,7 +492,7 @@ async fn mcp_oauth_run_callback_listener(
                         }
 
                         runtime_log_info(format!(
-                            "[MCP OAuth] 完成授权 server_id={} duration_ms={}",
+                            "[工具] MCP 授权 完成授权 服务={} 耗时={}",
                             server_id,
                             started.elapsed().as_millis()
                         ));
@@ -525,7 +525,7 @@ async fn mcp_oauth_run_callback_listener(
                         }
 
                         runtime_log_error(format!(
-                            "[MCP OAuth] 失败 换取 token 错误 server_id={} error={}",
+                            "[工具] MCP 授权 失败 换取 token 错误 服务={} 错误={}",
                             server_id, err
                         ));
                         return;
@@ -534,7 +534,7 @@ async fn mcp_oauth_run_callback_listener(
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[MCP OAuth] listener.accept 发生异常 server_id={} error={}",
+                    "[工具] MCP 授权 listener.accept 发生异常 服务={} 错误={}",
                     server_id, err
                 ));
                 tokio::time::sleep(Duration::from_millis(200)).await;

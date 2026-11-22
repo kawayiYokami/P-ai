@@ -52,8 +52,7 @@ async fn archive_conversation_inner(
         return Err("conversationId is required".to_string());
     }
     runtime_log_info(format!(
-        "[归档] 开始，任务=手动归档，conversation_id={}",
-        requested_conversation_id
+        "[存储] 开始 任务=手动归档"
     ));
     let (selected_api, resolved_api, source, effective_agent_id) =
         match resolve_archive_request_conversation_by_id(state, requested_conversation_id) {
@@ -115,8 +114,8 @@ async fn archive_conversation_inner(
                     Ok(conversation) => conversation,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[归档] 失败，任务=后台归档维护，conversation_id={}，error=读取归档流水线源会话失败：{}",
-                            source_conversation_id, err
+                            "[存储] 失败 任务=后台归档维护 错误=读取归档流水线源会话失败：{}",
+                            err
                         ));
                         trigger_chat_queue_processing(&state_cloned);
                         return;
@@ -136,8 +135,8 @@ async fn archive_conversation_inner(
                 .await;
                 if let Err(err) = result {
                     runtime_log_warn(format!(
-                        "[归档] 失败，任务=后台归档维护，conversation_id={}，error={}",
-                        source_cloned.id, err
+                        "[存储] 失败 任务=后台归档维护 错误={}",
+                        err
                     ));
                 }
                 trigger_chat_queue_processing(&state_cloned);
@@ -147,8 +146,7 @@ async fn archive_conversation_inner(
                 .is_err()
             {
                 runtime_log_error(format!(
-                    "[归档] 失败，任务=后台归档维护，conversation_id={}，error=panic",
-                    source_conversation_id
+                    "[存储] 失败 任务=后台归档维护 错误=panic"
                 ));
                 trigger_chat_queue_processing(&state_cloned);
             }
@@ -156,8 +154,8 @@ async fn archive_conversation_inner(
     }
 
     runtime_log_info(format!(
-        "[归档] 完成，任务=手动归档，conversation_id={}，already_archived={}",
-        source.id, archive_result.already_archived
+        "[存储] 完成 任务=手动归档 已归档={}",
+        archive_result.already_archived
     ));
     Ok(ConversationCommandStatus { success: true })
 }
@@ -182,7 +180,7 @@ pub(crate) async fn batch_archive_conversations_inner(
     let (reflection_api, reflection_resolved_api) =
         resolve_batch_archive_reflection_api_config(state, input.reflection_api_config_id.as_str())?;
     runtime_log_info(format!(
-        "[批量归档] 开始，任务=批量归档，即时标记，reflection_api_config_id={}，requested_count={}",
+        "[存储] 开始 任务=批量归档，即时标记 反思模型配置={} 请求数={}",
         reflection_api.id,
         conversation_ids.len()
     ));
@@ -255,7 +253,7 @@ pub(crate) async fn batch_archive_conversations_inner(
         latest_active_conversation_id.clone(),
     );
     runtime_log_warn(format!(
-        "[批量归档] 完成，任务=批量归档，即时标记，reflection_api_config_id={}，accepted_count={}，skipped_count={}，duration_ms={}",
+        "[存储] 完成 任务=批量归档，即时标记 反思模型配置={} 采纳数={} 跳过数={} 耗时={}",
         reflection_api.id,
         accepted_conversation_ids.len(),
         skipped.len(),
@@ -287,8 +285,8 @@ pub(crate) async fn run_archive_pipeline(
         .map_err(|err| format!("读取归档反思消息锚定上下文失败：{}", err))?;
 
     runtime_log_debug(format!(
-        "[归档流程] 开始: task=archive_maintenance, trace_id={}, agent_id={}, api_id={}, started_at={}",
-        trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
+        "[存储] 开始 任务=archive_maintenance 追踪={} 模型配置={} 开始时间={}",
+        trace_id, selected_api.id, started_at.elapsed().as_millis()
     ));
 
     let result = run_archive_pipeline_inner(
@@ -309,8 +307,8 @@ pub(crate) async fn run_archive_pipeline(
 
     let elapsed_ms = started_at.elapsed().as_millis();
     runtime_log_debug(format!(
-        "[归档流程] 完成: task=archive_maintenance, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
-        trace_id, effective_agent_id, selected_api.id, elapsed_ms
+        "[存储] 完成 任务=archive_maintenance 追踪={} 模型配置={} 耗时={}",
+        trace_id, selected_api.id, elapsed_ms
     ));
 
     result
@@ -433,8 +431,7 @@ fn resolve_batch_archive_effective_agent_id(
     let effective_agent_id = source.agent_id.trim();
     if effective_agent_id.is_empty() {
         runtime_log_warn(format!(
-            "[批量归档] 跳过人格校验，任务=批量归档元数据校验，conversation_id={}，原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-            source.id
+            "[存储] 跳过人格校验 任务=批量归档元数据校验 原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思"
         ));
         return String::new();
     }
@@ -446,9 +443,7 @@ fn resolve_batch_archive_effective_agent_id(
         return effective_agent_id.to_string();
     }
     runtime_log_warn(format!(
-        "[批量归档] 跳过人格校验，任务=批量归档元数据校验，conversation_id={}，agent_id={}，原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-        source.id,
-        effective_agent_id
+        "[存储] 跳过人格校验 任务=批量归档元数据校验 原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思"
     ));
     effective_agent_id.to_string()
 }
@@ -467,7 +462,7 @@ fn spawn_batch_archive_pipeline(
         let total_count = accepted.len();
         let panic_safe_task = std::panic::AssertUnwindSafe(async {
             runtime_log_info(format!(
-                "[批量归档] 开始，任务=后台串行归档维护，api_config_id={}，accepted_count={}",
+                "[存储] 开始 任务=后台串行归档维护 模型配置={} 采纳数={}",
                 selected_api.id, total_count
             ));
             for item in accepted {
@@ -478,8 +473,8 @@ fn spawn_batch_archive_pipeline(
                     Ok(conversation) => conversation,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[批量归档] 失败，任务=后台串行归档维护，conversation_id={}，error=读取归档流水线源会话失败：{}",
-                            item.conversation_id, err
+                            "[存储] 失败 任务=后台串行归档维护 错误=读取归档流水线源会话失败：{}",
+                            err
                         ));
                         continue;
                     }
@@ -498,22 +493,20 @@ fn spawn_batch_archive_pipeline(
                 .await
                 {
                     runtime_log_warn(format!(
-                        "[批量归档] 失败，任务=后台串行归档维护，conversation_id={}，error={}，duration_ms={}",
-                        source.id,
+                        "[存储] 失败 任务=后台串行归档维护 错误={} 耗时={}",
                         err,
                         item_started_at.elapsed().as_millis()
                     ));
                     continue;
                 }
                 runtime_log_info(format!(
-                    "[批量归档] 完成，任务=后台串行归档维护，conversation_id={}，duration_ms={}",
-                    source.id,
+                    "[存储] 完成 任务=后台串行归档维护 耗时={}",
                     item_started_at.elapsed().as_millis()
                 ));
             }
             trigger_chat_queue_processing(&state);
             runtime_log_info(format!(
-                "[批量归档] 完成，任务=后台串行归档维护，api_config_id={}，accepted_count={}",
+                "[存储] 完成 任务=后台串行归档维护 模型配置={} 采纳数={}",
                 selected_api.id, total_count
             ));
         });
@@ -522,7 +515,7 @@ fn spawn_batch_archive_pipeline(
             .is_err()
         {
             runtime_log_error(format!(
-                "[批量归档] 失败，任务=后台串行归档维护，api_config_id={}，error=panic",
+                "[存储] 失败 任务=后台串行归档维护 模型配置={} 错误=panic",
                 selected_api.id
             ));
             trigger_chat_queue_processing(&state);
@@ -546,15 +539,14 @@ async fn run_archive_pipeline_inner(
 ) -> Result<ForceArchiveResult, String> {
     let reflection_skip_warning = archive_reflection_skip_reason(reflection_source);
     runtime_log_info(format!(
-        "[归档反思] 开始，任务=最后块正文反思，conversation_id={}，full_body_message_count={}，last_block_body_message_count={}",
-        source.id,
+        "[存储] 开始 任务=最后块正文反思 全文消息数={} 末块消息数={}",
         archive_pipeline_message_count_for_delete(source),
         archive_pipeline_message_count_for_delete(reflection_source)
     ));
     if let Some(reason) = reflection_skip_warning.as_ref() {
         runtime_log_warn(format!(
-            "[归档] 跳过归档反思，任务=后台归档维护，conversation_id={}，原因={}，行为=直接完成归档，不阻塞主流程",
-            source.id, reason
+            "[存储] 跳过归档反思 任务=后台归档维护 原因={} 行为=直接完成归档，不阻塞主流程",
+            reason
         ));
     }
 
@@ -576,14 +568,12 @@ async fn run_archive_pipeline_inner(
                     )?;
 
                     runtime_log_debug(format!(
-                        "[{}] trace={} 开始，api={} model={} format={} conversation={} ownerAgent={}",
+                        "[聊天] 标签={} 追踪={} 开始 接口={} 模型={} 格式={}",
                         trace_tag,
                         trace_id,
                         selected_api.id,
                         selected_api.model,
-                        resolved_api.request_format,
-                        source.id,
-                        owner_agent_id
+                        resolved_api.request_format
                     ));
 
                     let body_reporting_source = build_archive_body_reporting_conversation(
@@ -614,8 +604,7 @@ async fn run_archive_pipeline_inner(
                         (archive_warning, Some(applied_report), archive_body_tokens)
                     } else {
                         runtime_log_warn(format!(
-                            "[SummaryContext] 跳过，场景=archive，conversation_id={}，原因=正文不足1000token，body_tokens={:.0}，threshold={:.0}",
-                            source.id,
+                            "[聊天] 跳过 场景=archive 原因=正文不足1000token 正文字数={:.0} 阈值={:.0}",
                             archive_body_tokens,
                             ARCHIVE_REFLECTION_MIN_BODY_TOKENS
                         ));
@@ -624,8 +613,8 @@ async fn run_archive_pipeline_inner(
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[归档] 跳过归档反思，任务=后台归档维护，conversation_id={}，原因={}，行为=直接完成归档，不阻塞主流程",
-                        source.id, err
+                        "[存储] 跳过归档反思 任务=后台归档维护 原因={} 行为=直接完成归档，不阻塞主流程",
+                        err
                     ));
                     (
                         Some(format!("归档反思已跳过：{}", err)),
@@ -651,8 +640,8 @@ async fn run_archive_pipeline_inner(
     }
     let archive_id = archived_conversation.id.to_string();
     runtime_log_info(format!(
-        "[归档] 开始，任务=后台维护，conversation_id={}，reason=\"{}\"",
-        archived_conversation.id, archive_reason
+        "[存储] 后台维护 开始 原因={}",
+        archive_reason
     ));
     clear_screenshot_artifact_cache();
     mark_tasks_as_session_lost(&state.data_path, &source.id);
@@ -665,8 +654,8 @@ async fn run_archive_pipeline_inner(
                 Ok(value) => value,
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[归档] 警告，任务=resolve_latest_foreground_conversation_id_after_archive，source_conversation_id={}，error={}",
-                        source.id, err
+                        "[存储] 警告 任务=resolve_latest_foreground_conversation_id_after_archive 错误={}",
+                        err
                     ));
                     None
                 }
@@ -675,26 +664,26 @@ async fn run_archive_pipeline_inner(
         .ok_or_else(|| "归档后未能确定当前前台会话。".to_string())?;
     match delegate_runtime_thread_conversation_delete_by_root(state, &source.id) {
         Ok(deleted_count) => runtime_log_info(format!(
-            "[委托会话] 完成，任务=随会话归档级联清理，root_conversation_id={}，deleted_count={}",
-            source.id, deleted_count
+            "[委托] 完成 任务=随会话归档级联清理 删除数={}",
+            deleted_count
         )),
         Err(err) => runtime_log_warn(format!(
-            "[委托会话] 失败，任务=随会话归档级联清理，root_conversation_id={}，error={}",
-            source.id, err
+            "[委托] 失败 任务=随会话归档级联清理 错误={}",
+            err
         )),
     }
 
     match cleanup_backup_records_from_messages(&state.data_path, &source.messages) {
         Ok(cleaned) if cleaned > 0 => {
             runtime_log_info(format!(
-                "[归档] apply_patch 备份清理完成: conversation={}, cleaned={}",
-                source.id, cleaned
+                "[存储] apply_patch 备份清理完成 已清理={}",
+                cleaned
             ));
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[归档] apply_patch 备份清理失败: conversation={}, error={}",
-                source.id, err
+                "[存储] apply_patch 备份清理失败 错误={}",
+                err
             ));
         }
         _ => {}
@@ -702,16 +691,15 @@ async fn run_archive_pipeline_inner(
 
     if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
         runtime_log_error(format!(
-            "[归档] 清理 PDF 缓存失败: conversation={}, error={}",
-            source.id, e
+            "[存储] 清理 PDF 缓存失败 错误={}",
+            e
         ));
     }
 
     if let Some(applied_report) = applied_report.as_ref() {
         runtime_log_debug(format!(
-            "[SummaryContext] 完成，场景=archive，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_applied={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
+            "[聊天] 完成 场景=archive 追踪={} 合并记忆数={} 合并组数={} 画像应用数={} 画像跳过数={} 有用采纳数={} 降权数={} 自然衰减数={}",
             trace_id,
-            source.id,
             applied_report.merged_memories,
             applied_report.merged_groups,
             applied_report.applied_profile_memories,
@@ -722,9 +710,8 @@ async fn run_archive_pipeline_inner(
         ));
     } else {
         runtime_log_warn(format!(
-            "[SummaryContext] 跳过完成，场景=archive，trace_id={}，conversation_id={}，body_tokens={:.0}",
+            "[聊天] 跳过完成 场景=archive 追踪={} 正文字数={:.0}",
             trace_id,
-            source.id,
             archive_body_tokens
         ));
     }

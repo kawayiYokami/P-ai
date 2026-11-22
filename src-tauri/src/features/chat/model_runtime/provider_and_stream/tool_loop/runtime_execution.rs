@@ -128,7 +128,7 @@ async fn call_runtime_tool_by_name_with_default_timeout(
         Ok(result) => result,
         Err(_) => {
             runtime_log_warn(format!(
-                "[工具执行] 工具执行超时: tool={}, kind={}, timeout_ms={}, timeout_source={}",
+                "[工具] 工具执行超时 工具={} 类型={} 超时={} 超时来源={}",
                 tool_name,
                 if tool.is_mcp_tool() { "mcp" } else { "builtin" },
                 timeout.as_millis(),
@@ -463,8 +463,8 @@ async fn execute_prepared_tool_call_group(
             register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)
         {
             runtime_log_error(format!(
-                "[聊天] 登记工具组中断句柄失败，跳过本组执行 (session={}): {}",
-                chat_session_key, err
+                "[聊天] 登记工具组中断句柄失败，跳过本组执行 (会话=): {}",
+                err
             ));
             return ExecutedToolGroup {
                 executed: Vec::new(),
@@ -513,8 +513,8 @@ async fn execute_prepared_tool_call_group(
     if let Some(state) = tool_abort_state {
         if let Err(err) = clear_inflight_tool_abort_handle(state, chat_session_key) {
             runtime_log_error(format!(
-                "[聊天] 清理进行中工具组中断句柄失败 (session={}): {}",
-                chat_session_key, err
+                "[聊天] 清理进行中工具组中断句柄失败 (会话=): {}",
+                err
             ));
         }
     }
@@ -522,8 +522,7 @@ async fn execute_prepared_tool_call_group(
     let group = collect_group_outcomes(group_outcomes, &calls_snapshot);
     if !group.aborted_call_ids.is_empty() {
         runtime_log_info(format!(
-            "[聊天] 工具组未全部返回 (session={}，已完成={}，被打断={}，error={})",
-            chat_session_key,
+            "[聊天] 工具组未全部返回 (已完成={} 被打断={} 原因={})",
             group.executed.len(),
             group.aborted_call_ids.len(),
             group.error.as_deref().unwrap_or("(none)")

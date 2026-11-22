@@ -230,7 +230,7 @@ fn lock_cached_conversation_field_metadata_ids(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_warn(
-                "[会话元数据] 字段权威标记锁已中毒，恢复锁并继续".to_string(),
+                "[聊天] 会话元数据 字段权威标记锁已中毒，恢复锁并继续".to_string(),
             );
             state.cached_conversation_field_metadata_ids.clear_poison();
             poisoned.into_inner()
@@ -269,8 +269,8 @@ fn repair_conversation_metadata_message_derived_fields_if_needed(
         Ok(None) => return Ok(meta.clone()),
         Err(err) => {
             runtime_log_warn(format!(
-                "[会话元数据] 消息派生字段修复读取失败，保留现有元数据继续，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 会话元数据 消息派生字段修复读取失败，保留现有元数据继续 错误={}",
+                err
             ));
             return Ok(meta.clone());
         }
@@ -433,8 +433,8 @@ fn state_read_conversation_metadata_cached(
                 return Err(err);
             };
             runtime_log_warn(format!(
-                "[会话元数据] 磁盘读取失败，使用最后缓存快照继续，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 会话元数据 磁盘读取失败，使用最后缓存快照继续 错误={}",
+                err
             ));
             return repair_conversation_metadata_message_derived_fields_if_needed(
                 state,
@@ -1228,7 +1228,7 @@ fn ensure_app_data_cache_ready_inner(
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
     runtime_log_debug(format!(
-        "[应用数据耗时] 完成 conversations={} elapsed_ms={}",
+        "[存储] 应用数据耗时 完成 会话数={} 耗时={}",
         conversation_count,
         disk_read_started.elapsed().as_millis()
     ));
@@ -1638,7 +1638,7 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                         Ok(slot) => slot,
                         Err(_) => {
                             runtime_log_error(
-                                "[会话后台持久化] 失败，任务=读取待写入队列，error=lock poisoned"
+                                "[聊天] 会话后台持久化 失败 任务=读取待写入队列 错误=lock poisoned"
                                     .to_string(),
                             );
                             break;
@@ -1821,13 +1821,13 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                     }
                     Ok(Err(err)) => {
                         runtime_log_error(format!(
-                            "[会话后台持久化] 失败，任务=写入会话分片，seq={}，error={}",
+                            "[聊天] 会话后台持久化 失败 任务=写入会话分片 序号={} 错误={}",
                             pending.seq, err
                         ));
                     }
                     Err(err) => {
                         runtime_log_error(format!(
-                            "[会话后台持久化] 失败，任务=阻塞写入任务，seq={}，error={}",
+                            "[聊天] 会话后台持久化 失败 任务=阻塞写入任务 序号={} 错误={}",
                             pending.seq, err
                         ));
                     }

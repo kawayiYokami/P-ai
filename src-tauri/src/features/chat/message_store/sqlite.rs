@@ -1021,7 +1021,7 @@ fn chat_metadata_store_list_search_conversations_inner(
         let meta = match conversation_shard_meta_from_stored_json(&raw) {
             Ok(meta) => meta,
             Err(err) => {
-                runtime_log_warn(format!("[会话搜索] 跳过无法解析的会话元数据：{err}"));
+                runtime_log_warn(format!("[聊天] 跳过无法解析的会话元数据：{err}"));
                 continue;
             }
         };
@@ -1562,9 +1562,7 @@ fn chat_metadata_store_reconcile_block_tail(
     let keep_len = zstd_validate_tail_for_append(&raw, expected_plain_len as usize)?;
     if keep_len < raw.len() {
         runtime_log_warn(format!(
-            "[消息存储] 追加前清理孤儿/损坏尾部，conversation_id={}，block_id={}，path={}，file_len={}，keep_len={}",
-            paths.conversation_id,
-            block_id,
+            "[存储] 追加前清理孤儿/损坏尾部 文件={} 文件长度={} 保留长度={}",
             block_path.display(),
             raw.len(),
             keep_len
@@ -1692,7 +1690,7 @@ fn chat_metadata_store_publish_blocks(
         if operation_root.exists() && fs::remove_dir_all(&operation_root).is_err() { cleaned = false; }
         if cleaned {
             if let Err(err) = conn.execute("DELETE FROM storage_operations WHERE operation_id=?1 AND state='committed'", [&operation_id]) {
-                runtime_log_info(format!("[消息存储] 清理已提交 SQLite operation 延后，operation_id={}，error={err}", operation_id));
+                runtime_log_info(format!("[存储] 清理已提交 SQLite operation 延后 原因={err}"));
             }
         }
     chat_metadata_store_write_result(&conn, paths)
@@ -1837,20 +1835,19 @@ fn chat_metadata_store_abort_block_publication(
                 [operation_id],
             ) {
                 runtime_log_warn(format!(
-                    "[消息存储] 跳过，任务=清理失败操作的 pending 记录，operation_id={operation_id}，error={err}"
+                    "[存储] 跳过 任务=清理失败操作的 pending 记录 原因={err}"
                 ));
             }
             if operation_root.exists() {
                 if let Err(err) = fs::remove_dir_all(operation_root) {
                     runtime_log_warn(format!(
-                        "[消息存储] 跳过，任务=清理失败操作的备份目录，operation_id={operation_id}，path={}，error={err}",
+                        "[存储] 跳过 任务=清理失败操作的备份目录 文件={} 原因={err}",
                         operation_root.display()
                     ));
                 }
             }
             runtime_log_warn(format!(
-                "[消息存储] 失败，任务=发布块文件，conversation_id={}，operation_id={operation_id}，原因=块文件已回滚到发布前，error={cause}",
-                paths.conversation_id
+                "[存储] 失败 任务=发布块文件 处置=块文件已回滚到发布前 错误={cause}"
             ));
             format!(
                 "发布块文件失败，已把块文件回滚到发布前状态；conversation_id={}，error={cause}",
@@ -1859,8 +1856,7 @@ fn chat_metadata_store_abort_block_publication(
         }
         Err(restore_err) => {
             runtime_log_error(format!(
-                "[消息存储] 失败，任务=回滚已覆盖的块文件，conversation_id={}，operation_id={operation_id}，备份目录={}，error={restore_err}，原因={cause}",
-                paths.conversation_id,
+                "[存储] 失败 任务=回滚已覆盖的块文件 备份目录={} 回滚错误={restore_err} 原因={cause}",
                 operation_root.display()
             ));
             format!(
@@ -2294,9 +2290,7 @@ fn chat_metadata_store_append_line_to_group_physical(
     let keep_len = zstd_validate_tail_for_append(&raw, expected_plain_len as usize)?;
     if keep_len < raw.len() {
         runtime_log_warn(format!(
-            "[消息存储] 组内追加前清理孤儿/损坏尾部，conversation_id={}，block_id={}，path={}，file_len={}，keep_len={}",
-            paths.conversation_id,
-            block_id,
+            "[存储] 组内追加前清理孤儿/损坏尾部 文件={} 文件长度={} 保留长度={}",
             block_path.display(),
             raw.len(),
             keep_len
@@ -3591,20 +3585,19 @@ fn chat_metadata_store_abort_v3_publication(
                 [operation_id],
             ) {
                 runtime_log_warn(format!(
-                    "[消息存储] 跳过，任务=清理失败 v3 操作的 pending 记录，operation_id={operation_id}，error={err}"
+                    "[存储] 跳过 任务=清理失败 v3 操作的 pending 记录 原因={err}"
                 ));
             }
             if operation_root.exists() {
                 if let Err(err) = fs::remove_dir_all(operation_root) {
                     runtime_log_warn(format!(
-                        "[消息存储] 跳过，任务=清理失败 v3 操作的备份目录，operation_id={operation_id}，path={}，error={err}",
+                        "[存储] 跳过 任务=清理失败 v3 操作的备份目录 文件={} 原因={err}",
                         operation_root.display()
                     ));
                 }
             }
             runtime_log_warn(format!(
-                "[消息存储] 失败，任务=v3 全量发布，conversation_id={}，operation_id={operation_id}，原因=块目录已回滚到发布前，error={cause}",
-                paths.conversation_id
+                "[存储] 失败 任务=v3 全量发布 处置=块目录已回滚到发布前 错误={cause}"
             ));
             format!(
                 "v3 全量发布失败，已把块目录回滚到发布前状态；conversation_id={}，error={cause}",
@@ -3613,8 +3606,7 @@ fn chat_metadata_store_abort_v3_publication(
         }
         Err(restore_err) => {
             runtime_log_error(format!(
-                "[消息存储] 失败，任务=回滚 v3 已覆盖的块目录，conversation_id={}，operation_id={operation_id}，备份目录={}，error={restore_err}，原因={cause}",
-                paths.conversation_id,
+                "[存储] 失败 任务=回滚 v3 已覆盖的块目录 备份目录={} 回滚错误={restore_err} 原因={cause}",
                 operation_root.display()
             ));
             format!(
@@ -3632,8 +3624,8 @@ fn chat_metadata_store_drop_recover_operation(
     reason: &str,
 ) -> Result<(), String> {
     runtime_log_warn(format!(
-        "[聊天存储恢复] 放弃，任务=恢复v3未完成操作，operation_id={}，reason={}",
-        operation_id, reason
+        "[存储] 放弃 任务=恢复v3未完成操作 原因={}",
+        reason
     ));
     conn.execute("DELETE FROM storage_operations WHERE operation_id=?1", [operation_id])
         .map_err(|err| format!("清理 v3 异常恢复操作记录失败: {err}"))?;
@@ -3732,8 +3724,7 @@ fn chat_metadata_store_recover_operations_inner(data_path: &PathBuf) -> Result<(
         if operation_root.exists() {
             if let Err(err) = fs::remove_dir_all(&operation_root) {
                 runtime_log_warn(format!(
-                    "[聊天存储恢复] 跳过，任务=清理v3恢复操作目录，operation_id={}，path={}，异常={}，retry=保留操作记录",
-                    operation_id,
+                    "[存储] 跳过 任务=清理v3恢复操作目录 文件={} 异常={} 重试=保留操作记录",
                     operation_root.display(),
                     err
                 ));

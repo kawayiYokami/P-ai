@@ -455,7 +455,7 @@ fn normalize_search_engines(config: &mut AppConfig) {
         let lockable = engine.is_some_and(|engine| !search_engine_api_keys(config, engine).is_empty());
         if !lockable {
             runtime_log_warn(format!(
-                "[搜索引擎] 锁定目标不可用，回落自动模式：engine_id={engine_id}"
+                "[工具] 锁定目标不可用，回落自动模式 引擎={engine_id}"
             ));
             config.search_mode = SearchMode::Auto;
         }
@@ -956,7 +956,7 @@ fn split_engine_rows(
     // 合法返回 0 条是「没搜到」，不是「相关性低」：不打相关性告警，原始行也留空。
     if rows.is_empty() {
         runtime_log_info(format!(
-            "[搜索引擎] 引擎没有搜到结果：engine={}，query={query}",
+            "[工具] 引擎没有搜到结果 引擎={} 查询={query}",
             engine.id()
         ));
         return (Vec::new(), Vec::new());
@@ -964,7 +964,7 @@ fn split_engine_rows(
     let kept = filter_relevant_search_results(query, rows.clone());
     if kept.is_empty() {
         runtime_log_warn(format!(
-            "[搜索引擎] 结果与查询无关，先留原始结果备用：engine={}，query={query}，条数={}",
+            "[工具] 结果与查询无关，先留原始结果备用 引擎={} 查询={query} 条数={}",
             engine.id(),
             rows.len()
         ));
@@ -1044,7 +1044,7 @@ where
                     with_search_scheduler(|scheduler| scheduler.advance_key_cursor(engine, key_index));
                 }
                 runtime_log_warn(format!(
-                    "[搜索引擎] 鉴权失败，换下一个源：engine={}，keyIndex={key_index}，error={message}",
+                    "[工具] 鉴权失败，换下一个源 引擎={} 键序号={key_index} 原因={message}",
                     engine.id()
                 ));
                 failures.push(format!(
@@ -1060,7 +1060,7 @@ where
                     scheduler.set_cooldown(engine, seconds, std::time::Instant::now());
                 });
                 runtime_log_warn(format!(
-                    "[搜索引擎] 限流，记冷却后换源：engine={}，keyIndex={key_index}，冷却秒数={seconds}，error={message}",
+                    "[工具] 限流，记冷却后换源 引擎={} 键序号={key_index} 冷却秒数={seconds} 原因={message}",
                     engine.id()
                 ));
                 failures.push(format!(
@@ -1073,7 +1073,7 @@ where
                     with_search_scheduler(|scheduler| scheduler.advance_key_cursor(engine, key_index));
                 }
                 runtime_log_warn(format!(
-                    "[搜索引擎] 调用失败，换下一个源：engine={}，keyIndex={key_index}，error={message}",
+                    "[工具] 调用失败，换下一个源 引擎={} 键序号={key_index} 原因={message}",
                     engine.id()
                 ));
                 failures.push(format!("{}: {key_label}{message}", engine.display_name()));
@@ -1138,7 +1138,7 @@ async fn builtin_search(
         }
         if kept.is_empty() {
             runtime_log_info(format!(
-                "[搜索引擎] 锁定引擎的结果都不沾查询，交回原始结果：engine={}，query={raw_query}",
+                "[工具] 锁定引擎的结果都不沾查询，交回原始结果 引擎={} 查询={raw_query}",
                 fixed.engine.id()
             ));
             return Ok(search_payload_with_notice(
@@ -1176,7 +1176,7 @@ async fn builtin_search(
     });
     if ordered.is_empty() {
         runtime_log_info(format!(
-            "[搜索引擎] 候选引擎都在冷却中：query={raw_query}，冷却中的引擎={}",
+            "[工具] 候选引擎都在冷却中 查询={raw_query} 冷却中的引擎={}",
             cooling.join("、")
         ));
         return Err(search_all_cooling_message(&cooling.join("、")));
@@ -1214,7 +1214,7 @@ async fn builtin_search(
                 Some((engine, rows)) if !rows.is_empty() => {
                     let notice = weak_relevance_notice(&plan_failures);
                     runtime_log_info(format!(
-                        "[搜索引擎] 没有引擎给出沾边的结果，交回 {} 的原始结果：query={raw_query}，条数={}，另带失败原因 {} 条",
+                        "[工具] 没有引擎给出沾边的结果，交回 {} 的原始结果 查询={raw_query} 条数={}，另带失败原因 {} 条",
                         engine.id(),
                         rows.len(),
                         plan_failures.len()

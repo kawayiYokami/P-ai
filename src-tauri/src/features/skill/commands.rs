@@ -44,7 +44,7 @@ pub(crate) async fn skill_set_enabled_inner(
     }
     write_skill_enabled(state, skill_name, enabled)?;
     runtime_log_info(format!(
-        "[技能启用] 完成：skill={skill_name}，enabled={enabled}"
+        "[工具] 技能启用 完成 技能={skill_name} 启用={enabled}"
     ));
     reload_workspace(state).await?;
     mcp_list_skills_inner(state)
@@ -86,7 +86,7 @@ pub(crate) async fn skill_remove_inner(
         .map_err(|err| format!("删除 Skill 目录失败（{}）：{err}", dir.display()))?;
     remove_skill_policy(state, &skill_name)?;
     runtime_log_info(format!(
-        "[技能删除] 完成：skill={skill_name}，dir={dir_name}"
+        "[工具] 技能删除 完成 技能={skill_name} 目录={dir_name}"
     ));
     reload_workspace(state).await?;
     mcp_list_skills_inner(state)

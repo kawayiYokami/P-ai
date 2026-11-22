@@ -47,7 +47,7 @@ fn monitor_publish_changed(
         if let Some(app_handle) = guard.as_ref() {
             if let Err(err) = app_handle.emit(MONITOR_CHANGED_EVENT, &payload) {
                 runtime_log_warn(format!(
-                    "[监控] 事件推送失败，domain={}，kind={}，entity_id={}，error={err:?}",
+                    "[系统] 监控 事件推送失败 领域={} 类型={} 实体编号={} 错误={err}",
                     domain.as_str(),
                     kind,
                     entity_id
@@ -64,9 +64,8 @@ fn monitor_publish_changed(
         state,
         conversation_id,
     ) {
-        runtime_log_warn(format!(
-            "[会话概览] 跳过，任务=后台账本变动后推送单会话，conversation_id={}，domain={}，error={}",
-            conversation_id,
+        runtime_log_debug(format!(
+            "[聊天] 会话概览 跳过 任务=后台账本变动后推送单会话 领域={} 错误={}",
             domain.as_str(),
             err
         ));

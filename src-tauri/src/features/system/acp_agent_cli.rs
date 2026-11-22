@@ -134,20 +134,20 @@ fn acp_handle_cancel_notification(
         Ok(Some(turn)) => turn,
         Ok(None) => {
             runtime_log_info(format!(
-                "[ACP] 跳过，任务=取消轮次，session_id={session_id}，原因=该会话没有在途轮次"
+                "[系统] 跳过 任务=取消轮次 原因=该会话没有在途轮次"
             ));
             return Ok(());
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 失败，任务=取消轮次，session_id={session_id}，error={err}"
+                "[系统] 失败 任务=取消轮次 错误={err}"
             ));
             return Ok(());
         }
     };
     turn.token.cancel();
     runtime_log_info(format!(
-        "[ACP] 受理，任务=取消轮次，session_id={session_id}，turn_id={}",
+        "[系统] 受理 任务=取消轮次 轮次={}",
         turn.turn_id
     ));
     Ok(())
@@ -177,8 +177,8 @@ async fn acp_request_stop(
     };
     let result = stop_chat_message_inner(input, state).await?;
     runtime_log_info(format!(
-        "[ACP] 完成，任务=停止轮次，session_id={}，request_id={}，aborted={}，persisted={}",
-        session.conversation_id, turn.request_id, result.aborted, result.persisted
+        "[系统] 完成 任务=停止轮次 请求={} 已中止={} 已落盘={}",
+        turn.request_id, result.aborted, result.persisted
     ));
     Ok(())
 }
@@ -224,7 +224,7 @@ async fn acp_serve() -> Result<(), String> {
     let workspace_result = load_workspace(&state)
         .await
         .map_err(|err| format!("加载工作区（skill/MCP）失败: {err}"))?;
-    log_workspace_load_result("[工作区加载]", &workspace_result);
+    log_workspace_load_result("工作区加载", &workspace_result);
     headless_cli_wait_mcp_ready(&state).await;
 
     let sessions: AcpSessionRegistry =
@@ -556,7 +556,7 @@ async fn acp_handle_new_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 新建会话失败，任务=解析会话工作目录，原因={}",
+                "[系统] 新建会话失败 任务=解析会话工作目录 原因={}",
                 err.message
             ));
             return responder.respond_with_error(err);
@@ -565,14 +565,14 @@ async fn acp_handle_new_session(
     let model_config_id = match acp_selected_model_config_id(&state) {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_error(format!("[ACP] 新建会话失败，任务=读取模型配置：{err}"));
+            runtime_log_error(format!("[系统] 新建会话失败 任务=读取模型配置：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
     let agent_id = match state_service_get_assistant_agent_id(&state) {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_error(format!("[ACP] 新建会话失败，任务=读取主助理人格：{err}"));
+            runtime_log_error(format!("[系统] 新建会话失败 任务=读取主助理人格：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
@@ -583,7 +583,7 @@ async fn acp_handle_new_session(
     {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_error(format!("[ACP] 新建会话失败，任务=列举模型选项：{err}"));
+            runtime_log_error(format!("[系统] 新建会话失败 任务=列举模型选项：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
@@ -612,13 +612,13 @@ async fn acp_handle_new_session(
     {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_error(format!("[ACP] 新建会话失败，任务=创建会话：{err}"));
+            runtime_log_error(format!("[系统] 新建会话失败 任务=创建会话：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
     let conversation_id = conversation.conversation_id;
     runtime_log_info(format!(
-        "[ACP] 完成，任务=新建会话，session_id={conversation_id}，cwd={}，model={}",
+        "[系统] 完成 任务=新建会话 目录={} 模型={}",
         req.cwd.display(),
         model_config_id
     ));
@@ -642,7 +642,7 @@ async fn acp_handle_new_session(
     let state_for_overview = state.clone();
     tokio::task::spawn_blocking(move || {
         if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(&state_for_overview) {
-            runtime_log_warn(format!("[ACP] 概览刷新失败，任务=新建会话：{err}"));
+            runtime_log_warn(format!("[系统] 概览刷新失败 任务=新建会话：{err}"));
         }
     });
     let mut response = agent_client_protocol::schema::v1::NewSessionResponse::new(
@@ -766,13 +766,13 @@ async fn acp_mount_session_mcp(
     let (configs, translate_errors) = acp_session_mcp_servers(session_id, servers);
     for err in translate_errors {
         runtime_log_warn(format!(
-            "[ACP] 跳过，任务=解析 MCP 服务器，session_id={session_id}，原因={err}"
+            "[系统] 跳过 任务=解析 MCP 服务器 原因={err}"
         ));
     }
     let mount_errors = session_mcp_attach(state, configs).await;
     for err in mount_errors {
         runtime_log_warn(format!(
-            "[ACP] 跳过，任务=挂载 MCP 服务器，session_id={session_id}，原因={err}"
+            "[系统] 跳过 任务=挂载 MCP 服务器 原因={err}"
         ));
     }
 }
@@ -798,7 +798,7 @@ async fn acp_handle_load_session(
     // 载入不改变已有会话的工作区——会话属于它原本那个目录，工具仍落在那里。
     if let Err(err) = acp_new_session_workspaces(&req.cwd) {
         runtime_log_error(format!(
-            "[ACP] 载入会话失败，任务=解析会话工作目录，session_id={session_id_text}，原因={}",
+            "[系统] 载入会话失败 任务=解析会话工作目录 原因={}",
             err.message
         ));
         return responder.respond_with_error(err);
@@ -807,7 +807,7 @@ async fn acp_handle_load_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 载入会话失败，任务=读取配置，session_id={session_id_text}，error={err}"
+                "[系统] 载入会话失败 任务=读取配置 错误={err}"
             ));
             return responder.respond_with_error(acp_internal_error(err));
         }
@@ -817,7 +817,7 @@ async fn acp_handle_load_session(
         Ok(meta) => meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[ACP] 拒绝，任务=载入会话，session_id={session_id_text}，原因=会话不存在（{err}）"
+                "[系统] 拒绝 任务=载入会话 原因=会话不存在（{err}）"
             ));
             return responder.respond_with_error(acp_invalid_params(format!(
                 "会话不存在: {session_id_text}"
@@ -843,7 +843,7 @@ async fn acp_handle_load_session(
             Ok(id) => id,
             Err(err) => {
                 runtime_log_error(format!(
-                    "[ACP] 载入会话失败，任务=选择模型，session_id={session_id_text}，原因={err}"
+                    "[系统] 载入会话失败 任务=选择模型 原因={err}"
                 ));
                 return responder.respond_with_error(acp_internal_error(err));
             }
@@ -853,7 +853,7 @@ async fn acp_handle_load_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 载入会话失败，任务=列举模型选项，session_id={session_id_text}，原因={err}"
+                "[系统] 载入会话失败 任务=列举模型选项 原因={err}"
             ));
             return responder.respond_with_error(acp_internal_error(err));
         }
@@ -864,12 +864,12 @@ async fn acp_handle_load_session(
     }) {
         // 不静默：让运维日志能看出「客户端要的目录」与「会话记录的目录」不同。
         runtime_log_info(format!(
-            "[ACP] 提示，任务=载入会话，session_id={session_id_text}，cwd={}，会话工作区={:?}",
+            "[系统] 提示 任务=载入会话 目录={} 会话工作区={}",
             req.cwd.display(),
             meta.shell_workspaces
                 .iter()
                 .map(|item| item.path.clone())
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>().join("、")
         ));
     }
 
@@ -877,7 +877,7 @@ async fn acp_handle_load_session(
         Ok(value) => value,
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 载入会话失败，任务=读取历史，session_id={session_id_text}，error={err}"
+                "[系统] 载入会话失败 任务=读取历史 错误={err}"
             ));
             return responder.respond_with_error(acp_internal_error(err));
         }
@@ -893,13 +893,13 @@ async fn acp_handle_load_session(
         };
         if let Err(err) = cx.send_notification(notification) {
             runtime_log_warn(format!(
-                "[ACP] 发送回放帧失败，session_id={session_id_text}，error={err}"
+                "[系统] 发送回放帧失败 错误={err}"
             ));
         }
         replayed += 1;
     }
     runtime_log_info(format!(
-        "[ACP] 完成，任务=回放历史，session_id={session_id_text}，回放={replayed}，未回放={skipped}"
+        "[系统] 完成 任务=回放历史 回放={replayed} 未回放={skipped}"
     ));
 
     // 载入的会话此后要能直接接 prompt：登记进会话表，轮次状态一律从零开始。
@@ -917,7 +917,7 @@ async fn acp_handle_load_session(
     }
     acp_mount_session_mcp(&state, &session_id_text, &req.mcp_servers).await;
     runtime_log_info(format!(
-        "[ACP] 完成，任务=载入会话，session_id={session_id_text}，model={model_config_id}"
+        "[系统] 完成 任务=载入会话 模型={model_config_id}"
     ));
     responder.respond(LoadSessionResponse::new().config_options(config_options))
 }
@@ -954,7 +954,7 @@ fn acp_replay_messages(state: &AppState, conversation_id: &str) -> Result<Vec<Ch
     }
     if has_more {
         runtime_log_warn(format!(
-            "[ACP] 截断，任务=回放历史，session_id={conversation_id}，已回放={}，原因=超过回放上限 {MAX_MESSAGES}",
+            "[系统] 截断 任务=回放历史 已回放={} 原因=超过回放上限 {MAX_MESSAGES}",
             collected.len()
         ));
     }
@@ -1009,7 +1009,7 @@ async fn acp_handle_set_config_option(
     let session = match sessions.lock() {
         Ok(registry) => registry.get(&session_id).cloned(),
         Err(err) => {
-            runtime_log_error(format!("[ACP] 切换模型失败，任务=读取会话表：{err}"));
+            runtime_log_error(format!("[系统] 切换模型失败 任务=读取会话表：{err}"));
             return responder.respond_with_error(acp_internal_error("会话表不可用"));
         }
     };
@@ -1032,7 +1032,7 @@ async fn acp_handle_set_config_option(
     let config = match state_read_config_cached(&state) {
         Ok(value) => value,
         Err(err) => {
-            runtime_log_error(format!("[ACP] 切换模型失败，任务=读取配置：{err}"));
+            runtime_log_error(format!("[系统] 切换模型失败 任务=读取配置：{err}"));
             return responder.respond_with_error(acp_internal_error(err));
         }
     };
@@ -1041,7 +1041,7 @@ async fn acp_handle_set_config_option(
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[ACP] 拒绝，任务=切换模型，session_id={session_id}，原因={err}"
+                "[系统] 拒绝 任务=切换模型 原因={err}"
             ));
             return responder.respond_with_error(acp_invalid_params(err));
         }
@@ -1053,7 +1053,7 @@ async fn acp_handle_set_config_option(
         Some(next_model_config_id.clone()),
     ) {
         runtime_log_error(format!(
-            "[ACP] 失败，任务=保存会话模型，session_id={session_id}，error={err}"
+            "[系统] 失败 任务=保存会话模型 错误={err}"
         ));
         return responder.respond_with_error(acp_internal_error(err));
     }
@@ -1063,7 +1063,7 @@ async fn acp_handle_set_config_option(
         }
     }
     runtime_log_info(format!(
-        "[ACP] 完成，任务=切换模型，session_id={session_id}，from={}，to={next_model_config_id}",
+        "[系统] 完成 任务=切换模型 从={} 到={next_model_config_id}",
         session.model_config_id
     ));
     responder.respond(SetSessionConfigOptionResponse::new(config_options))
@@ -1087,7 +1087,7 @@ async fn acp_handle_prompt(
         Ok(text) => text,
         Err(err) => {
             runtime_log_warn(format!(
-                "[ACP] 拒绝，任务=解析提示词，session_id={session_id_text}，原因={err}"
+                "[系统] 拒绝 任务=解析提示词 原因={err}"
             ));
             return responder.respond_with_error(acp_invalid_params(err));
         }
@@ -1097,13 +1097,13 @@ async fn acp_handle_prompt(
         AcpPromptClaim::Unavailable => {
             // 锁中毒与「会话不存在」是两件不同的事，不能都折成本地未知 session。
             runtime_log_error(format!(
-                "[ACP] 轮次失败，任务=读取会话表，session_id={session_id_text}，原因=会话表不可用"
+                "[系统] 轮次失败 任务=读取会话表 原因=会话表不可用"
             ));
             return responder.respond_with_error(acp_internal_error("会话表不可用"));
         }
         AcpPromptClaim::Unknown => {
             runtime_log_error(format!(
-                "[ACP] 轮次失败，任务=定位会话，session_id={session_id_text}"
+                "[系统] 轮次失败 任务=定位会话"
             ));
             return responder.respond_with_error(acp_invalid_params(format!(
                 "未知的 session_id: {session_id_text}"
@@ -1112,7 +1112,7 @@ async fn acp_handle_prompt(
         AcpPromptClaim::Busy => {
             // 会话历史没有并发写保护，排队又会让客户端干等，所以直接拒。
             runtime_log_warn(format!(
-                "[ACP] 拒绝，任务=处理轮次，session_id={session_id_text}，原因=该会话本轮尚未结束"
+                "[系统] 拒绝 任务=处理轮次 原因=该会话本轮尚未结束"
             ));
             return responder.respond_with_error(acp_invalid_params(format!(
                 "该会话本轮尚未结束，不能并发处理新的提示词: {session_id_text}"
@@ -1131,7 +1131,7 @@ async fn acp_handle_prompt(
         None => {
             drop(slot);
             runtime_log_error(format!(
-                "[ACP] 轮次失败，任务=读取取消控制，session_id={session_id_text}，原因=占位未带轮次身份"
+                "[系统] 轮次失败 任务=读取取消控制 原因=占位未带轮次身份"
             ));
             return responder.respond_with_error(acp_internal_error("轮次取消控制缺失"));
         }
@@ -1140,7 +1140,7 @@ async fn acp_handle_prompt(
     if prompt_text.trim().is_empty() {
         drop(slot);
         runtime_log_warn(format!(
-            "[ACP] 跳过，任务=处理轮次，session_id={session_id_text}，原因=提示词没有文本内容"
+            "[系统] 跳过 任务=处理轮次 原因=提示词没有文本内容"
         ));
         return responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
             agent_client_protocol::schema::v1::StopReason::EndTurn,
@@ -1157,7 +1157,7 @@ async fn acp_handle_prompt(
             acp_run_prompt_turn(state, session, session_id, prompt_text, turn, responder, cx_for_turn)
                 .await
         {
-            runtime_log_error(format!("[ACP] 失败，任务=派发轮次：{err}"));
+            runtime_log_error(format!("[系统] 失败 任务=派发轮次：{err}"));
         }
         Ok(())
     })?;
@@ -1178,8 +1178,6 @@ async fn acp_run_prompt_turn(
     responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::PromptResponse>,
     cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
-    let session_id_text = session_id.0.to_string();
-
     let sent_chars = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let sent_chars_for_channel = sent_chars.clone();
     // 工具调用 id → 已上报过的进度。ACP 要求同一调用的状态只推进不重复，
@@ -1217,7 +1215,7 @@ async fn acp_run_prompt_turn(
                 update,
             );
             if let Err(err) = cx_for_channel.send_notification(notification) {
-                runtime_log_warn(format!("[ACP] 发送 session/update 失败：{err}"));
+                runtime_log_warn(format!("[系统] 发送 session/update 失败：{err}"));
             }
         }
         Ok(())
@@ -1246,12 +1244,12 @@ async fn acp_run_prompt_turn(
             _ = turn.token.cancelled(), if !stop_requested => {
                 stop_requested = true;
                 runtime_log_info(format!(
-                    "[ACP] 受理，任务=停止轮次，session_id={session_id_text}，turn_id={}",
+                    "[系统] 受理 任务=停止轮次 轮次={}",
                     turn.turn_id
                 ));
                 if let Err(err) = acp_request_stop(&state, &session, &turn).await {
                     runtime_log_error(format!(
-                        "[ACP] 失败，任务=停止轮次，session_id={session_id_text}，error={err}"
+                        "[系统] 失败 任务=停止轮次 错误={err}"
                     ));
                 }
             }
@@ -1263,11 +1261,11 @@ async fn acp_run_prompt_turn(
         // 被打断的一轮一律回 cancelled：协议对 `session/cancel` 的回应就是它。
         match &result {
             Ok(_) => runtime_log_info(format!(
-                "[ACP] 完成，任务=取消轮次，session_id={session_id_text}，turn_id={}，结果=已中止",
+                "[系统] 完成 任务=取消轮次 轮次={} 结果=已中止",
                 turn.turn_id
             )),
             Err(err) => runtime_log_info(format!(
-                "[ACP] 完成，任务=取消轮次，session_id={session_id_text}，turn_id={}，结果=已中止（轮次返回错误：{err}）",
+                "[系统] 完成 任务=取消轮次 轮次={} 结果=已中止（轮次返回错误：{err}）",
                 turn.turn_id
             )),
         }
@@ -1295,11 +1293,11 @@ async fn acp_run_prompt_turn(
                     update,
                 );
                 if let Err(err) = cx.send_notification(notification) {
-                    runtime_log_warn(format!("[ACP] 补发回答失败：{err}"));
+                    runtime_log_warn(format!("[系统] 补发回答失败：{err}"));
                 }
             }
             runtime_log_info(format!(
-                "[ACP] 完成，任务=处理轮次，session_id={session_id_text}，sent_chars={already_sent}，final_chars={}",
+                "[系统] 完成 任务=处理轮次 发送字数={already_sent} 最终字数={}",
                 trimmed.chars().count()
             ));
             responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
@@ -1308,7 +1306,7 @@ async fn acp_run_prompt_turn(
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[ACP] 失败，任务=处理轮次，session_id={session_id_text}，error={err}"
+                "[系统] 失败 任务=处理轮次 错误={err}"
             ));
             responder.respond_with_error(acp_internal_error(err))
         }

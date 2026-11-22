@@ -145,7 +145,7 @@ async fn run_message_loop(
                     }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        runtime_log_error(format!("[远程IM][OneBot v11 WS] 接收错误: {}", e));
+                        runtime_log_error(format!("[远程IM] 接收错误 原因={}", e));
                         disconnect_level = "error".to_string();
                         disconnect_message = format!("接收错误: {}", e);
                         break;
@@ -155,7 +155,7 @@ async fn run_message_loop(
         }
     }
 
-    runtime_log_info(format!("[远程IM][OneBot v11 WS] 渠道 {} 客户端断开: {}", channel_id, peer_addr_str));
+    runtime_log_info(format!("[远程IM] 渠道 {} 客户端断开 来源={}", channel_id, peer_addr_str));
     append_channel_log(&port_service, &channel_id, &disconnect_level, disconnect_message).await;
     connections.write().await.remove(&channel_id);
 }

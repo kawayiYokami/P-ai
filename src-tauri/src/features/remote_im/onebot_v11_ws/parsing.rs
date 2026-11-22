@@ -6,6 +6,15 @@ enum OnebotInboundMediaKind {
     File,
 }
 
+impl OnebotInboundMediaKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::File => "file",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct OnebotInboundMediaRef {
     kind: OnebotInboundMediaKind,
@@ -700,7 +709,7 @@ fn extract_message_content_detail(event: &Value) -> OnebotParsedMessage {
     if let Some(arr) = message_field.and_then(|v| v.as_array()) {
         let result = parse_onebot_message_array_detail(arr);
         runtime_log_info(format!(
-            "[远程IM][OneBot v11 事件] 解析数组格式 message: text_len={}, media_items={}, embedded_refs={}",
+            "[远程IM] 解析数组格式消息 文本长度={} 媒体数={} 内嵌引用={}",
             result.text.len(),
             result.media_refs.len(),
             result.embedded_refs.len()
@@ -710,7 +719,7 @@ fn extract_message_content_detail(event: &Value) -> OnebotParsedMessage {
     if let Some(msg_str) = message_field.and_then(|v| v.as_str()) {
         let parsed = parse_onebot_cq_string_detail(msg_str);
         runtime_log_info(format!(
-            "[远程IM][OneBot v11 事件] 解析字符串格式消息: text_len={}, media_items={}, embedded_refs={}",
+            "[远程IM] 解析字符串格式消息 文本长度={} 媒体数={} 内嵌引用={}",
             parsed.text.len(),
             parsed.media_refs.len(),
             parsed.embedded_refs.len()
@@ -720,7 +729,7 @@ fn extract_message_content_detail(event: &Value) -> OnebotParsedMessage {
     if let Some(raw) = event.get("raw_message").and_then(|v| v.as_str()) {
         let parsed = parse_onebot_cq_string_detail(raw);
         runtime_log_info(format!(
-            "[远程IM][OneBot v11 事件] 解析原始消息 raw_message: text_len={}, media_items={}, embedded_refs={}",
+            "[远程IM] 解析原始消息 文本长度={} 媒体数={} 内嵌引用={}",
             parsed.text.len(),
             parsed.media_refs.len(),
             parsed.embedded_refs.len()
@@ -728,8 +737,8 @@ fn extract_message_content_detail(event: &Value) -> OnebotParsedMessage {
         return parsed;
     }
     runtime_log_info(format!(
-        "[远程IM][OneBot v11 事件] message 字段类型未识别: {:?}",
-        message_field.map(|v| v.to_string())
+        "[远程IM] 消息字段类型未识别 类型={}",
+        message_field.map(|v| v.to_string()).unwrap_or_else(|| "无".to_string())
     ));
     OnebotParsedMessage::default()
 }
@@ -1101,7 +1110,7 @@ fn onebot_persist_group_member_cache(
         state_service_find_remote_im_contact_by_identity(state, channel_id, "group", group_id)?;
     let Some(contact) = contact else {
         runtime_log_debug(format!(
-            "[群聊入站] 群成员缓存跳过，任务=写群成员，channel_id={channel_id}，group_id={group_id}，reason=联系人尚未建立"
+            "[远程IM] 群成员缓存跳过 任务=写群成员 渠道={channel_id} 群={group_id} 原因=联系人尚未建立"
         ));
         return Ok(());
     };

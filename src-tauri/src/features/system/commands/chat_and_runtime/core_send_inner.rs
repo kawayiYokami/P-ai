@@ -129,8 +129,8 @@ fn prepend_optional_preferred_chat_api_id(
         return Ok(false);
     };
     let Some(preferred_api_id) = resolve_model_role_api_config_id(app_config, raw_preferred_api_id) else {
-        runtime_log_warn(format!(
-            "[会话模型] 跳过，任务=应用会话首选模型，原因=模型角色未配置，api_config_id={}",
+        runtime_log_info(format!(
+            "[聊天] 跳过 任务=应用会话首选模型 原因=模型角色未配置 模型配置={}",
             raw_preferred_api_id
         ));
         return Ok(false);
@@ -141,15 +141,15 @@ fn prepend_optional_preferred_chat_api_id(
         .iter()
         .find(|api| api.id == preferred_api_id)
     else {
-        runtime_log_warn(format!(
-            "[会话模型] 跳过，任务=应用会话首选模型，原因=模型不存在，api_config_id={}",
+        runtime_log_info(format!(
+            "[聊天] 跳过 任务=应用会话首选模型 原因=模型不存在 模型配置={}",
             preferred_api_id
         ));
         return Ok(false);
     };
     if !is_text_chat_api(api_config) {
-        runtime_log_warn(format!(
-            "[会话模型] 跳过，任务=应用会话首选模型，原因=模型不可用于聊天文本，api_config_id={}，request_format={:?}，enable_text={}",
+        runtime_log_info(format!(
+            "[聊天] 跳过 任务=应用会话首选模型 原因=模型不可用于聊天文本 模型配置={} 请求格式={} 启用文本={}",
             preferred_api_id,
             api_config.request_format,
             api_config.enable_text
@@ -257,8 +257,8 @@ fn restart_dispatch_round_after_context_compaction(
         assistant_message_id.as_str(),
     ) {
         runtime_log_error(format!(
-            "[聊天] 压缩重启后刷新打断句柄失败 session={} err={}",
-            chat_key, err
+            "[聊天] 压缩重启后刷新打断句柄失败 错误={}",
+            err
         ));
     }
     let activation_reason = resolve_activation_reason(runtime_context);
@@ -279,8 +279,8 @@ fn restart_dispatch_round_after_context_compaction(
         MainSessionState::AssistantStreaming,
     )?;
     runtime_log_info(format!(
-        "[聊天调度] 压缩后新一轮开始事件已发送 conversation_id={} request_id={} assistant_message_id={} agent_id={} reason={}",
-        conversation_id, request_id, assistant_message_id, agent_id, activation_reason
+        "[聊天] 压缩后新一轮开始事件已发送 原因={}",
+        activation_reason
     ));
     Ok(assistant_message_id)
 }
@@ -565,11 +565,11 @@ async fn send_chat_message_inner(
     {
         if let Err(err) = team_create_pending_members(state, &conversation_id).await {
             runtime_log_warn(format!(
-                "[队伍] 失败，任务=预创建队员，会话ID={conversation_id}，error={err}"
+                "[聊天] 失败 任务=预创建队员 会话编号={conversation_id} 错误={err}"
             ));
         }
     } else {
-        runtime_log_debug("[队伍] 跳过，任务=预创建队员，原因=本次调度没有会话ID".to_string());
+        runtime_log_debug("[聊天] 跳过 任务=预创建队员 原因=本次调度没有会话ID".to_string());
     }
 
     // ========== 提前初始化流式缓存 ==========
@@ -594,7 +594,7 @@ async fn send_chat_message_inner(
             let early_agent_id = resolved_agent_id.trim();
             if early_agent_id != requested_agent_id {
                 runtime_log_info(format!(
-                    "[聊天发送] 完成，任务=人格校准，会话ID={cid}，请求人格={requested_agent_id}，采用人格={early_agent_id}"
+                    "[聊天] 完成 任务=人格校准"
                 ));
             }
             if !early_agent_id.is_empty() {
@@ -895,7 +895,7 @@ async fn send_chat_message_inner(
             .collect::<Vec<_>>()
             .join(" | ");
         runtime_log_info(format!(
-            "[聊天耗时] 汇总 原因={}，阶段={}",
+            "[聊天] 汇总 原因={} 阶段={}",
             reason,
             summary
         ));
@@ -1293,7 +1293,7 @@ async fn send_chat_message_inner(
             .min(u128::from(u64::MAX)) as u64;
         prepare_detail_parts.push(format!("候选模型构建={}ms(count={})", candidate_models_ms, candidate_api_ids.len()));
         runtime_log_info(format!(
-            "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话生效模型={}，会话生效模型已应用={}，人格失败自动切换={}，候选队列={}",
+            "[聊天] 调度 任务=构建候选模型 会话编号={} 单次指定模型={} 会话生效模型={} 会话生效模型已应用={} 人格失败自动切换={} 候选队列={}",
             requested_conversation_id_for_prepare
                 .as_deref()
                 .or(runtime_main_conversation_id.as_deref())
@@ -1337,7 +1337,7 @@ async fn send_chat_message_inner(
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         runtime_log_info(format!(
-            "[会话准备耗时] total={}ms，{}",
+            "[聊天] 总数={}ms，{}",
             prepare_total_ms,
             prepare_detail_parts.join(" | ")
         ));
@@ -1585,7 +1585,7 @@ async fn send_chat_message_inner(
             snapshot
         } else {
             runtime_log_warn(format!(
-                "[聊天发送] 缺少 conversation_id 且未找到系统通知会话，拒绝构建请求上下文"
+                "[聊天] 缺少 conversation_id 且未找到系统通知会话，拒绝构建请求上下文"
             ));
             return Err("缺少 conversation_id".to_string());
         };
@@ -1601,9 +1601,8 @@ async fn send_chat_message_inner(
         }
         log_run_stage("prepare_context.conversation_snapshot_ready");
         if !trigger_only && conversation_is_system_notification(&snapshot.prompt_conversation_before) {
-            runtime_log_error(format!(
-                "[聊天发送] 拒绝，原因=系统通知会话不支持发言，conversation_id={}",
-                snapshot.prompt_conversation_before.id
+            runtime_log_warn(format!(
+                "[聊天] 拒绝 原因=系统通知会话不支持发言"
             ));
             return Err("系统通知会话不支持发言。".to_string());
         }
@@ -1747,8 +1746,8 @@ async fn send_chat_message_inner(
                 )
                 {
                     runtime_log_error(format!(
-                        "[Git幽灵快照] 失败，conversation_id={}，message_id={}，stage=write_provider_meta，error={}",
-                        snapshot.storage_conversation_before.id, user_message_id, err
+                        "[系统] 失败 阶段=write_provider_meta 错误={}",
+                        err
                     ));
                 }
             }
@@ -2057,11 +2056,10 @@ async fn send_chat_message_inner(
     let estimated_prompt_tokens_before_send = prepared_context.5;
     let is_runtime_conversation = prepared_context.10;
     if is_runtime_conversation {
-        if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            runtime_log_warn(format!(
-                "[归档] 发送前检查 跳过: conversation_id={}, reason=delegate_runtime_thread",
-                conversation_id
-            ));
+        if let Some(_conversation_id) = requested_conversation_id.as_deref() {
+            runtime_log_debug(
+                "[存储] 发送前检查 跳过 原因=delegate_runtime_thread".to_string(),
+            );
         }
     } else {
         if runtime_context.remote_im_reply_delegate_id.is_none() {
@@ -2070,8 +2068,7 @@ async fn send_chat_message_inner(
                 ignore_trailing_user_message_for_idle_compaction,
             ) {
             runtime_log_info(format!(
-                "[远程联系人压缩] 开始，任务=发送前自动压缩，conversation_id={}, message_count={}, idle_hours={}, threshold_hours={}",
-                conversation_for_compaction.id,
+                "[远程IM] 开始 任务=发送前自动压缩 消息数={} 空闲小时={} 阈值小时={}",
                 conversation_for_compaction.messages.len(),
                 elapsed_hours,
                 REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS
@@ -2086,8 +2083,8 @@ async fn send_chat_message_inner(
                 clear_conversation_stream_runtime_cache(&state, &conversation_for_compaction.id)
             {
                 runtime_log_warn(format!(
-                    "[聊天流式缓存] 远程联系人发送前自动压缩清理失败 conversation_id={} error={}",
-                    conversation_for_compaction.id, err
+                    "[聊天] 远程联系人发送前自动压缩清理失败 错误={}",
+                    err
                 ));
             }
             let archive_res = run_context_compaction_pipeline(
@@ -2139,8 +2136,8 @@ async fn send_chat_message_inner(
                 }
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[远程联系人压缩] 失败，任务=发送前自动压缩，conversation_id={}，idle_hours={}，error={}",
-                        conversation_for_compaction.id, elapsed_hours, err
+                        "[远程IM] 失败 任务=发送前自动压缩 空闲小时={} 错误={}",
+                        elapsed_hours, err
                     ));
                 }
             }
@@ -2150,8 +2147,7 @@ async fn send_chat_message_inner(
             || runtime_context.remote_im_reply_delegate_id.is_some()
         {
             runtime_log_warn(format!(
-                "[远程唤醒压缩] 跳过，任务=发送前自动整理，conversation_id={}，reason={}",
-                conversation_for_compaction.id,
+                "[远程IM] 跳过 任务=发送前自动整理 原因={}",
                 if runtime_context.remote_im_dynamic_boundary {
                     "dynamic_boundary"
                 } else {
@@ -2184,15 +2180,19 @@ async fn send_chat_message_inner(
             round_started_by_context_compaction(runtime_context.dispatch_reason.as_deref()),
         );
         runtime_log_info(format!(
-            "[归档] 发送前检查: should_archive={}, forced={}, reason={}, usage_ratio={:.4}, source={}, latest_real_effective_prompt_tokens={:?}, latest_real_usage_ratio={:?}, estimated_prompt_tokens={:?}, context_window_tokens={}",
+            "[存储] 发送前归档检查 需归档={} 强制={} 原因={} 占用比={:.4} 来源={} 真实输入={} 真实占用比={} 估算输入={} 窗口={}",
             decision.should_archive,
             decision.forced,
             decision.reason,
             decision.usage_ratio,
             decision_source,
-            latest_real_usage.map(|usage| usage.effective_prompt_tokens),
-            latest_real_usage.map(|usage| usage.context_usage_ratio),
-            usage_resolution.estimated_prompt_tokens.or(estimated_prompt_tokens_before_send),
+            latest_real_usage.map(|usage| usage.effective_prompt_tokens.to_string()).unwrap_or_else(|| "无".to_string()),
+            latest_real_usage.map(|usage| format!("{:.4}", usage.context_usage_ratio)).unwrap_or_else(|| "无".to_string()),
+            usage_resolution
+                .estimated_prompt_tokens
+                .or(estimated_prompt_tokens_before_send)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "无".to_string()),
             selected_api.context_window_tokens
         ));
         if decision.should_archive {
@@ -2206,8 +2206,8 @@ async fn send_chat_message_inner(
                 clear_conversation_stream_runtime_cache(&state, &conversation_for_compaction.id)
             {
                 runtime_log_warn(format!(
-                    "[聊天流式缓存] 发送前压缩清理失败 conversation_id={} reason={} error={}",
-                    conversation_for_compaction.id, decision.reason, err
+                    "[聊天] 发送前压缩清理失败 原因={} 错误={}",
+                    decision.reason, err
                 ));
             }
 
@@ -2237,13 +2237,12 @@ async fn send_chat_message_inner(
                             )
                         };
                         runtime_log_info(format!(
-                            "[上下文整理] 发送前压缩完成 conversation_id={} reason={} message={}",
-                            conversation_for_compaction.id, decision.reason, done_message
+                            "[聊天] 发送前压缩完成 原因={} 消息={}",
+                            decision.reason, done_message
                         ));
                     }
                     runtime_log_info(format!(
-                        "[聊天调度] 发送前整理命中，当前调度闭口并准备重开: conversation_id={}，reason={}",
-                        conversation_for_compaction.id,
+                        "[聊天] 发送前整理命中，当前调度闭口并准备重开 原因={}",
                         decision.reason
                     ));
                     dispatch_assistant_message_id = restart_dispatch_round_after_context_compaction(
@@ -2419,10 +2418,9 @@ async fn send_chat_message_inner(
             log_run_stage(&request_finish_stage);
 
             if restart_after_compaction {
-                runtime_log_info(format!(
-                    "[聊天调度] 续调整理命中，当前调度闭口并准备重开: conversation_id={}",
-                    conversation_id
-                ));
+                runtime_log_info(
+                    "[聊天] 续调整理命中，当前调度闭口并准备重开".to_string(),
+                );
                 runtime_context.compaction_preserved_messages =
                     chat_round_execution.compaction_preserved_messages.clone();
                 runtime_context.compaction_preserved_messages_ready =
@@ -2461,16 +2459,16 @@ async fn send_chat_message_inner(
             if let Err(error) = &chat_round_execution.result {
                 if is_user_abort_error(error) {
                     runtime_log_info(format!(
-                        "[聊天] 用户中止，收束本轮调度，任务=dispatch_stopped_by_user，conversation_id={}，api_config_id={}，attempt={}",
-                        conversation_id, candidate_selected_api.id, attempt
+                        "[聊天] 用户中止，收束本轮调度 任务=dispatch_stopped_by_user 模型配置={} 尝试={}",
+                        candidate_selected_api.id, attempt
                     ));
                     fatal_error = Some(error.clone());
                     break;
                 }
                 if is_fatal_dispatch_error(error) {
                     runtime_log_error(format!(
-                        "[聊天] 终止调度，任务=dispatch_aborted_on_tool_history_persist_failure，conversation_id={}，api_config_id={}，error={}",
-                        conversation_id, candidate_selected_api.id, error
+                        "[聊天] 终止调度 任务=dispatch_aborted_on_tool_history_persist_failure 模型配置={} 错误={}",
+                        candidate_selected_api.id, error
                     ));
                     fatal_error = Some(error.clone());
                     break;
@@ -2480,8 +2478,7 @@ async fn send_chat_message_inner(
                 Ok(reply) => match model_reply_content_state(reply) {
                     ModelReplyContentState::ReasoningOnly => {
                         runtime_log_warn(format!(
-                            "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
-                            conversation_id,
+                            "[聊天] 模型返回思考但缺少最终回答，按空回重试 模型配置={} 模型={} 尝试={} 思考长度={}",
                             candidate_selected_api.id,
                             candidate_selected_api.model,
                             attempt,
@@ -2495,8 +2492,7 @@ async fn send_chat_message_inner(
                     }
                     ModelReplyContentState::Empty => {
                         runtime_log_warn(format!(
-                            "[聊天] 模型返回空响应，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}",
-                            conversation_id,
+                            "[聊天] 模型返回空响应，按空回重试 模型配置={} 模型={} 尝试={}",
                             candidate_selected_api.id,
                             candidate_selected_api.model,
                             attempt
@@ -2513,8 +2509,8 @@ async fn send_chat_message_inner(
                     match retry_kind {
                         RetryKind::RateLimited => {
                             runtime_log_warn(format!(
-                                "[聊天] 命中限流429，按限流重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
-                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                                "[聊天] 命中限流429，按限流重试 模型配置={} 模型={} 尝试={} 错误={}",
+                                candidate_selected_api.id, candidate_selected_api.model, attempt, error
                             ));
                             (
                                 "请求过于频繁(429)".to_string(),
@@ -2523,8 +2519,8 @@ async fn send_chat_message_inner(
                         }
                         RetryKind::ServerError => {
                             runtime_log_warn(format!(
-                                "[聊天] 上游服务端错误，按瞬态失败重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
-                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                                "[聊天] 上游服务端错误，按瞬态失败重试 模型配置={} 模型={} 尝试={} 错误={}",
+                                candidate_selected_api.id, candidate_selected_api.model, attempt, error
                             ));
                             (
                                 "上游服务异常".to_string(),
@@ -2533,8 +2529,8 @@ async fn send_chat_message_inner(
                         }
                         RetryKind::Transport => {
                             runtime_log_warn(format!(
-                                "[聊天] 连接或超时失败，按瞬态失败重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
-                                conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                                "[聊天] 连接或超时失败，按瞬态失败重试 模型配置={} 模型={} 尝试={} 错误={}",
+                                candidate_selected_api.id, candidate_selected_api.model, attempt, error
                             ));
                             (
                                 "网络连接异常".to_string(),
@@ -2653,8 +2649,8 @@ async fn send_chat_message_inner(
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 目标解析失败，已降级为不自动发送，conversation_id={}，error={}",
-                conversation_id, err
+                "[远程IM] 自动发送 目标解析失败，已降级为不自动发送 错误={}",
+                err
             ));
             None
         }
@@ -2672,8 +2668,8 @@ async fn send_chat_message_inner(
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 发送判定失败，已降级为不自动发送，conversation_id={}，error={}",
-                conversation_id, err
+                "[远程IM] 自动发送 发送判定失败，已降级为不自动发送 错误={}",
+                err
             ));
             None
         }
@@ -2794,7 +2790,7 @@ async fn send_chat_message_inner(
         let mut merged = provider_meta.take().unwrap_or_else(|| serde_json::json!({}));
         if !merged.is_object() {
             runtime_log_warn(format!(
-                "[聊天] 助理 provider_meta 不是对象，合并前已保留原始值: value={}",
+                "[聊天] 助理 provider_meta 不是对象，合并前已保留原始值 值={}",
                 merged
             ));
             let raw_provider_meta = std::mem::replace(&mut merged, serde_json::json!({}));
@@ -2867,9 +2863,7 @@ async fn send_chat_message_inner(
                     &final_text,
                 )?;
                 runtime_log_debug(format!(
-                    "[表情替换] 提交前，conversation_id={}，assistant_message_id={}，annotation_count={}，tokens=[{}]，final_text={}",
-                    conversation_id,
-                    assistant_message_id,
+                    "[聊天] 提交前 标注数={} 词元=[{}] 最终文本={}",
                     meme_annotations
                         .as_ref()
                         .map(Vec::len)
@@ -2885,7 +2879,7 @@ async fn send_chat_message_inner(
                 // 最终落账时把完整一组（工具行们 + 正文行）一次性补进历史会话，
                 // 使下次应答委托读历史能拿到上次工具结果，不必从 0 开始。
                 // 中间正文已中途外发不落账；此处只补工具事件对，正文行由 append_final_text 写入。
-                if let Some(delegate_id) = runtime_context
+                if let Some(_delegate_id) = runtime_context
                     .remote_im_reply_delegate_id
                     .as_deref()
                     .map(str::trim)
@@ -2901,14 +2895,14 @@ async fn send_chat_message_inner(
                     ) {
                         Ok(tool_event_count) => {
                             runtime_log_info(format!(
-                                "[远程应答委托] 最终落账补写工具行，delegate_id={}，conversation_id={}，assistant_message_id={}，tool_event_count={}",
-                                delegate_id, conversation_id, assistant_message_id, tool_event_count
+                                "[委托] 最终落账补写工具行 工具事件数={}",
+                                tool_event_count
                             ));
                         }
                         Err(err) => {
                             runtime_log_warn(format!(
-                                "[远程应答委托] 补写工具行失败，继续正文落账，delegate_id={}，conversation_id={}，assistant_message_id={}，error={}",
-                                delegate_id, conversation_id, assistant_message_id, err
+                                "[委托] 补写工具行失败，继续正文落账 错误={}",
+                                err
                             ));
                         }
                     }
@@ -2943,17 +2937,15 @@ async fn send_chat_message_inner(
                         None,
                     ) {
                         runtime_log_warn(format!(
-                            "[远程应答委托] 失败，任务=镜像最终正文，delegate_id={}，message_id={}，error={}",
-                            delegate_id, message.id, err
+                            "[委托] 失败 任务=镜像最终正文 错误={}",
+                            err
                         ));
                     }
                     // 远程应答不向普通聊天 Channel 推送 delta，最终正文须显式广播。
                     emit_conversation_message_appended_event(&state, &conversation_id, message);
                 }
                 runtime_log_debug(format!(
-                    "[表情替换] 提交后，conversation_id={}，assistant_message_id={}，persisted_annotation_count={}，persisted_tokens=[{}]",
-                    conversation_id,
-                    assistant_message_id,
+                    "[聊天] 提交后 落盘标注数={} 落盘词元=[{}]",
                     persisted_assistant_message
                         .as_ref()
                         .and_then(|message| message.meme_annotations.as_ref().map(Vec::len))
@@ -3026,9 +3018,7 @@ async fn send_chat_message_inner(
                     &auto_push_content,
                 ) {
                     runtime_log_warn(format!(
-                        "[自动推送] 失败，任务=会话 assistant 自动推送，conversation_id={}，remote_contact_id={}，error={}",
-                        conversation_id,
-                        remote_contact_id,
+                        "[远程IM] 失败 任务=会话 assistant 自动推送 错误={}",
                         err
                     ));
                 }
@@ -3062,10 +3052,9 @@ async fn send_chat_message_inner(
 
     let result = if stopped_before_start {
         // 停止意图在本轮登记句柄之前就已到达：不要开始生成，直接走用户中止的收尾路径。
-        runtime_log_info(format!(
-            "[聊天] 停止请求先于轮次开始，已跳过生成 (session={})",
-            chat_key
-        ));
+        runtime_log_info(
+            "[聊天] 停止请求先于轮次开始，已跳过生成".to_string(),
+        );
         Err(futures_util::future::Aborted)
     } else {
         futures_util::future::Abortable::new(run, abort_registration).await
@@ -3087,17 +3076,14 @@ async fn send_chat_message_inner(
     }
     if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
         runtime_log_error(format!(
-            "[聊天] 清理进行中工具中断句柄失败 (session={}): {}",
-            chat_key, err
+            "[聊天] 清理进行中工具中断句柄失败: {}",
+            err
         ));
     }
     let final_result = match result {
         Ok(inner) => inner,
         Err(_) => {
-            runtime_log_info(format!(
-                "[聊天] 用户中止聊天请求 (session={})",
-                chat_key
-            ));
+            runtime_log_info("[聊天] 用户中止聊天请求".to_string());
             Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
         }
     };
@@ -3175,8 +3161,8 @@ async fn send_chat_message_inner(
                     }
                 }
                 Err(persist_err) => runtime_log_warn(format!(
-                    "[聊天] 用户停止后 partial 收尾失败: session={} error={} persist_error={}",
-                    chat_key, err, persist_err
+                    "[聊天] 用户停止后 partial 收尾失败 错误={} 落盘错误={}",
+                    err, persist_err
                 )),
             }
         } else {
@@ -3200,13 +3186,13 @@ async fn send_chat_message_inner(
                 err,
             ) {
                 Ok(true) => runtime_log_error(format!(
-                    "[聊天] 模型失败前工具历史已落盘: session={} error={}",
-                    chat_key, err
+                    "[聊天] 模型失败前工具历史已落盘 错误={}",
+                    err
                 )),
                 Ok(false) => {}
                 Err(persist_err) => runtime_log_warn(format!(
-                    "[聊天] 模型失败前工具历史落盘失败: session={} original_error={} persist_error={}",
-                    chat_key, err, persist_err
+                    "[聊天] 模型失败前工具历史落盘失败 原始错误={} 落盘错误={}",
+                    err, persist_err
                 )),
             }
         }
@@ -3214,8 +3200,8 @@ async fn send_chat_message_inner(
     if should_clear_completed_tool_history {
         if let Err(err) = clear_inflight_completed_tool_history(state, &chat_key) {
             runtime_log_error(format!(
-                "[聊天] 清理已完成工具历史缓存失败 (session={}): {}",
-                chat_key, err
+                "[聊天] 清理已完成工具历史缓存失败: {}",
+                err
             ));
         }
     }

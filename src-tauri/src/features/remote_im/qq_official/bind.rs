@@ -178,7 +178,7 @@ async fn qq_official_bind_start_inner() -> Result<QqOfficialBindStartResult, Str
         sessions.insert(task_id.clone(), QqOfficialBindSession { key });
     }
     runtime_log_info(format!(
-        "[远程IM][QQ官方机器人] 扫码绑定任务已创建 task_id={task_id}"
+        "[远程IM] 扫码绑定任务已创建 任务={task_id}"
     ));
     Ok(QqOfficialBindStartResult {
         task_id,
@@ -237,7 +237,7 @@ async fn qq_official_bind_poll_inner(task_id: &str) -> Result<QqOfficialBindPoll
     if bind_status == QQ_OFFICIAL_BIND_STATUS_EXPIRED {
         qq_official_bind_remove_session(task_id);
         runtime_log_info(format!(
-            "[远程IM][QQ官方机器人] 扫码绑定任务已过期 task_id={task_id}"
+            "[远程IM] 扫码绑定任务已过期 任务={task_id}"
         ));
         return Ok(QqOfficialBindPollResult {
             status: "expired".to_string(),
@@ -273,7 +273,7 @@ async fn qq_official_bind_poll_inner(task_id: &str) -> Result<QqOfficialBindPoll
     // 一次扫码只发一次凭据：拿到就清掉会话，避免重复 poll 反复取同一把 secret。
     qq_official_bind_remove_session(task_id);
     runtime_log_info(format!(
-        "[远程IM][QQ官方机器人] 扫码绑定完成 task_id={task_id} app_id={app_id}"
+        "[远程IM] 扫码绑定完成 任务={task_id} 应用={app_id}"
     ));
 
     Ok(QqOfficialBindPollResult {

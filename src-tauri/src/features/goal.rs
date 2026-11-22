@@ -167,16 +167,14 @@ fn goal_create_goal_inner(
         abort_wheelchair_delegate(state, normalized_conversation_id, "goal 已激活，护航停止")
     {
         runtime_log_warn(format!(
-            "[护航] 停止失败，任务=goal 激活后停止护航，conversation_id={}，error={}",
-            normalized_conversation_id, err
+            "[系统] 护航 停止失败 任务=目标激活后停止护航 错误={}",
+            err
         ));
     }
     clear_goal_continue_suppression(state, normalized_conversation_id, "goal_created")?;
     if let Err(err) = maybe_enqueue_goal_continue_after_idle(state, normalized_conversation_id) {
         runtime_log_warn(format!(
-            "[目标续跑] 跳过，任务=创建目标后投递续跑，conversation_id={}，goal_id={}，error={}",
-            normalized_conversation_id,
-            goal.goal_id,
+            "[系统] 目标续跑 跳过 任务=创建目标后投递续跑 错误={}",
             err
         ));
     }

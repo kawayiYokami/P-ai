@@ -199,7 +199,7 @@ fn spawn_conversation_auto_title_generation(
             // 未配置快速模型＝禁用快速请求：静默跳过，不打 warn、不写失败记录。
             if current_tool_review_api_config_id(&state)?.is_none() {
                 runtime_log_info(format!(
-                    "[会话标题] 跳过，任务=自动生成标题，conversation_id={conversation_id}，reason=未配置快速模型"
+                    "[聊天] 跳过 任务=自动生成标题 原因=未配置快速模型"
                 ));
                 return Ok(());
             }
@@ -226,14 +226,13 @@ fn spawn_conversation_auto_title_generation(
                                     )
                                 {
                                     runtime_log_warn(format!(
-                                        "[会话标题] 警告，任务=刷新会话概览，conversation_id={}，error={}",
-                                        conversation_id, err
+                                        "[聊天] 警告 任务=刷新会话概览 错误={}",
+                                        err
                                     ));
                                 }
                             }
                             runtime_log_info(format!(
-                                "[会话标题] 完成，任务=自动生成标题，conversation_id={}，title={}，changed={}，elapsed_ms={}",
-                                conversation_id,
+                                "[聊天] 完成 任务=自动生成标题 标题={} 变更={} 耗时={}",
                                 title,
                                 changed,
                                 started_at.elapsed().as_millis()
@@ -249,8 +248,7 @@ fn spawn_conversation_auto_title_generation(
         .await;
         if let Err(err) = result {
             runtime_log_warn(format!(
-                "[会话标题] 跳过，任务=自动生成标题，conversation_id={}，error={}，elapsed_ms={}",
-                conversation_id,
+                "[聊天] 跳过 任务=自动生成标题 错误={} 耗时={}",
                 err,
                 started_at.elapsed().as_millis()
             ));

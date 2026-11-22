@@ -143,8 +143,7 @@ impl ConversationServiceV2 {
         if is_remote_im_contact_conversation && remote_im_contact_processing_mode == "qa" {
             let trimmed = remote_im_trim_conversation_for_qa_mode(conversation_before);
             runtime_log_info(format!(
-                "[远程IM] 问答模式裁剪会话上下文: conversation_id={}, original_messages={}, trimmed_messages={}",
-                conversation_before.id,
+                "[聊天] 问答模式裁剪会话上下文 原消息数={} 裁剪后消息数={}",
                 conversation_before.messages.len(),
                 trimmed.messages.len()
             ));

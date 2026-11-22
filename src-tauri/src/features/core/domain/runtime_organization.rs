@@ -43,7 +43,7 @@ fn normalize_runtime_organization_agent_children(agents: &mut [AgentProfile]) {
             .collect::<Vec<_>>()
             .join(", ");
         runtime_log_warn(format!(
-            "[运行组织] 跳过成环人格关系: count={}, edges={}",
+            "[系统] 运行组织 跳过成环人格关系 数量={} 边={}",
             removed.len(),
             edges
         ));

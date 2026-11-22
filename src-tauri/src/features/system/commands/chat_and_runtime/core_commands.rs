@@ -357,8 +357,7 @@ async fn confirm_plan_and_continue_inner(
         match compaction_result {
             Ok(result) => {
                 runtime_log_info(format!(
-                    "[上下文整理] 计划确认前压缩完成 conversation_id={} merged_memories={} warning={}",
-                    conversation_id,
+                    "[聊天] 计划确认前压缩完成 合并记忆数={} 警告={}",
                     result.merged_memories,
                     result.warning.as_deref().unwrap_or("")
                 ));
@@ -396,11 +395,8 @@ async fn confirm_plan_and_continue_inner(
         ChatEventIngress::Direct(event) => {
             trigger_chat_event_after_ingress(state, ChatEventIngress::Direct(event));
         }
-        ChatEventIngress::Queued { event_id } => {
-            runtime_log_info(format!(
-                "[计划] 确认后继续执行已入队 conversation_id={} event_id={}",
-                conversation_id, event_id
-            ));
+        ChatEventIngress::Queued { .. } => {
+            runtime_log_info(format!("[系统] 确认后继续执行已入队"));
         }
     }
     trigger_chat_queue_processing(state);
@@ -443,8 +439,8 @@ fn read_plan_file_content_inner(
             if let Err(err) = std::fs::metadata(candidate) {
                 if err.kind() == std::io::ErrorKind::NotFound {
                     runtime_log_info(format!(
-                        "[计划] 读取计划文件跳过，任务=读取计划文件内容，conversation_id={}，path={}，reason=文件不存在",
-                        normalized_conversation_id, normalized_path
+                        "[系统] 读取计划文件跳过 任务=读取计划文件内容 文件={} 原因=文件不存在",
+                        normalized_path
                     ));
                     return Ok(String::new());
                 }
@@ -926,16 +922,15 @@ fn emit_conversation_message_appended_event(
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
             runtime_log_error(format!(
-                "[聊天推送] append 消息事件发送失败：锁已损坏，conversation_id={}, error={:?}",
-                conversation_id, err
+                "[聊天] append 消息事件发送失败：锁已损坏 错误={}",
+                err
             ));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_error(format!(
-            "[聊天推送] append 消息事件发送失败：app_handle 不可用，conversation_id={}",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] append 消息事件发送失败：app_handle 不可用"
         ));
         return;
     };
@@ -946,9 +941,7 @@ fn emit_conversation_message_appended_event(
     ide_chat_broadcast_notification("conversation.messageAppended", serde_json::json!(&payload));
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT, payload) {
         runtime_log_error(format!(
-            "[聊天推送] append 消息事件发送失败：conversation_id={}, message_id={}, error={}",
-            conversation_id,
-            message.id,
+            "[聊天] append 消息事件发送失败 错误={}",
             err
         ));
     }
@@ -992,9 +985,8 @@ fn spawn_user_mention_failure_message(app_state: AppState, failure: UserMentionF
         .await
         {
             runtime_log_error(format!(
-                "[用户@委托] 写回失败结果消息失败: conversation_id={}, target_agent_id={}, error={}",
-                failure.root_conversation_id,
-                failure.target_agent_id,
+                "[委托] 写回失败结果消息失败 目标人格={} 错误={}",
+                failure.target_agent_name,
                 err
             ));
         }
@@ -1060,9 +1052,8 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                     "user_async_delegate_completion",
                 ) {
                     runtime_log_error(format!(
-                        "[用户异步委托] 投递完成系统通知失败: conversation_id={}, target_agent_id={}, error={}",
-                        plan.root_conversation_id,
-                        plan.target_agent_id,
+                        "[委托] 投递完成系统通知失败 目标人格={} 错误={}",
+                        target_agent_name,
                         err
                     ));
                 }
@@ -1084,9 +1075,8 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                 .await
                 {
                     runtime_log_error(format!(
-                        "[用户异步委托] 写回完成结果消息失败: conversation_id={}, target_agent_id={}, error={}",
-                        plan.root_conversation_id,
-                        plan.target_agent_id,
+                        "[委托] 写回完成结果消息失败 目标人格={} 错误={}",
+                        target_agent_name,
                         err
                     ));
                 }
@@ -1112,17 +1102,15 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                 .await
                 {
                     runtime_log_error(format!(
-                        "[用户异步委托] 写回失败结果消息失败: conversation_id={}, target_agent_id={}, error={}",
-                        plan.root_conversation_id,
-                        plan.target_agent_id,
+                        "[委托] 写回失败结果消息失败 目标人格={} 错误={}",
+                        target_agent_name,
                         enqueue_err
                     ));
                 }
             }
         }
         runtime_log_info(format!(
-            "[用户异步委托] 后台执行 完成 delegate_id={} target_agent_name={}",
-            delegate.delegate_id,
+            "[委托] 后台执行 完成 目标人格名={}",
             target_agent_name
         ));
     });
@@ -1203,9 +1191,8 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
                 .await
                 {
                     runtime_log_error(format!(
-                        "[用户@委托] 写回完成结果消息失败: conversation_id={}, target_agent_id={}, error={}",
-                        plan.root_conversation_id,
-                        plan.target_agent_id,
+                        "[委托] 写回完成结果消息失败 目标人格={} 错误={}",
+                        target_agent_name,
                         err
                     ));
                 }
@@ -1231,9 +1218,8 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
                 .await
                 {
                     runtime_log_error(format!(
-                        "[用户@委托] 写回失败结果消息失败: conversation_id={}, target_agent_id={}, error={}",
-                        plan.root_conversation_id,
-                        plan.target_agent_id,
+                        "[委托] 写回失败结果消息失败 目标人格={} 错误={}",
+                        target_agent_name,
                         enqueue_err
                     ));
                 }
@@ -1244,7 +1230,7 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
 
 fn spawn_user_mention_after_message_flushed(
     app_state: AppState,
-    event_id: String,
+    _event_id: String,
     result_rx: tokio::sync::oneshot::Receiver<Result<SendChatResult, String>>,
     mention_failures: Vec<UserMentionFailurePlan>,
     mention_plans: Vec<UserMentionPlan>,
@@ -1261,14 +1247,13 @@ fn spawn_user_mention_after_message_flushed(
             }
             Ok(Err(err)) => {
                 runtime_log_warn(format!(
-                    "[用户@委托] 用户消息落库前调度失败，跳过委托: event_id={}, error={}",
-                    event_id, err
+                    "[委托] 用户消息落库前调度失败，跳过委托 错误={}",
+                    err
                 ));
             }
             Err(_) => {
                 runtime_log_warn(format!(
-                    "[用户@委托] 用户消息落库结果丢失，跳过委托: event_id={}",
-                    event_id
+                    "[委托] 用户消息落库结果丢失，跳过委托"
                 ));
             }
         }
@@ -1372,7 +1357,7 @@ async fn submit_chat_message_inner(
     let (message_parts, attachment_warnings) =
         normalize_chat_input_payload_to_message_parts(state, &input.payload, None);
     for warning in attachment_warnings {
-        runtime_log_warn(format!("[附件入站] 提交消息降级继续：{warning}"));
+        runtime_log_warn(format!("[聊天] 提交消息降级继续：{warning}"));
     }
 
     let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
@@ -1426,7 +1411,7 @@ async fn submit_chat_message_inner(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
-            runtime_log_warn(format!("[聊天发送] 缺少 conversation_id，拒绝提交用户消息"));
+            runtime_log_warn(format!("[聊天] 缺少 conversation_id，拒绝提交用户消息"));
             "缺少 conversation_id".to_string()
         })?;
 
@@ -1482,14 +1467,12 @@ async fn submit_chat_message_inner(
         )?;
 
         runtime_log_info(format!(
-            "[聊天发送] 提交前准备耗时：总计={}ms，读取配置={}ms，读取应用数据={}ms，解析人格={}ms，会话解析={}ms，conversation_id={}，agent_id={}",
+            "[聊天] 提交前准备耗时 总计={}ms 读取配置={}ms 读取应用数据={}ms 解析人格={}ms 会话解析={}ms",
             prepare_started_at.elapsed().as_millis(),
             config_elapsed_ms,
             app_data_elapsed_ms,
             agent_elapsed_ms,
-            conversation_elapsed_ms,
-            conversation_id,
-            agent_id
+            conversation_elapsed_ms
         ));
 
         (
@@ -1646,7 +1629,7 @@ async fn send_chat_message(
     let (message_parts, attachment_warnings) =
         normalize_chat_input_payload_to_message_parts(state.inner(), &input.payload, None);
     for warning in attachment_warnings {
-        runtime_log_warn(format!("[附件入站] 发送消息降级继续：{warning}"));
+        runtime_log_warn(format!("[聊天] 发送消息降级继续：{warning}"));
     }
     // 先确定 requestId，再写入用户消息 provider_meta，保证重复发送可按已落地消息幂等识别。
     let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
@@ -1680,7 +1663,7 @@ async fn send_chat_message(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
-            runtime_log_warn(format!("[聊天发送] 缺少 conversation_id，拒绝发送用户消息"));
+            runtime_log_warn(format!("[聊天] 缺少 conversation_id，拒绝发送用户消息"));
             "缺少 conversation_id".to_string()
         })?;
 
@@ -1736,14 +1719,12 @@ async fn send_chat_message(
         )?;
 
         runtime_log_info(format!(
-            "[聊天发送] 发送前准备耗时：总计={}ms，读取配置={}ms，读取应用数据={}ms，解析人格={}ms，会话解析={}ms，conversation_id={}，agent_id={}",
+            "[聊天] 发送前准备耗时 总计={}ms 读取配置={}ms 读取应用数据={}ms 解析人格={}ms 会话解析={}ms",
             prepare_started_at.elapsed().as_millis(),
             config_elapsed_ms,
             app_data_elapsed_ms,
             agent_elapsed_ms,
-            conversation_elapsed_ms,
-            conversation_id,
-            agent_id
+            conversation_elapsed_ms
         ));
 
         (
@@ -1861,7 +1842,7 @@ async fn send_user_mention_message_inner(
     let (message_parts, attachment_warnings) =
         normalize_chat_input_payload_to_message_parts(state, &input.payload, None);
     for warning in attachment_warnings {
-        runtime_log_warn(format!("[附件入站] @消息降级继续：{warning}"));
+        runtime_log_warn(format!("[聊天] @消息降级继续：{warning}"));
     }
     // 先确定 requestId，再写入用户消息 provider_meta，保证重复发送可按已落地消息幂等识别。
     let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
@@ -1894,7 +1875,7 @@ async fn send_user_mention_message_inner(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
-            runtime_log_warn(format!("[聊天发送] 缺少 conversation_id，拒绝发送用户@委托消息"));
+            runtime_log_warn(format!("[聊天] 缺少 conversation_id，拒绝发送用户@委托消息"));
             "缺少 conversation_id".to_string()
         })?;
 
@@ -1950,14 +1931,12 @@ async fn send_user_mention_message_inner(
         )?;
 
         runtime_log_info(format!(
-            "[聊天发送] 用户@委托发送前准备耗时：总计={}ms，读取配置={}ms，读取应用数据={}ms，解析人格={}ms，会话解析={}ms，conversation_id={}，agent_id={}，mention_count={}",
+            "[聊天] 用户@委托发送前准备耗时 总计={}ms 读取配置={}ms 读取应用数据={}ms 解析人格={}ms 会话解析={}ms 提及数={}",
             prepare_started_at.elapsed().as_millis(),
             config_elapsed_ms,
             app_data_elapsed_ms,
             agent_elapsed_ms,
             conversation_elapsed_ms,
-            conversation_id,
-            agent_id,
             mention_count
         ));
 
@@ -2060,10 +2039,7 @@ async fn submit_user_async_delegate_internal(
     };
     let delegate_id = spawn_user_async_delegate(state.clone(), plan)?;
     runtime_log_info(format!(
-        "[用户异步委托] 发起 完成 conversation_id={} delegate_id={} target_agent_id={} selected_message_count={}",
-        output.conversation_id,
-        delegate_id,
-        output.target_agent_id,
+        "[委托] 发起 完成 选中消息数={}",
         output.selected_message_count
     ));
     Ok(SubmitUserAsyncDelegateOutput {
@@ -2120,10 +2096,9 @@ async fn bind_active_chat_view_stream(
             on_delta.clone(),
         )?;
         runtime_log_debug(format!(
-            "[聊天] 已绑定活动聊天流: window={}, binding_id={}, conversation_id={}",
+            "[聊天] 已绑定活动聊天流 窗口={} 绑定={}",
             window_label,
             normalize_active_chat_view_binding_id(&input.binding_id),
-            conversation_id,
         ));
     } else {
         set_active_chat_view_stream_binding(
@@ -2134,7 +2109,7 @@ async fn bind_active_chat_view_stream(
             on_delta,
         )?;
         runtime_log_debug(format!(
-            "[聊天] 已取消活动聊天流绑定: window={}, binding_id={}",
+            "[聊天] 已取消活动聊天流绑定 窗口={} 绑定={}",
             window_label,
             normalize_active_chat_view_binding_id(&input.binding_id),
         ));
@@ -2152,7 +2127,7 @@ async fn unbind_active_chat_view_stream(
     let binding_id = input.unwrap_or_default().binding_id;
     clear_active_chat_view_stream_binding(state.inner(), &window_label, &binding_id)?;
     runtime_log_debug(format!(
-        "[聊天] 已取消活动聊天流订阅: window={}, binding_id={}",
+        "[聊天] 已取消活动聊天流订阅 窗口={} 绑定={}",
         window_label,
         normalize_active_chat_view_binding_id(&binding_id),
     ));
@@ -2340,8 +2315,7 @@ async fn stop_chat_message_inner(
     }
     if aborted_delegate_children > 0 {
         runtime_log_info(format!(
-            "[聊天] 停止请求已级联到同步委托子会话: session={}, child_count={}",
-            chat_key,
+            "[聊天] 停止请求已级联到同步委托子会话 子项数={}",
             aborted_delegate_children
         ));
     }
@@ -2491,8 +2465,7 @@ fn interrupt_conversation_runtime_inner(
         )?;
     }
     runtime_log_info(format!(
-        "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
-        conversation_id,
+        "[聊天] 会话运行已中断 已中止={} 清空队列数={} 中止子项数={}",
         aborted,
         cleared_queue_count,
         aborted_delegate_children
@@ -2619,9 +2592,8 @@ async fn get_conversation_runtime_snapshot(
     }
     let snapshot = read_conversation_runtime_snapshot(state.inner(), normalized_conversation_id)?;
     runtime_log_debug(format!(
-        "[聊天运行态恢复] 完成，任务=读取会话运行态快照，conversation_id={}，runtime_state={:?}，is_processing={}，pending_queue_count={}，has_visible_progress={}，assistant_text_len={}，stream_block_count={}",
-        snapshot.conversation_id,
-        snapshot.runtime_state,
+        "[聊天] 完成 任务=读取会话运行态快照 运行态={} 处理中={} 待处理队列数={} 有可见进度={} 回复长度={} 流式块数={}",
+        snapshot.runtime_state.as_str(),
         snapshot.is_processing,
         snapshot.pending_queue_count,
         snapshot.stream_cache.has_visible_progress,

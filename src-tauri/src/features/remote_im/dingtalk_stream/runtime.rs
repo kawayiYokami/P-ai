@@ -98,7 +98,7 @@ impl DingtalkStreamManager {
 
     #[cfg_attr(test, allow(dead_code))]
     async fn stop_channel_inner(&self, channel_id: &str) {
-        self.add_log(channel_id, "info", "[钉钉生命周期] 开始停止渠道").await;
+        self.add_log(channel_id, "info", "[远程IM] 钉钉生命周期 开始停止渠道").await;
         if let Some(tx) = self.stop_senders.write().await.remove(channel_id) {
             let _ = tx.send(true);
         }
@@ -107,13 +107,13 @@ impl DingtalkStreamManager {
                 self.add_log(
                     channel_id,
                     "warn",
-                    &format!("[钉钉生命周期] task={} status=失败 trigger=stop_channel error={err}", channel_id),
+                    &format!("[远程IM] 钉钉生命周期 task={} status=失败 trigger=stop_channel error={err}", channel_id),
                 )
                 .await;
             }
         }
         self.set_state(channel_id, false, None, None).await;
-        self.add_log(channel_id, "info", "[钉钉生命周期] 渠道已停止").await;
+        self.add_log(channel_id, "info", "[远程IM] 钉钉生命周期 渠道已停止").await;
     }
 
     #[allow(dead_code)]
@@ -132,7 +132,7 @@ impl DingtalkStreamManager {
             .reconcile_serialized(&channel.id, || async move {
                 self.stop_channel_inner(&channel.id).await;
                 if channel.enabled && channel.platform == RemoteImPlatform::Dingtalk {
-                    self.add_log(&channel.id, "info", "[钉钉生命周期] 渠道已启用，开始启动 Stream")
+                    self.add_log(&channel.id, "info", "[远程IM] 钉钉生命周期 渠道已启用，开始启动 Stream")
                         .await;
                     self.start_channel_inner(channel.clone(), state).await?;
                 } else {
@@ -140,7 +140,7 @@ impl DingtalkStreamManager {
                         .set_status_text(&channel.id, Some("disabled".to_string()))
                         .await;
                     self.port_service.set_last_error(&channel.id, None).await;
-                    self.add_log(&channel.id, "info", "[钉钉生命周期] 渠道已停用，跳过启动")
+                    self.add_log(&channel.id, "info", "[远程IM] 钉钉生命周期 渠道已停用，跳过启动")
                         .await;
                 }
                 Ok(())
@@ -151,7 +151,7 @@ impl DingtalkStreamManager {
     async fn start_channel_inner(&self, channel: RemoteImChannelConfig, state: AppState) -> Result<(), String> {
         let channel_id = channel.id.clone();
         self.stop_channel_inner(&channel_id).await;
-        self.add_log(&channel_id, "info", "[钉钉生命周期] 正在创建 Stream 任务")
+        self.add_log(&channel_id, "info", "[远程IM] 钉钉生命周期 正在创建 Stream 任务")
             .await;
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         self.stop_senders
@@ -167,7 +167,7 @@ impl DingtalkStreamManager {
                     &task_channel_id,
                     "info",
                     &format!(
-                        "[钉钉生命周期] task={} status=开始 trigger=start_channel key_counts=0 duration_ms=0",
+                        "[远程IM] 钉钉生命周期 task={} status=开始 trigger=start_channel key_counts=0 duration_ms=0",
                         task_channel_id
                     ),
                 )
@@ -202,7 +202,7 @@ impl DingtalkStreamManager {
                                 &task_channel_id,
                                 "warn",
                                 &format!(
-                                    "[钉钉生命周期] task={} status=失败 trigger=run_session backoff_secs={} error={}",
+                                    "[远程IM] 钉钉生命周期 task={} status=失败 trigger=run_session backoff_secs={} error={}",
                                     task_channel_id,
                                     DINGTALK_RECONNECT_INTERVAL_SECS,
                                     err
@@ -233,7 +233,7 @@ impl DingtalkStreamManager {
                     &task_channel_id,
                     "info",
                     &format!(
-                        "[钉钉生命周期] task={} status=完成 trigger=stop_channel key_counts=0 duration_ms=0",
+                        "[远程IM] 钉钉生命周期 task={} status=完成 trigger=stop_channel key_counts=0 duration_ms=0",
                         task_channel_id
                     ),
                 )

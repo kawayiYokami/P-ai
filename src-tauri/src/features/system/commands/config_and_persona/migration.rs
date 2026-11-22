@@ -855,7 +855,7 @@ fn export_config_migration_package_to_path(
     validate_export_migration_password(&input.password)?;
     let total_started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[迁移包导出] 开始，来源={}，已设置密码={}，密码长度={}",
+        "[存储] 开始 来源={} 已设置密码={} 密码长度={}",
         source,
         !input.password.trim().is_empty(),
         input.password.chars().count()
@@ -865,7 +865,7 @@ fn export_config_migration_package_to_path(
     let payload = build_export_payload(state)?;
     let payload_elapsed_ms = payload_started_at.elapsed().as_millis();
     runtime_log_debug(format!(
-        "[迁移包导出] 完成，来源={}，阶段=生成数据，供应商数={}，API配置数={}，记忆数={}，耗时毫秒={}",
+        "[存储] 完成 来源={} 阶段=生成数据 供应商数={} API配置数={} 记忆数={} 耗时毫秒={}",
         source,
         payload.config.api_providers.len(),
         payload.config.api_configs.len(),
@@ -880,7 +880,7 @@ fn export_config_migration_package_to_path(
     };
     write_migration_package(path, input.password.trim(), &manifest, &payload)?;
     runtime_log_debug(format!(
-        "[迁移包导出] 完成，来源={}，阶段=写入迁移包，路径={}，供应商数={}，API配置数={}，记忆数={}，总耗时毫秒={}",
+        "[存储] 完成 来源={} 阶段=写入迁移包 路径={} 供应商数={} API配置数={} 记忆数={} 总耗时毫秒={}",
         source,
         path.to_string_lossy(),
         payload.config.api_providers.len(),
@@ -925,7 +925,7 @@ fn export_config_migration_package_for_web(
         .map_err(|err| format!("读取迁移包导出结果失败 ({}): {err}", temp_path.display()));
     if let Err(err) = std::fs::remove_file(&temp_path) {
         runtime_log_warn(format!(
-            "[迁移包导出] 失败，阶段=清理临时文件，路径={}，异常={:?}",
+            "[存储] 失败 阶段=清理临时文件 路径={} 异常={}",
             temp_path.display(),
             err
         ));
@@ -1008,7 +1008,7 @@ fn preview_import_config_migration_package_for_web(
     let result = preview_import_config_migration_package_from_path(&input, state, &temp_path);
     if let Err(err) = std::fs::remove_file(&temp_path) {
         runtime_log_warn(format!(
-            "[迁移包导入] 失败，阶段=清理上传临时文件，路径={}，异常={:?}",
+            "[存储] 失败 阶段=清理上传临时文件 路径={} 异常={}",
             temp_path.display(),
             err
         ));
@@ -1086,7 +1086,7 @@ fn apply_import_config_migration_package_inner(
 
     if let Err(err) = std::fs::remove_dir_all(&preview_dir) {
         runtime_log_warn(format!(
-            "[迁移包导入] 失败，阶段=清理预检目录，路径={}，异常={:?}",
+            "[存储] 失败 阶段=清理预检目录 路径={} 异常={}",
             preview_dir.display(),
             err
         ));

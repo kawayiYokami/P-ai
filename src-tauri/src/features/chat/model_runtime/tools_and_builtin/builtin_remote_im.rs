@@ -34,7 +34,7 @@ impl RuntimeValueTool for BuiltinContactSendFilesTool {
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         Box::pin(async move {
             runtime_log_debug(format!(
-                "[工具调试] 内置工具执行开始 name=contact_send_files args={}",
+                "[工具] 内置工具执行开始 工具=contact_send_files 参数={}",
                 debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
             ));
             let result = builtin_contact_send_files(&self.app_state, &self.session_id, args)
@@ -42,11 +42,11 @@ impl RuntimeValueTool for BuiltinContactSendFilesTool {
                 .map_err(ToolInvokeError::from);
             match &result {
                 Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=contact_send_files result={}",
+                    "[工具] 内置工具执行完成 工具=contact_send_files 结果={}",
                     debug_value_snippet(v, 240)
                 )),
                 Err(err) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行失败 name=contact_send_files err={err}"
+                    "[工具] 内置工具执行失败 工具=contact_send_files 原因={err}"
                 )),
             }
             result
@@ -375,7 +375,7 @@ async fn remote_im_send_content_payload(
             contact,
             "info",
             format!(
-                "[外发] 跳过: contact={}, action={}, 原因=联系人处于闭嘴状态",
+                "[远程IM] 外发 跳过: contact={}, action={}, 原因=联系人处于闭嘴状态",
                 remote_im_contact_log_label(contact),
                 action.trim()
             ),
@@ -403,7 +403,7 @@ async fn remote_im_send_content_payload(
                 contact,
                 "warn",
                 format!(
-                    "[外发] 失败: contact={}, action={}, preview={}, 错误={}",
+                    "[远程IM] 外发 失败: contact={}, action={}, preview={}, 错误={}",
                     remote_im_contact_log_label(contact),
                     action.trim(),
                     content_digest.text_preview,
@@ -418,7 +418,7 @@ async fn remote_im_send_content_payload(
         contact,
         "info",
         format!(
-            "[外发] 完成: {}{}",
+            "[远程IM] 外发 完成: {}{}",
             content_digest.text_preview,
             if content_digest.image_count + content_digest.file_count + content_digest.other_count
                 == 0
@@ -467,8 +467,7 @@ fn remote_im_bound_contact_context_from_runtime(
         let source = remote_im_auto_send_source_for_contact_conversation(state, &conversation_id)?
             .ok_or_else(|| "当前轮次未绑定联系人，无法调用联系人专用工具".to_string())?;
         runtime_log_debug(format!(
-            "[联系人文件发送] 使用会话绑定联系人，conversation_id={}, contact_id={}",
-            conversation_id, source.remote_contact_id
+            "[工具] 使用会话绑定联系人"
         ));
         source
     };

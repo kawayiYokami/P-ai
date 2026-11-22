@@ -101,7 +101,7 @@ impl ConversationDomainLock {
                         if let Some(owner) = owner_before_wait {
                             let owner_held_ms = owner.acquired_at.elapsed().as_millis();
                             runtime_log_debug(format!(
-                                "[会话锁] 等待完成，等待任务={}，等待线程={}，等待毫秒={}，占用任务={}，占用线程={}，占用毫秒={}",
+                                "[聊天] 会话锁 等待完成 等待任务={} 等待线程={} 等待毫秒={} 占用任务={} 占用线程={} 占用毫秒={}",
                                 task_name,
                                 waiter_thread,
                                 waited_ms,
@@ -111,7 +111,7 @@ impl ConversationDomainLock {
                             ));
                         } else {
                             runtime_log_debug(format!(
-                                "[会话锁] 等待完成，等待任务={}，等待线程={}，等待毫秒={}",
+                                "[聊天] 会话锁 等待完成 等待任务={} 等待线程={} 等待毫秒={}",
                                 task_name, waiter_thread, waited_ms
                             ));
                         }
@@ -142,7 +142,7 @@ impl ConversationDomainLock {
                                 task_name, waiter_thread, waited_ms
                             )
                         };
-                        runtime_log_error(format!("[会话锁] 失败，任务=等待会话锁，error={message}"));
+                        runtime_log_error(format!("[聊天] 会话锁 失败 任务=等待会话锁 错误={message}"));
                         return Err(message);
                     }
                     if waited_ms >= next_wait_log_ms {
@@ -150,7 +150,7 @@ impl ConversationDomainLock {
                         if let Some(owner) = owner {
                             let owner_held_ms = owner.acquired_at.elapsed().as_millis();
                             runtime_log_warn(format!(
-                                "[会话锁] 等待中，等待任务={}，等待线程={}，等待毫秒={}，占用任务={}，占用线程={}，占用毫秒={}",
+                                "[聊天] 会话锁 等待中 等待任务={} 等待线程={} 等待毫秒={} 占用任务={} 占用线程={} 占用毫秒={}",
                                 task_name,
                                 waiter_thread,
                                 waited_ms,
@@ -160,7 +160,7 @@ impl ConversationDomainLock {
                             ));
                         } else {
                             runtime_log_warn(format!(
-                                "[会话锁] 等待中，等待任务={}，等待线程={}，等待毫秒={}",
+                                "[聊天] 会话锁 等待中 等待任务={} 等待线程={} 等待毫秒={}",
                                 task_name, waiter_thread, waited_ms
                             ));
                         }
@@ -226,8 +226,8 @@ impl ConversationMutationGate {
                 let waited_ms = started_at.elapsed().as_millis();
                 if waited_ms >= CONVERSATION_LOCK_SLOW_WAIT_MS {
                     runtime_log_debug(format!(
-                        "[会话写入门] 等待完成，任务={}，conversation_id={}，线程={}，等待毫秒={}",
-                        task_name, conversation_id, waiter_thread, waited_ms
+                        "[聊天] 会话写入门 等待完成 任务={} 线程={} 等待毫秒={}",
+                        task_name, waiter_thread, waited_ms
                     ));
                 }
                 return Ok(TimedConversationMutationGuard {
@@ -241,8 +241,8 @@ impl ConversationMutationGate {
             let waited_ms = started_at.elapsed().as_millis();
             if waited_ms >= next_wait_log_ms {
                 runtime_log_warn(format!(
-                    "[会话写入门] 等待中，任务={}，conversation_id={}，线程={}，等待毫秒={}",
-                    task_name, conversation_id, waiter_thread, waited_ms
+                    "[聊天] 会话写入门 等待中 任务={} 线程={} 等待毫秒={}",
+                    task_name, waiter_thread, waited_ms
                 ));
                 next_wait_log_ms += CONVERSATION_LOCK_WAIT_LOG_REPEAT_MS;
             }
@@ -264,8 +264,8 @@ impl Drop for TimedConversationMutationGuard<'_> {
         let held_ms = self.acquired_at.elapsed().as_millis();
         if held_ms >= CONVERSATION_LOCK_SLOW_HOLD_MS {
             runtime_log_debug(format!(
-                "[会话写入门] 持有完成，任务={}，conversation_id={}，线程={}，持有毫秒={}",
-                self.task_name, self.conversation_id, self.thread, held_ms
+                "[聊天] 会话写入门 持有完成 任务={} 线程={} 持有毫秒={}",
+                self.task_name, self.thread, held_ms
             ));
         }
     }
@@ -351,7 +351,7 @@ impl Drop for TimedConversationLockGuard<'_> {
         }
         if held_ms >= CONVERSATION_LOCK_SLOW_HOLD_MS {
             runtime_log_debug(format!(
-                "[会话锁] 持有完成，任务={}，线程={}，持有毫秒={}",
+                "[聊天] 会话锁 持有完成 任务={} 线程={} 持有毫秒={}",
                 self.task_name, self.thread, held_ms
             ));
         }
@@ -359,9 +359,12 @@ impl Drop for TimedConversationLockGuard<'_> {
 }
 
 fn current_thread_descriptor() -> String {
-    let thread = std::thread::current();
-    let name = thread.name().unwrap_or("unnamed");
-    format!("{}:{:?}", name, thread.id())
+    // 只取线程名。原先拼了 `:{:?}` 的 ThreadId，输出成 `tokio-rt-worker:ThreadId(4698)`，
+    // 那是调试器里的东西，写进 INFO 日志没人看得懂。
+    std::thread::current()
+        .name()
+        .unwrap_or("unnamed")
+        .to_string()
 }
 
 #[track_caller]

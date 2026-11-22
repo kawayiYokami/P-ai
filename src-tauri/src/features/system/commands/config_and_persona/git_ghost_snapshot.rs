@@ -249,8 +249,7 @@ pub(crate) async fn create_main_workspace_git_ghost_snapshot_record(
 ) -> Option<UserMessageGitGhostSnapshotRecord> {
     if !GIT_GHOST_SNAPSHOT_ENABLED {
         runtime_log_warn(format!(
-            "[Git幽灵快照] 跳过，conversation_id={}，message_id={}，reason=feature_disabled",
-            conversation.id, user_message_id
+            "[系统] 跳过 原因=feature_disabled"
         ));
         return None;
     }
@@ -286,9 +285,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
         Err(err) => {
             record.error = Some(err);
             runtime_log_warn(format!(
-                "[Git幽灵快照] 跳过，conversation_id={}，message_id={}，workspace={}，reason=not_git_repo",
-                conversation_id,
-                user_message_id,
+                "[系统] 跳过 工作区={} 原因=not_git_repo",
                 workspace_path.display()
             ));
             return record;
@@ -301,9 +298,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
             record.status = "failed".to_string();
             record.error = Some(err);
             runtime_log_error(format!(
-                "[Git幽灵快照] 失败，conversation_id={}，message_id={}，workspace={}，stage=list_untracked，error={}",
-                conversation_id,
-                user_message_id,
+                "[系统] 失败 工作区={} 阶段=list_untracked 错误={}",
                 workspace_path.display(),
                 record.error.as_deref().unwrap_or_default()
             ));
@@ -343,9 +338,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
             record.status = "failed".to_string();
             record.error = Some(err);
             runtime_log_error(format!(
-                "[Git幽灵快照] 失败，conversation_id={}，message_id={}，workspace={}，stage=read_tree，error={}",
-                conversation_id,
-                user_message_id,
+                "[系统] 失败 工作区={} 阶段=read_tree 错误={}",
                 workspace_path.display(),
                 record.error.as_deref().unwrap_or_default()
             ));
@@ -363,9 +356,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
         record.status = "failed".to_string();
         record.error = Some(err);
         runtime_log_error(format!(
-            "[Git幽灵快照] 失败，conversation_id={}，message_id={}，workspace={}，stage=add_all，error={}",
-            conversation_id,
-            user_message_id,
+            "[系统] 失败 工作区={} 阶段=add_all 错误={}",
             workspace_path.display(),
             record.error.as_deref().unwrap_or_default()
         ));
@@ -384,9 +375,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
             record.status = "failed".to_string();
             record.error = Some(err);
             runtime_log_error(format!(
-                "[Git幽灵快照] 失败，conversation_id={}，message_id={}，workspace={}，stage=write_tree，error={}",
-                conversation_id,
-                user_message_id,
+                "[系统] 失败 工作区={} 阶段=write_tree 错误={}",
                 workspace_path.display(),
                 record.error.as_deref().unwrap_or_default()
             ));
@@ -418,9 +407,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
             record.status = "failed".to_string();
             record.error = Some(err);
             runtime_log_error(format!(
-                "[Git幽灵快照] 失败，conversation_id={}，message_id={}，workspace={}，stage=commit_tree，error={}",
-                conversation_id,
-                user_message_id,
+                "[系统] 失败 工作区={} 阶段=commit_tree 错误={}",
                 workspace_path.display(),
                 record.error.as_deref().unwrap_or_default()
             ));
@@ -431,9 +418,7 @@ async fn create_git_ghost_snapshot_record_for_workspace(
     record.status = "created".to_string();
     record.ghost_commit_id = Some(commit_id.clone());
     runtime_log_debug(format!(
-        "[Git幽灵快照] 完成，conversation_id={}，message_id={}，workspace={}，commit_id={}",
-        conversation_id,
-        user_message_id,
+        "[系统] 完成 工作区={} 提交={}",
         workspace_path.display(),
         commit_id
     ));
@@ -517,8 +502,7 @@ pub(crate) async fn restore_main_workspace_from_git_ghost_snapshot(
 ) -> Result<(), String> {
     if !GIT_GHOST_SNAPSHOT_ENABLED {
         runtime_log_warn(format!(
-            "[Git幽灵快照] 跳过恢复，conversation_id={}，message_id={}，reason=feature_disabled",
-            snapshot.conversation_id, snapshot.user_message_id
+            "[系统] 跳过恢复 原因=feature_disabled"
         ));
         return Ok(());
     }

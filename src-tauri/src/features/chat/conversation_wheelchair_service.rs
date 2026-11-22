@@ -196,8 +196,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         .is_some()
     {
         runtime_log_info(format!(
-            "[护航] 跳过，任务=发起委托，conversation_id={}，原因=goal 进行中",
-            conversation_id
+            "[聊天] 跳过 任务=发起委托 原因=goal 进行中"
         ));
         return Ok(());
     }
@@ -272,8 +271,7 @@ pub(crate) fn start_wheelchair_delegate_after_reply(
         finish_wheelchair_delegate(&state_for_run, &conversation_for_run, &delegate_for_run, run_result);
     });
     runtime_log_info(format!(
-        "[护航] 已发起委托，conversation_id={}，delegate_id={}",
-        conversation_id, delegate.delegate_id
+        "[聊天] 已发起委托"
     ));
     Ok(())
 }
@@ -292,8 +290,8 @@ fn finish_wheelchair_delegate(
     let archived_at = now_iso();
     if let Err(err) = delegate_runtime_thread_archive(state, &delegate.delegate_id, &archived_at) {
         runtime_log_warn(format!(
-            "[护航] 归档委托失败，delegate_id={}，error={}",
-            delegate.delegate_id, err
+            "[聊天] 归档委托失败 原因={}",
+            err
         ));
     }
     let Ok(result) = run_result else {
@@ -305,8 +303,7 @@ fn finish_wheelchair_delegate(
             DELEGATE_STATUS_FAILED,
         );
         runtime_log_info(format!(
-            "[护航] 委托没有可用结果，conversation_id={}，delegate_id={}",
-            conversation_id, delegate.delegate_id
+            "[聊天] 委托没有可用结果"
         ));
         return;
     };
@@ -319,8 +316,7 @@ fn finish_wheelchair_delegate(
     );
     let Some(advice) = wheelchair_advice_from_tool_calls(result.assistant_message.as_ref()) else {
         runtime_log_info(format!(
-            "[护航] 委托没有给出 advise 工具调用，conversation_id={}，delegate_id={}",
-            conversation_id, delegate.delegate_id
+            "[聊天] 委托没有给出 advise 工具调用"
         ));
         return;
     };
@@ -340,8 +336,8 @@ fn finish_wheelchair_delegate(
             enqueue_system_user_forward(state, conversation_id, &guidance, "wheelchair_guide")
         {
             runtime_log_warn(format!(
-                "[护航] 系统引导入队失败，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 系统引导入队失败 原因={}",
+                err
             ));
         }
     }
@@ -351,24 +347,22 @@ fn finish_wheelchair_delegate(
         let broadcast =
             emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id);
         runtime_log_info(format!(
-            "[护航] 广播建议，conversation_id={}，账本已写入={}，概览广播={:?}",
-            conversation_id,
+            "[聊天] 广播建议 账本已写入={} 概览广播={}",
             get_conversation_wheelchair_suggestion(state, conversation_id)
                 .ok()
                 .flatten()
                 .is_some(),
-            broadcast
+            broadcast.map(|ok| ok.to_string()).unwrap_or_else(|err| format!("失败: {err}"))
         ));
     }
     if !advice_landed {
         runtime_log_warn(format!(
-            "[护航] 本次建议未落地，conversation_id={}，target={}",
-            conversation_id, advice_target
+            "[聊天] 本次建议未落地 目标={}",
+            advice_target
         ));
     }
     runtime_log_info(format!(
-        "[护航] 完成，任务=落地建议，conversation_id={}，delegate_id={}",
-        conversation_id, delegate.delegate_id
+        "[聊天] 完成 任务=落地建议"
     ));
 }
 

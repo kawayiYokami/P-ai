@@ -907,7 +907,7 @@ fn set_stream_cache_persisted_assistant_message_id(
     let mut slots = match lock_conversation_runtime_slots(state) {
         Ok(slots) => slots,
         Err(err) => {
-            runtime_log_error(format!("[聊天流式缓存] 更新 persisted_assistant_message_id 失败，锁错误: {err}"));
+            runtime_log_error(format!("[聊天] 更新 persisted_assistant_message_id 失败，锁错误: {err}"));
             return;
         }
     };
@@ -980,7 +980,7 @@ fn set_stream_cache_context_usage(
         Ok(slots) => slots,
         Err(err) => {
             runtime_log_warn(format!(
-                "[聊天流式缓存] 更新上下文用量失败，锁错误: {err}"
+                "[聊天] 更新上下文用量失败，锁错误: {err}"
             ));
             return;
         }
@@ -1143,8 +1143,7 @@ fn dispatch_assistant_delta_to_active_view(
             Some("assistant_tool_event") | Some("assistant_tool_result") | Some("tool_status")
         ) {
             runtime_log_debug(format!(
-                "[聊天流式订阅] 跳过，conversation_id={} kind={} reason=无订阅者",
-                conversation_id.trim(),
+                "[聊天] 跳过 类型={} 原因=无订阅者",
                 event.kind.as_deref().unwrap_or("delta"),
             ));
         }
@@ -1174,8 +1173,7 @@ fn dispatch_assistant_delta_to_active_view(
         let (block_count, reasoning_len, text_len, tool_count) =
             stream_blocks_debug_counts(stream_cache_blocks);
         runtime_log_error(format!(
-            "[聊天流式块][后端发送失败] conversation_id={} kind={} channel_targets={} delivered={} failed={} has_stream_cache={} block_count={} reasoning_len={} text_len={} tool_count={}",
-            conversation_id.trim(),
+            "[聊天] 类型={} 渠道目标={} 已投递={} 失败={} 有流缓存={} 块数={} 推理长度={} 文本长度={} 工具数={}",
             event.kind.as_deref().unwrap_or("delta"),
             target_count,
             delivered || ide_sidebar_delivered,
@@ -1266,7 +1264,7 @@ pub(crate) fn clear_window_chat_view_stream_bindings(
     }
     if !removed.is_empty() {
         runtime_log_debug(format!(
-            "[聊天流式订阅] 窗口重载后清理残留绑定: window={}, removed={}",
+            "[聊天] 窗口重载后清理残留绑定 窗口={} 移除={}",
             window_label,
             removed.len()
         ));

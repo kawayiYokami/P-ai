@@ -181,7 +181,7 @@ async fn generate_images(
         "生成"
     };
     runtime_log_info(format!(
-        "[图像生成] 开始，操作={}，供应商={}，类型={}，模型={}，数量={}，输入图={}",
+        "[工具] 图像生成 开始 操作={} 供应商={} 类型={} 模型={} 数量={} 输入图={}",
         operation_label,
         resolved.provider.name,
         resolved.provider.provider_type.as_str(),
@@ -231,7 +231,7 @@ async fn generate_images(
         return Err("供应商未返回可保存的图片".to_string());
     }
     runtime_log_info(format!(
-        "[图像生成] 完成，操作={}，供应商={}，模型={}，图片数={}，耗时毫秒={}",
+        "[工具] 图像生成 完成 操作={} 供应商={} 模型={} 图片数={} 耗时={}ms",
         operation_label,
         resolved.provider.name,
         resolved.model.model,

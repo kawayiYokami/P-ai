@@ -153,7 +153,7 @@ fn codex_usage_log_info(
         format!(" {extras}")
     };
     runtime_log_info(format!(
-        "[Codex用量] 任务=周用量查询 状态={} provider_id={} 触发={} 耗时毫秒={} 时间={}{}",
+        "[系统] 任务=周用量查询 状态={} 供应商={} 触发={} 耗时毫秒={} 时间={}{}",
         status,
         provider_id.trim(),
         trigger,
@@ -529,7 +529,7 @@ async fn codex_consume_rate_limit_reset_credit(
         .await
         .map_err(|error| error.message)?;
     runtime_log_info(format!(
-        "[Codex用量] 任务=额度重置 状态=完成 provider_id={} outcome={}",
+        "[系统] 任务=额度重置 状态=完成 供应商={} 结果={}",
         provider_id, result.outcome
     ));
     Ok(result)

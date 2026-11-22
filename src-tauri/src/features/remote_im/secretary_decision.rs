@@ -394,7 +394,7 @@ fn remote_im_resolve_secretary_contact(
     };
     if activated_sources.len() > 1 {
         runtime_log_warn(format!(
-            "[远程联系人秘书] 本轮激活联系人超过 1 个，跳过秘书判断: source_count={}",
+            "[远程IM] 本轮激活联系人超过 1 个，跳过秘书判断 来源数={}",
             activated_sources.len()
         ));
         return Ok(None);
@@ -431,7 +431,7 @@ async fn run_remote_im_secretary_decision(
     // 「配置了但调用失败」仍走下面的错误路径——那是另一件事，不跟着一起改。
     let Some(review_api_config_id) = current_tool_review_api_config_id(state)? else {
         runtime_log_info(
-            "[远程联系人秘书] 跳过，任务=智能判断，reason=未配置快速模型，fallback=每条都回复"
+            "[远程IM] 跳过 任务=智能判断 原因=未配置快速模型 兜底=每条都回复"
                 .to_string(),
         );
         return Ok(RemoteImSecretaryDecision {

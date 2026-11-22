@@ -142,8 +142,8 @@ impl ConversationServiceV2 {
                 Ok(agent_id) => Some(agent_id),
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，原因={}",
-                        contact.id, err
+                        "[聊天] 跳过 任务=同步联系人会话绑定 原因={}",
+                        err
                     ));
                     None
                 }
@@ -214,9 +214,8 @@ impl ConversationServiceV2 {
                     continue;
                 };
                 if !remote_im_contact_binding_matches(&latest_contact, &baseline) {
-                    runtime_log_warn(format!(
-                        "[联系人会话] 跳过过期绑定修复，contact_id={}，原因=用户配置已变化",
-                        contact_id
+                    runtime_log_info(format!(
+                        "[聊天] 跳过过期绑定修复 原因=用户配置已变化"
                     ));
                     continue;
                 }
@@ -231,8 +230,8 @@ impl ConversationServiceV2 {
                 conversation_id,
             ) {
                 runtime_log_warn(format!(
-                    "[联系人会话] 会话列表继续返回，路由同步降级，contact_id={}，conversation_id={}，error={}",
-                    contact.id, conversation_id, err
+                    "[聊天] 会话列表继续返回，路由同步降级 原因={}",
+                    err
                 ));
             }
         }
@@ -522,9 +521,7 @@ impl ConversationServiceV2 {
                             Ok(conversation_meta) => Some(conversation_meta),
                             Err(err) => {
                                 runtime_log_warn(format!(
-                                    "[联系人会话] 警告，任务=clear_remote_im_contact_conversation_lookup，conversation_id={}，contact_id={}，error={}",
-                                    item.id,
-                                    normalized_contact_id,
+                                    "[聊天] 警告 任务=clear_remote_im_contact_conversation_lookup 原因={}",
                                     err
                                 ));
                                 None
@@ -539,8 +536,8 @@ impl ConversationServiceV2 {
                         .map(|conversation_meta| conversation_meta.id.to_string()),
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[联系人会话] 警告，任务=clear_remote_im_contact_read_chat_index，contact_id={}，error={}",
-                            normalized_contact_id, err
+                            "[聊天] 警告 任务=clear_remote_im_contact_read_chat_index 原因={}",
+                            err
                         ));
                         None
                     }
@@ -570,9 +567,8 @@ impl ConversationServiceV2 {
             &conversation_meta.id,
         )?;
         if !cleared {
-            runtime_log_warn(format!(
-                "[联系人会话] 跳过清空联系人会话，contact_id={}，conversation_id={}，原因=绑定已被其他请求修改",
-                normalized_contact_id, conversation_meta.id
+            runtime_log_info(format!(
+                "[聊天] 跳过清空联系人会话 原因=绑定已被其他请求修改"
             ));
             return Ok(false);
         }
@@ -617,7 +613,7 @@ impl ConversationServiceV2 {
         // 来源读不到就拒绝（fail closed）：不知道来源是什么，放行等于把保证交还给会失败的那一步。
         let Ok(source_meta) = self.get_conversation_meta(state, source_conversation_id) else {
             runtime_log_warn(format!(
-                "[会话通知] 拒绝，任务=来源会话身份读取失败，source_conversation_id={source_conversation_id}，target_conversation_id={target_conversation_id}"
+                "[聊天] 拒绝 任务=来源会话身份读取失败"
             ));
             return Err(DENIED.to_string());
         };
@@ -630,7 +626,7 @@ impl ConversationServiceV2 {
             return Ok(());
         }
         runtime_log_warn(format!(
-            "[会话通知] 拒绝，任务=来源会话不能向远程渠道投递，source_conversation_id={source_conversation_id}，source_kind={source_kind}，target_conversation_id={target_conversation_id}"
+            "[聊天] 拒绝 任务=来源会话不能向远程渠道投递 来源类型={source_kind}"
         ));
         Err(DENIED.to_string())
     }
@@ -1018,8 +1014,8 @@ impl ConversationServiceV2 {
                             Ok(conversation_meta) => conversation_meta,
                             Err(err) => {
                                 runtime_log_error(format!(
-                                    "[会话索引读取] 状态=失败，任务=collect_block_cache_whitelist_conversation_ids，conversation_id={}，error={}",
-                                    item.id, err
+                                    "[聊天] 状态=失败 任务=collect_block_cache_whitelist_conversation_ids 原因={}",
+                                    err
                                 ));
                                 return None;
                             }
@@ -1110,15 +1106,11 @@ impl ConversationServiceV2 {
             )?;
         if previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str()) {
             runtime_log_info(format!(
-                "[自动推送] 完成，任务=修复远程联系人绑定会话，remote_contact_id={}，conversation_id={}，previous_conversation_id={}",
-                normalized_remote_contact_id,
-                conversation_id,
-                previous_bound_conversation_id.as_deref().unwrap_or("")
+                "[聊天] 完成 任务=修复远程联系人绑定会话"
             ));
         } else {
             runtime_log_info(format!(
-                "[自动推送] 完成，任务=解析远程联系人绑定会话，remote_contact_id={}，conversation_id={}",
-                normalized_remote_contact_id, conversation_id
+                "[聊天] 完成 任务=解析远程联系人绑定会话"
             ));
         }
         Ok(conversation_id)
@@ -1134,26 +1126,20 @@ impl ConversationServiceV2 {
     ) -> Result<(), String> {
         let normalized_target_session_id = target_session_id.trim();
         runtime_log_info(format!(
-            "[会话通知] 节点，任务=投递入口，action={}，target_conversation_id={}，message_id={}",
-            action,
-            normalized_target_session_id,
-            message.id
+            "[聊天] 节点 任务=投递入口 动作={}",
+            action
         ));
         let app_config = state_read_config_cached(state)?;
         runtime_log_info(format!(
-            "[会话通知] 节点，任务=投递配置读取完成，action={}，target_conversation_id={}，message_id={}",
-            action,
-            normalized_target_session_id,
-            message.id
+            "[聊天] 节点 任务=投递配置读取完成 动作={}",
+            action
         ));
         let target_conversation_meta = self
             .get_conversation_meta(state, normalized_target_session_id)
             .map_err(|_| "目标会话不存在".to_string())?;
         runtime_log_info(format!(
-            "[会话通知] 节点，任务=投递元数据读取完成，action={}，target_conversation_id={}，message_id={}",
-            action,
-            normalized_target_session_id,
-            message.id
+            "[聊天] 节点 任务=投递元数据读取完成 动作={}",
+            action
         ));
         if !self.conversation_meta_is_unarchived_meta_view(&target_conversation_meta) {
             return Err("目标会话不存在".to_string());
@@ -1181,12 +1167,9 @@ impl ConversationServiceV2 {
                 return Err("当前联系人不允许发送消息".to_string());
             }
             runtime_log_info(format!(
-                "[会话通知] 开始，任务=远程联系人投递，action={}，target_conversation_id={}，remote_contact_id={}，channel_id={}，message_id={}",
+                "[聊天] 开始 任务=远程联系人投递 动作={} 渠道={}",
                 action,
-                normalized_target_session_id,
-                contact.id,
-                contact.channel_id,
-                message.id
+                contact.channel_id
             ));
             remote_im_send_content_payload(
                 state,
@@ -1201,12 +1184,9 @@ impl ConversationServiceV2 {
             )
             .await?;
             runtime_log_info(format!(
-                "[会话通知] 完成，任务=远程联系人投递，action={}，target_conversation_id={}，remote_contact_id={}，channel_id={}，message_id={}",
+                "[聊天] 完成 任务=远程联系人投递 动作={} 渠道={}",
                 action,
-                normalized_target_session_id,
-                contact.id,
-                contact.channel_id,
-                message.id
+                contact.channel_id
             ));
         } else if !target_conversation_meta.visible_in_foreground_lists
             || !self.conversation_meta_is_local_normal_chat_meta_view(&target_conversation_meta)
@@ -1215,18 +1195,14 @@ impl ConversationServiceV2 {
         }
 
         runtime_log_info(format!(
-            "[会话通知] 节点，任务=投递前置检查完成，action={}，target_conversation_id={}，message_id={}，is_remote_im_contact={}",
+            "[聊天] 节点 任务=投递前置检查完成 动作={} 远程联系人标志={}",
             action,
-            normalized_target_session_id,
-            message.id,
             target_conversation_meta.is_remote_im_contact
         ));
         self.append_message(state, normalized_target_session_id, message).await?;
         runtime_log_info(format!(
-            "[会话通知] 节点，任务=通知消息写入完成，action={}，target_conversation_id={}，message_id={}",
-            action,
-            normalized_target_session_id,
-            message.id
+            "[聊天] 节点 任务=通知消息写入完成 动作={}",
+            action
         ));
         emit_conversation_message_appended_event(state, normalized_target_session_id, message);
         Ok(())

@@ -52,7 +52,7 @@ fn lock_remote_im_inspection_schedule_store(
     match remote_im_inspection_schedule_store().lock() {
         Ok(store) => store,
         Err(poisoned) => {
-            runtime_log_warn("[群聊巡检] 排期锁中毒，已恢复并保留现有排期".to_string());
+            runtime_log_warn("[远程IM] 排期锁中毒，已恢复并保留现有排期".to_string());
             poisoned.into_inner()
         }
     }

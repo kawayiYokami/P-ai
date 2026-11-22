@@ -334,7 +334,7 @@ fn conversation_search_messages(
     };
 
     runtime_log_info(format!(
-        "[会话搜索] 开始 query={} 阈值={} 来源={} 人格={} 目录={} 天数={}",
+        "[记忆] 会话搜索 开始 查询={} 阈值={} 来源={} 目录={} 天数={}",
         query,
         stop_threshold,
         if source_kinds.is_empty() {
@@ -342,7 +342,6 @@ fn conversation_search_messages(
         } else {
             source_kinds.join(",")
         },
-        agent_filter.unwrap_or("不限"),
         input.workspace_path.as_deref().unwrap_or("不限"),
         days
     ));
@@ -356,19 +355,19 @@ fn conversation_search_messages(
         cutoff,
     )?;
     runtime_log_info(format!(
-        "[会话搜索] 候选完成 会话={} 耗时={}ms",
+        "[记忆] 会话搜索 候选完成 会话={} 耗时={}ms",
         candidates.len(),
         candidate_started.elapsed().as_millis()
     ));
 
     if query.is_empty() {
-        runtime_log_info("[会话搜索] 跳过 空关键词".to_string());
+        runtime_log_info("[记忆] 会话搜索 跳过 空关键词".to_string());
         return Ok(ConversationSearchResult { hits: Vec::new() });
     }
 
     let terms = conversation_search_extract_terms(&query);
     if terms.is_empty() {
-        runtime_log_info("[会话搜索] 跳过 关键词为空".to_string());
+        runtime_log_info("[记忆] 会话搜索 跳过 关键词为空".to_string());
         return Ok(ConversationSearchResult { hits: Vec::new() });
     }
 
@@ -436,8 +435,7 @@ fn conversation_search_messages(
                         Ok(paths) => paths,
                         Err(err) => {
                             runtime_log_debug(format!(
-                                "[会话搜索] 跳过无法定位存储的会话，conversation_id={}，error={err}",
-                                candidate.id
+                                "[记忆] 会话搜索 跳过无法定位存储的会话 错误={err}"
                             ));
                             totals.skipped += 1;
                             continue;
@@ -452,8 +450,7 @@ fn conversation_search_messages(
                         Ok(read) => read,
                         Err(err) => {
                             runtime_log_debug(format!(
-                                "[会话搜索] 跳过读取失败的会话，conversation_id={}，error={err}",
-                                candidate.id
+                                "[记忆] 会话搜索 跳过读取失败的会话 错误={err}"
                             ));
                             totals.skipped += 1;
                             continue;
@@ -513,7 +510,7 @@ fn conversation_search_messages(
         for handle in handles {
             match handle.join() {
                 Ok(totals) => stage_totals.merge(totals),
-                Err(_) => runtime_log_error("[会话搜索] 扫描线程异常退出".to_string()),
+                Err(_) => runtime_log_error("[记忆] 会话搜索 扫描线程异常退出".to_string()),
             }
         }
     });
@@ -535,7 +532,7 @@ fn conversation_search_messages(
         hits.len() >= stop_threshold && stage_totals.read_conversations < candidates.len();
 
     runtime_log_info(format!(
-        "[会话搜索] 完成 命中={} 跳过={} 候选会话={} 读取会话={} 读取消息={} 跳过块={} 解析消息={} 线程={} 提前停止={} 总耗时={}ms",
+        "[记忆] 会话搜索 完成 命中={} 跳过={} 候选会话={} 读取会话={} 读取消息={} 跳过块={} 解析消息={} 线程={} 提前停止={} 总耗时={}ms",
         hits.len(),
         stage_totals.skipped,
         candidates.len(),
@@ -548,7 +545,7 @@ fn conversation_search_messages(
         started.elapsed().as_millis()
     ));
     runtime_log_info(format!(
-        "[会话搜索] 阶段耗时 定位={}ms 并行扫描={}ms（累计：读文件={} 解压={} 解析={} 渲染={} 匹配={}）",
+        "[记忆] 会话搜索 阶段耗时 定位={}ms 并行扫描={}ms（累计 读文件={} 解压={} 解析={} 渲染={} 匹配={}）",
         locate_ms,
         scan_elapsed.as_millis(),
         stage_totals.read_ms,

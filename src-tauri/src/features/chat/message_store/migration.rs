@@ -692,8 +692,8 @@ pub(super) fn migration_v2_to_v3(
             Err(MigrationV2ToV3Failure::ConversationSkipped(err)) => {
                 skipped_count += 1;
                 runtime_log_warn(format!(
-                    "[聊天存储迁移] 跳过，任务=V2到V3会话迁移，conversation_id={}，异常={}",
-                    paths.conversation_id, err
+                    "[存储] 跳过 任务=V2到V3会话迁移 异常={}",
+                    err
                 ));
             }
             Err(MigrationV2ToV3Failure::SystemFailure(err)) => return Err(err),
@@ -701,7 +701,7 @@ pub(super) fn migration_v2_to_v3(
     }
     if skipped_count > 0 {
         runtime_log_warn(format!(
-            "[聊天存储迁移] 完成，任务=V2到V3逐会话迁移，跳过会话数={}，source=保留原始文件供人工处理或显式重试",
+            "[存储] 完成 任务=V2到V3逐会话迁移 跳过会话数={} 来源=保留原始文件供人工处理或显式重试",
             skipped_count
         ));
     }

@@ -377,7 +377,7 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) => {
-            runtime_log_warn(format!("[日志] 扫描日志目录失败 dir={} err={err}", dir.display()));
+            runtime_log_warn(format!("[系统] 扫描日志目录失败 目录={} 错误={err}", dir.display()));
             return;
         }
     };
@@ -405,7 +405,7 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
         {
             if is_legacy_archive_name(rest) {
                 if let Err(err) = fs::remove_file(&path) {
-                    runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+                    runtime_log_warn(format!("[系统] 清理旧日志失败 文件={} 错误={err}", path.display()));
                 }
                 continue;
             }
@@ -420,7 +420,7 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
         if let Some(date) = legacy_date {
             if is_iso_date(date) {
                 if let Err(err) = fs::remove_file(&path) {
-                    runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+                    runtime_log_warn(format!("[系统] 清理旧日志失败 文件={} 错误={err}", path.display()));
                 }
             }
         }
@@ -429,7 +429,7 @@ fn cleanup_stale_cli_log_files(dir: &std::path::Path) {
     dated.sort_by(|a, b| b.0.cmp(&a.0));
     for (_, path) in dated.into_iter().skip(RUNTIME_LOG_FILE_KEEP) {
         if let Err(err) = fs::remove_file(&path) {
-            runtime_log_warn(format!("[日志] 清理旧日志失败 path={} err={err}", path.display()));
+            runtime_log_warn(format!("[系统] 清理旧日志失败 文件={} 错误={err}", path.display()));
         }
     }
 }
@@ -476,7 +476,7 @@ fn runtime_log_flush_pending() {
     if dropped > 0 {
         // logger 已 ready：这条 warn 会直接落盘并进内存缓冲；push 里再次调 flush 时
         // 计数已是 0，快速路径立即返回，不成环。
-        runtime_log_warn(format!("[日志] 启动期溢出丢弃 {dropped} 条"));
+        runtime_log_warn(format!("[系统] 启动期溢出丢弃 {dropped} 条"));
     }
 }
 
@@ -1535,10 +1535,10 @@ fn append_runtime_log_probe(message: Option<String>, level: Option<String>) -> R
     // 探针按调用方声明的级别落盘：排障链路需要和同链路的后端日志落在同一级别，
     // 否则用户得在日志窗口的级别过滤器之间来回切。
     match level.as_deref().map(str::trim) {
-        Some("debug") => runtime_log_debug(format!("[运行日志] {}", msg)),
-        Some("warn") => runtime_log_warn(format!("[运行日志] {}", msg)),
-        Some("error") => runtime_log_error(format!("[运行日志] {}", msg)),
-        _ => runtime_log_info(format!("[运行日志] {}", msg)),
+        Some("debug") => runtime_log_debug(format!("[系统] {}", msg)),
+        Some("warn") => runtime_log_warn(format!("[系统] {}", msg)),
+        Some("error") => runtime_log_error(format!("[系统] {}", msg)),
+        _ => runtime_log_info(format!("[系统] {}", msg)),
     }
     Ok(true)
 }
@@ -1635,21 +1635,21 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
     let cached_app_data_image_text_cache_entries = match state_service_count_image_text_cache(state) {
         Ok(count) => count,
         Err(err) => {
-            runtime_log_warn(format!("[内存统计] image_text_cache 计数失败，按 0 展示：error={err}"));
+            runtime_log_warn(format!("[系统] image_text_cache 计数失败，按 0 展示 错误={err}"));
             0
         }
     };
     let cached_app_data_pdf_text_cache_entries = match state_service_count_pdf_text_cache(state) {
         Ok(count) => count,
         Err(err) => {
-            runtime_log_warn(format!("[内存统计] pdf_text_cache 计数失败，按 0 展示：error={err}"));
+            runtime_log_warn(format!("[系统] pdf_text_cache 计数失败，按 0 展示 错误={err}"));
             0
         }
     };
     let cached_app_data_pdf_image_cache_entries = match state_service_count_pdf_image_cache(state) {
         Ok(count) => count,
         Err(err) => {
-            runtime_log_warn(format!("[内存统计] pdf_image_cache 计数失败，按 0 展示：error={err}"));
+            runtime_log_warn(format!("[系统] pdf_image_cache 计数失败，按 0 展示 错误={err}"));
             0
         }
     };

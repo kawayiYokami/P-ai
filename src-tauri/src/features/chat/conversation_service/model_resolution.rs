@@ -184,7 +184,7 @@ fn persist_conversation_model_when_changed(
     }
     conversation_service_v2().set_preferred_api_config_id(state, conversation_id, resolved.clone())?;
     runtime_log_debug(format!(
-        "[会话模型] 完成，任务={reason}，conversation_id={conversation_id}，旧值={}，新值={}",
+        "[聊天] 完成 任务={reason} 旧值={} 新值={}",
         current.unwrap_or(""),
         resolved.as_deref().unwrap_or("")
     ));
@@ -258,8 +258,8 @@ pub(crate) fn resolve_and_persist_dispatch_model(
         "发送前写回实际模型",
     ) {
         runtime_log_warn(format!(
-            "[会话模型] 跳过，任务=发送前写回实际模型，conversation_id={}，api_config_id={}，error={err}",
-            conversation_meta.id, resolved
+            "[聊天] 跳过 任务=发送前写回实际模型 会话={} 模型配置={} 原因={err}",
+            conversation_meta.title, resolved
         ));
     }
     Ok(resolved)
@@ -350,7 +350,7 @@ pub(crate) fn sync_expert_model_from_user_conversation(
     config.expert_api_config_id = resolved.clone();
     state_write_config_cached(state, &config)?;
     runtime_log_info(format!(
-        "[会话模型] 完成，任务=专家模型跟随用户选择，api_config_id={resolved}"
+        "[聊天] 完成 任务=专家模型跟随用户选择 模型配置={resolved}"
     ));
     Ok(())
 }
@@ -377,7 +377,7 @@ pub(crate) fn sync_expert_model_when_unset(
     config.expert_api_config_id = resolved.clone();
     state_write_config_cached(state, &config)?;
     runtime_log_info(format!(
-        "[会话模型] 完成，任务=补齐缺失的专家模型，api_config_id={resolved}"
+        "[聊天] 完成 任务=补齐缺失的专家模型 模型配置={resolved}"
     ));
     Ok(())
 }

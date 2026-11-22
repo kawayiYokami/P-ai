@@ -26,7 +26,7 @@ async fn describe_image_with_vision_api(
                         &vision_api.model,
                     ) {
                         runtime_log_warn(format!(
-                            "[视觉] 清理流式降级缓存失败: base_url={}, model={}, err={}",
+                            "[聊天] 清理流式降级缓存失败 地址={} 模型={} 原因={}",
                             vision_resolved.base_url, vision_api.model, clear_err
                         ));
                     }
@@ -43,12 +43,12 @@ async fn describe_image_with_vision_api(
                         &vision_api.model,
                     ) {
                         runtime_log_warn(format!(
-                            "[视觉] 标记本次运行内非流式 base_url 失败: base_url={}, err={}",
+                            "[聊天] 标记本次运行内非流式 base_url 失败 地址={} 原因={}",
                             vision_resolved.base_url, mark_err
                         ));
                     }
                     runtime_log_warn(format!(
-                        "[视觉] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
+                        "[聊天] 流式失败，已在本次运行内切换非流式重试 地址={} 模型={} 原因={}",
                         vision_resolved.base_url, vision_api.model, err
                     ));
                     call_model_genai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state), None, 1).await?

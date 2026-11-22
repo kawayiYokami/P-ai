@@ -20,10 +20,8 @@ fn persist_failed_chat_completed_tool_history(
         None,
     )?;
     runtime_log_error(format!(
-        "[聊天] 失败前工具历史落盘检查 完成 session={} persisted={} conversation_id={} tool_event_count={} error={}",
-        chat_key,
+        "[聊天] 失败前工具历史落盘检查 完成 已落盘={} 工具事件数={} 错误={}",
         persist_result.persisted,
-        persist_result.conversation_id.as_deref().unwrap_or(""),
         completed_tool_history.len(),
         error
     ));

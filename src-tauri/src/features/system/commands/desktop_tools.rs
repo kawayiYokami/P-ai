@@ -108,7 +108,7 @@ fn demo_send_native_notification(app: AppHandle) -> Result<NativeNotificationDem
         .map_err(|err| format!("读取通知权限失败：{err}"))?;
 
     runtime_log_info(format!(
-        "[通知Demo] 完成，permission_before={}，permission_after={}，sent_at={}",
+        "[系统] 完成 之前权限={} 之后权限={} 发送时间={}",
         permission_before,
         permission_after,
         sent_at
@@ -498,7 +498,7 @@ fn install_host_runtime_prerequisite_sync(
     }
 
     if let Err(first_err) = run_winget_host_runtime_install(&normalized, false) {
-        runtime_log_error(format!("[依赖安装] 普通安装失败，准备请求管理员权限，kind={}，error={}", normalized, first_err));
+        runtime_log_error(format!("[系统] 普通安装失败，准备请求管理员权限 类型={} 错误={}", normalized, first_err));
         run_winget_host_runtime_install(&normalized, true)?;
     }
 
@@ -1869,7 +1869,7 @@ async fn migrate_shell_workspace_directory(
             remove_workspace_entry_recursive(&entry.path(), &app_handle, &task_id, &mut delete_processed, total)?;
         }
         runtime_log_info(format!(
-            "[工作区迁移] 完成: old='{}', new='{}', moved_entries={}",
+            "[系统] 完成 旧值='{}' 新值='{}' 迁移条数={}",
             old_root.display(),
             new_root.display(),
             total
@@ -2488,7 +2488,7 @@ fn start_file_reader_watch_polling(app: AppHandle) {
             };
             if let Some(detail) = first_changed_log {
                 runtime_log_debug(format!(
-                    "[文件管理器] 检测到变更 {} 本次批量数={}",
+                    "[系统] 检测到变更 {} 本次批量数={}",
                     detail,
                     events.len()
                 ));
@@ -2579,7 +2579,7 @@ fn log_file_reader_read_burst(window_label: &str, path: &str) {
         .collect::<Vec<_>>()
         .join("；");
     runtime_log_debug(format!(
-        "[文件阅读窗口] 高频读取，任务=read_file_reader_file，窗口={}，100ms内次数={}，当前路径={}，最近读取=[{}]",
+        "[系统] 高频读取 任务=read_file_reader_file 窗口={}，100ms内次数={} 当前路径={} 最近读取=[{}]",
         window_label,
         traces.len(),
         path,
@@ -3012,7 +3012,7 @@ fn open_local_file_directory(path: String) -> Result<(), String> {
         // 这里是「定位并选中文件」，不是打开文件：必须用 reveal_item_in_dir。
         if let Err(err) = tauri_plugin_opener::reveal_item_in_dir(&file_path) {
             runtime_log_warn(format!(
-                "[opener] 定位文件失败，退回打开父目录 path={} err={err}",
+                "[系统] 定位文件失败，退回打开父目录 文件={} 错误={err}",
                 file_path.display()
             ));
             if let Some(parent) = file_path.parent() {

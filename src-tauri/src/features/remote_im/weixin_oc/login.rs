@@ -90,7 +90,7 @@ impl WeixinOcManager {
         self.add_log(
             &input.channel_id,
             "info",
-            &format!("[个人微信] 已生成扫码二维码: {}", qrcode_img_content),
+            &format!("[远程IM] 个人微信 已生成扫码二维码: {}", qrcode_img_content),
         )
         .await;
         Ok(WeixinOcLoginStartResult {
@@ -243,7 +243,7 @@ impl WeixinOcManager {
                 &input.channel_id,
                 "info",
                 &format!(
-                    "[个人微信] 扫码登录成功: account_id={}, user_id={}",
+                    "[远程IM] 个人微信 扫码登录成功: account_id={}, user_id={}",
                     account_id, user_id
                 ),
             )
@@ -251,9 +251,9 @@ impl WeixinOcManager {
             if !user_id.is_empty() {
                 let (_, created) = sync_weixin_oc_contact_from_user_id(state, channel, &user_id)?;
                 let log_message = if created {
-                    format!("[个人微信] 已自动补录联系人: {}", user_id)
+                    format!("[远程IM] 个人微信 已自动补录联系人: {}", user_id)
                 } else {
-                    format!("[个人微信] 联系人已存在，跳过补录: {}", user_id)
+                    format!("[远程IM] 个人微信 联系人已存在，跳过补录: {}", user_id)
                 };
                 self.add_log(&input.channel_id, "info", &log_message).await;
             }
@@ -331,7 +331,7 @@ impl WeixinOcManager {
             runtime.login_status = "logged_out".to_string();
         })
         .await;
-        self.add_log(channel_id, "info", "[个人微信] 已退出登录").await;
+        self.add_log(channel_id, "info", "[远程IM] 个人微信 已退出登录").await;
         Ok(())
     }
 }

@@ -146,8 +146,8 @@ fn add_provider_usage_delta_to_conversation(
         Ok(true) => {}
         Ok(false) => {}
         Err(err) => runtime_log_warn(format!(
-            "[聊天用量] 失败，任务=累加供应商用量，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 失败 任务=累加供应商用量 原因={}",
+            err
         )),
     }
 }
@@ -418,7 +418,7 @@ fn sanitize_genai_messages_before_request(
         .collect::<Vec<_>>();
     if dropped > 0 {
         runtime_log_warn(format!(
-            "[聊天] 请求前过滤空 assistant 消息: scene={}, dropped_count={}",
+            "[聊天] 请求前过滤空 assistant 消息 场景={} 丢弃数={}",
             scene, dropped
         ));
     }

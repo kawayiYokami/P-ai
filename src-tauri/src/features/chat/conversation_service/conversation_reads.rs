@@ -18,7 +18,7 @@ impl ConversationServiceV2 {
                 }),
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[会话快照] 读取主会话 ID 失败，按无默认会话降级继续：error={err}"
+                        "[聊天] 读取主会话 ID 失败，按无默认会话降级继续 原因={err}"
                     ));
                     None
                 }

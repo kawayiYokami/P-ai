@@ -145,8 +145,7 @@ async fn apply_compaction_preserved_gate_after_tool_round(
         (current_tokens as f64 + group_tokens as f64) / f64::from(context_window)
             >= FORCE_CONTEXT_USAGE_RATIO;
     runtime_log_info(format!(
-        "[聊天] 工具执行完即时闸门 session={} should_compact={} current_tokens={} group_tokens={} context_window={}",
-        chat_session_key,
+        "[聊天] 工具执行完即时闸门 需整理={} 当前输入={} 组输入={} 上下文窗口={}",
         should_compact,
         current_tokens,
         group_tokens,
@@ -172,8 +171,7 @@ async fn apply_compaction_preserved_gate_after_tool_round(
         ToolRoundGateIntent::DisableToolsAndClose => {
             // 委托等没有调度上下文的路径无法整理。本轮工具结果留在内存里交给模型，不报错。
             runtime_log_info(format!(
-                "[聊天] 上下文耗尽且无法整理，禁用后续工具 session={} current_tokens={} group_tokens={} context_window={}",
-                chat_session_key,
+                "[聊天] 上下文耗尽且无法整理，禁用后续工具 当前输入={} 组输入={} 上下文窗口={}",
                 current_tokens,
                 group_tokens,
                 selected_api.context_window_tokens
@@ -230,13 +228,13 @@ async fn apply_compaction_preserved_gate_after_tool_round(
                 .filter(|value| !value.is_empty())
             {
                 runtime_log_warn(format!(
-                    "[聊天] 工具写入前上下文整理 完成 conversation_id={} warning={}",
-                    context.conversation_id, warning
+                    "[聊天] 工具写入前上下文整理 完成 警告={}",
+                    warning
                 ));
             } else {
                 runtime_log_info(format!(
-                    "[聊天] 工具写入前上下文整理 完成 conversation_id={} reason={}",
-                    context.conversation_id, reason
+                    "[聊天] 工具写入前上下文整理 完成 原因={}",
+                    reason
                 ));
             }
             Ok(ToolRoundCompactionGate::RestartAfterCompaction)
@@ -313,8 +311,8 @@ fn sync_completed_tool_history_cache(
     };
     if let Err(err) = replace_inflight_completed_tool_history(state, chat_session_key, events) {
         runtime_log_error(format!(
-            "[聊天] 同步已完成工具历史缓存失败 (session={}): {}",
-            chat_session_key, err
+            "[聊天] 同步已完成工具历史缓存失败：{}",
+            err
         ));
         return;
     }
@@ -593,8 +591,7 @@ fn persist_unexecuted_tool_group_results(
         return Ok(());
     }
     runtime_log_info(format!(
-        "[聊天] 补写未执行工具结果，任务=append_unexecuted_tool_result，session={}，count={}，tool_call_ids={}",
-        chat_session_key,
+        "[聊天] 补写未执行工具结果 任务=append_unexecuted_tool_result 数量={} 调用编号={}",
         unexecuted.len(),
         unexecuted.join(",")
     ));
@@ -637,7 +634,7 @@ fn persist_completed_tool_group_result(
     context: Option<&ToolLoopAutoCompactionContext>,
     selected_api: &ApiConfig,
     trusted_input_tokens: Option<u64>,
-    chat_session_key: &str,
+    _chat_session_key: &str,
     assistant_tool_call_event: Value,
     tool_result_event: Value,
     kind: ToolResultPersistKind,
@@ -646,8 +643,7 @@ fn persist_completed_tool_group_result(
         // 正式调度的唯一入口始终持有 AppState，这里缺失属于异常；
         // 但拿不到状态也无从判断该不该落库，维持不写、不阻断。
         runtime_log_error(format!(
-            "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=state_missing，session={}",
-            chat_session_key
+            "[聊天] 跳过工具结果写历史 任务=append_tool_group_result 原因=state_missing"
         ));
         return Ok(());
     };
@@ -655,8 +651,7 @@ fn persist_completed_tool_group_result(
         // 运行时会话与远程 IM 动态边界不落库工具历史：这类会话本就没有持久化载体，
         // 预写与结果写入一起跳过，属于既有设计，不是写入失败。
         runtime_log_info(format!(
-            "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=context_missing，session={}",
-            chat_session_key
+            "[聊天] 跳过工具结果写历史 任务=append_tool_group_result 原因=context_missing"
         ));
         return Ok(());
     };
@@ -680,12 +675,9 @@ fn persist_completed_tool_group_result(
         .filter(|value| !value.is_empty());
     let has_backup_record_id = backup_record_id.is_some();
     runtime_log_info(format!(
-        "[聊天] 准备写入工具结果历史，任务=append_tool_group_result，session={}，conversation_id={}，tool_name={}，has_backup_record_id={}，backup_record_id={}",
-        chat_session_key,
-        context.conversation_id,
+        "[聊天] 准备写入工具结果历史 任务=append_tool_group_result 工具={} 有备份记录={}",
         tool_name,
-        has_backup_record_id,
-        backup_record_id.as_deref().unwrap_or("(none)")
+        has_backup_record_id
     ));
     // 只认当前调度上下文中的 assistant_message_id，禁止回读会话级缓存或补生成。
     // 注意：这里刻意不改 provider_meta——token 用量已在 core_send_inner 的 final text
@@ -743,10 +735,7 @@ fn persist_completed_tool_group_result(
                 );
             }
             runtime_log_info(format!(
-                "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，tool_event_count={}，tool_name={}，has_backup_record_id={}",
-                chat_session_key,
-                context.conversation_id,
-                result.0,
+                "[聊天] 完成 任务=append_tool_group_result 工具事件数={} 工具={} 有备份记录={}",
                 result.1,
                 tool_name,
                 has_backup_record_id
@@ -755,8 +744,8 @@ fn persist_completed_tool_group_result(
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[聊天] 失败，任务=append_tool_group_result，session={}，conversation_id={}，error={}",
-                chat_session_key, context.conversation_id, err
+                "[聊天] 失败 任务=append_tool_group_result 原因={}",
+                err
             ));
             Err(format!("{TOOL_HISTORY_PERSIST_FAILED_PREFIX}：{err}"))
         }
@@ -765,15 +754,14 @@ fn persist_completed_tool_group_result(
 
 async fn await_pending_tool_group_result_persists(
     pending_tool_group_result_persists: &mut Vec<tauri::async_runtime::JoinHandle<Result<(), String>>>,
-    chat_session_key: &str,
+    _chat_session_key: &str,
     reason: &str,
 ) -> Result<(), String> {
     if pending_tool_group_result_persists.is_empty() {
         return Ok(());
     }
     runtime_log_info(format!(
-        "[聊天] 等待工具结果落盘，任务=drain_tool_group_result_persist，session={}，reason={}，pending_count={}",
-        chat_session_key,
+        "[聊天] 等待工具结果落盘 任务=drain_tool_group_result_persist 原因={} 待处理数={}",
         reason,
         pending_tool_group_result_persists.len()
     ));

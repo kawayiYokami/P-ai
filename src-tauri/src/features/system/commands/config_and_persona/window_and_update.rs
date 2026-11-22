@@ -59,7 +59,7 @@ fn set_chat_window_active(active: bool) {
     static CHAT_WINDOW_INACTIVE_LOGGED_ONCE: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
     if !active && !CHAT_WINDOW_INACTIVE_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        runtime_log_warn(format!("[系统] 聊天窗口激活状态变更：跳过"));
+        runtime_log_debug(format!("[系统] 聊天窗口激活状态变更：跳过"));
     }
     set_record_hotkey_probe_chat_window_active(active);
 }
@@ -144,7 +144,7 @@ fn broadcast_personas_updated(state: &AppState, reason: &str) {
     };
     if let Err(err) = app_handle.emit(PERSONAS_UPDATED_EVENT, &payload) {
         runtime_log_warn(format!(
-            "[人格] 失败，任务=广播人格列表变更，reason={reason}，error={err}"
+            "[系统] 失败 任务=广播人格列表变更 原因={reason} 错误={err}"
         ));
     }
 }
@@ -168,7 +168,7 @@ fn broadcast_reload_requested(state: &AppState, reason: &str) {
     };
     if let Err(err) = app_handle.emit(RELOAD_REQUESTED_EVENT, &payload) {
         runtime_log_warn(format!(
-            "[配置] 失败，任务=广播 reload 刷新请求，reason={reason}，error={err}"
+            "[系统] 失败 任务=广播 reload 刷新请求 原因={reason} 错误={err}"
         ));
     }
 }
@@ -216,7 +216,7 @@ fn set_preferred_release_source(state: &AppState, source: &str) {
         }
         Err(err) => {
             runtime_log_error(format!(
-                "set_preferred_release_source 锁定 preferred_release_source 失败：source={}, err={}",
+                "[系统] set_preferred_release_source 锁定 preferred_release_source 失败 来源={} 错误={}",
                 source,
                 err
             ));
@@ -253,7 +253,7 @@ fn set_github_update_method_inner(
     if config.github_update_method != normalized {
         config.github_update_method = normalized.clone();
         state_write_config_cached(state, &config)?;
-        runtime_log_info(format!("[自动更新] 更新方式偏好已保存：method={normalized}"));
+        runtime_log_info(format!("[系统] 更新方式偏好已保存 方式={normalized}"));
     }
     let runtime_config = runtime_config_for_transport(&config);
     let _ = app.emit("easy-call:config-updated", &runtime_config);
@@ -280,7 +280,7 @@ fn set_skipped_github_update_version_inner(
     if config.skipped_github_update_version != normalized {
         config.skipped_github_update_version = normalized.clone();
         state_write_config_cached(state, &config)?;
-        runtime_log_warn(format!("[自动更新] 已保存跳过版本：version={normalized}"));
+        runtime_log_info(format!("[系统] 已保存跳过版本 版本={normalized}"));
     }
     sync_update_state_from_skip_version(app, &normalized);
     let runtime_config = runtime_config_for_transport(&config);
@@ -316,7 +316,7 @@ fn set_ui_language_inner(
     if config.ui_language != normalized {
         config.ui_language = normalized.clone();
         state_write_config_cached(state, &config)?;
-        runtime_log_info(format!("[配置] 界面语言已保存：ui_language={normalized}"));
+        runtime_log_info(format!("[系统] 界面语言已保存 界面语言={normalized}"));
     }
     let runtime_config = runtime_config_for_transport(&config);
     let _ = app.emit("easy-call:config-updated", &runtime_config);
@@ -540,7 +540,7 @@ fn update_record_background_wake(
     }
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
     runtime_log_info(format!(
-        "[录音热键] 完成，任务=后台唤醒切换，enabled={}",
+        "[系统] 完成 任务=后台唤醒切换 已启用={}",
         config.record_background_wake_enabled
     ));
     let runtime_config = runtime_config_for_transport(&config);
@@ -597,7 +597,7 @@ fn stop_removed_remote_im_channel_runtimes(
                 RemoteImPlatform::OnebotV11 => {
                     if let Err(err) = onebot_v11_ws_manager().stop_channel(&channel_id).await {
                         runtime_log_error(format!(
-                            "[远程IM] 删除渠道后停止 OneBot v11 运行态失败: channel_id={}, error={}",
+                            "[远程IM] 删除渠道后停止 OneBot v11 运行态失败 渠道={} 错误={}",
                             channel_id, err
                         ));
                     }
@@ -617,8 +617,8 @@ fn stop_removed_remote_im_channel_runtimes(
                 remote_im_delete_channel_private_state(&state, &channel.platform, &channel_id)
             {
                 runtime_log_error(format!(
-                    "[远程IM] 删除渠道后清理私有状态失败: channel_id={}, platform={:?}, error={}",
-                    channel_id, channel.platform, err
+                    "[远程IM] 删除渠道后清理私有状态失败 渠道={} 平台={} 错误={}",
+                    channel_id, channel.platform.as_str(), err
                 ));
             }
         }
@@ -670,7 +670,7 @@ fn save_config_inner(
     if base_config.hotkey != main_config.hotkey {
         if let Err(err) = register_hotkey_from_config(&app, &main_config) {
             runtime_log_error(format!(
-                "[热键] 召唤热键运行时注册失败，配置已保存但该热键暂不可用：hotkey={}, err={}",
+                "[系统] 召唤热键运行时注册失败，配置已保存但该热键暂不可用 热键={} 错误={}",
                 main_config.hotkey,
                 err
             ));
@@ -682,7 +682,7 @@ fn save_config_inner(
     }
     if !main_config.web_access_enabled && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
         runtime_log_info(format!(
-            "[网络访问] 配置已关闭，停止 Web 访问服务: port={}",
+            "[系统] 配置已关闭，停止 Web 访问服务 端口={}",
             base_config.web_access_port
         ));
         tauri::async_runtime::spawn(async move {
@@ -695,7 +695,7 @@ fn save_config_inner(
                 && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)))
     {
         runtime_log_info(format!(
-            "[网络访问] 配置已启用、端口或密码已变更，重启 Web 访问服务: old_enabled={}, new_enabled={}, old_port={}, new_port={}",
+            "[系统] 配置已启用、端口或密码已变更，重启 Web 访问服务 旧启用={} 新启用={} 旧端口={} 新端口={}",
             base_config.web_access_enabled,
             main_config.web_access_enabled,
             base_config.web_access_port,

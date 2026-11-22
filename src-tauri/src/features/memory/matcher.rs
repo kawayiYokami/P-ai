@@ -858,7 +858,7 @@ fn memory_mixed_ranked_items(
         Ok(hits) => hits,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆] BM25 检索失败，本次召回不含 BM25 命中。 err={}",
+                "[记忆] BM25 检索失败，本次召回不含 BM25 命中。 错误={}",
                 err
             ));
             Vec::new()
@@ -892,7 +892,7 @@ fn memory_mixed_ranked_items(
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[记忆] 向量搜索失败，降级为仅 BM25 检索。 err={}",
+                    "[记忆] 向量搜索失败，降级为仅 BM25 检索。 错误={}",
                     err
                 ));
             }
@@ -990,7 +990,7 @@ fn memory_mixed_ranked_items(
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[记忆] 重排失败，降级为不重排评分。 err={}",
+                        "[记忆] 重排失败，降级为不重排评分。 错误={}",
                         err
                     ));
                 }

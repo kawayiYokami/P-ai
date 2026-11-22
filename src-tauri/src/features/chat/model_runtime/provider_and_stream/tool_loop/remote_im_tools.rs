@@ -146,8 +146,7 @@ fn maybe_spawn_remote_im_tool_persist_auto_send(
 ) {
     if context.remote_im_reply_delegate_id.is_some() {
         runtime_log_debug(format!(
-            "[远程IM][工具持久化自动发送] 跳过，conversation_id={}，reason=group_reply_delegate_buffers_until_final",
-            context.conversation_id
+            "[聊天] 跳过 原因=group_reply_delegate_buffers_until_final"
         ));
         return;
     }
@@ -156,20 +155,14 @@ fn maybe_spawn_remote_im_tool_persist_auto_send(
     };
     if !tool_loop_is_first_tool_result_in_group(assistant_tool_call_event, tool_result_event) {
         runtime_log_debug(format!(
-            "[远程IM][工具持久化自动发送] 跳过，任务=tool_persist_auto_send，conversation_id={}，assistant_message_id={}，contact_id={}，reason=not_first_tool_result",
-            context.conversation_id,
-            assistant_message_id,
-            activation_source.remote_contact_id
+            "[聊天] 跳过 任务=tool_persist_auto_send 原因=not_first_tool_result"
         ));
         return;
     }
     let assistant_text = tool_loop_assistant_tool_event_text(assistant_tool_call_event);
     if assistant_text.is_empty() {
         runtime_log_warn(format!(
-            "[远程IM][工具持久化自动发送] 跳过，任务=tool_persist_auto_send，conversation_id={}，assistant_message_id={}，contact_id={}，reason=empty_text",
-            context.conversation_id,
-            assistant_message_id,
-            activation_source.remote_contact_id
+            "[聊天] 跳过 任务=tool_persist_auto_send 原因=empty_text"
         ));
         return;
     }

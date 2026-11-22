@@ -137,7 +137,7 @@ impl Stream for SseMessageStream {
                             Ok(msg) => return Poll::Ready(Some(msg)),
                             Err(err) => {
                                 runtime_log_warn(format!(
-                                    "[MCP-SSE] message 事件 JSON-RPC 解析失败: {err}"
+                                    "[工具] MCP 流式 message 事件 JSON-RPC 解析失败: {err}"
                                 ));
                                 continue;
                             }
@@ -146,7 +146,7 @@ impl Stream for SseMessageStream {
                     // endpoint / ping / 其他事件忽略
                 }
                 Poll::Ready(Some(Err(err))) => {
-                    runtime_log_warn(format!("[MCP-SSE] SSE 流错误: {err}"));
+                    runtime_log_warn(format!("[工具] MCP 流式 SSE 流错误: {err}"));
                     continue;
                 }
                 Poll::Ready(None) => return Poll::Ready(None),
@@ -213,7 +213,7 @@ async fn connect_sse_transport(
     let message_url = resolve_message_url(sse_url, &endpoint)?;
 
     runtime_log_info(format!(
-        "[MCP-SSE] 连接成功 sse={sse_url} message={message_url}"
+        "[工具] MCP 流式 连接成功 流式地址={sse_url} 消息地址={message_url}"
     ));
 
     // 后台 POST 任务：SSE 的 message 地址只接受 POST，响应走 SSE 通道
@@ -226,7 +226,7 @@ async fn connect_sse_transport(
             let body = match serde_json::to_vec(&value) {
                 Ok(body) => body,
                 Err(err) => {
-                    runtime_log_warn(format!("[MCP-SSE] 序列化 POST 消息失败: {err}"));
+                    runtime_log_warn(format!("[工具] MCP 流式 序列化 POST 消息失败: {err}"));
                     continue;
                 }
             };
@@ -242,13 +242,13 @@ async fn connect_sse_transport(
                     // 202 Accepted 属正常（响应经 SSE 通道异步返回）
                     if !resp.status().is_success() {
                         runtime_log_warn(format!(
-                            "[MCP-SSE] message POST 返回状态码 {}",
+                            "[工具] MCP 流式 message POST 返回状态码 {}",
                             resp.status()
                         ));
                     }
                 }
                 Err(err) => {
-                    runtime_log_error(format!("[MCP-SSE] message POST 失败: {err}"));
+                    runtime_log_error(format!("[工具] MCP 流式 message POST 失败: {err}"));
                 }
             }
         }

@@ -49,8 +49,8 @@ fn remote_im_reset_contact_cursor(
     checkpoint.updated_at = Some(now_iso());
     state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
     runtime_log_info(format!(
-        "[群聊巡检][游标] 重置到最新摘要，contact_id={}，cursor={}",
-        contact.id, target
+        "[远程IM] 游标重置到最新摘要 游标={}",
+        target
     ));
     Ok(())
 }
@@ -73,8 +73,8 @@ fn remote_im_cursor_read_origin_sequence(
         if let Some(sequence) = message_store::chat_store_read_message_sequence(&paths, cursor)? {
             return Ok(Some(sequence as i64));
         }
-        runtime_log_warn(format!(
-            "[群聊巡检][游标] 原游标消息已不存在，改为从最新摘要之后重新读，cursor={cursor}"
+        runtime_log_info(format!(
+            "[远程IM] 原游标消息已不存在，改为从最新摘要之后重新读 游标={cursor}"
         ));
     }
     // 游标为空只发生在刚压缩完那一刻：入场消息自己就是游标，起点必然是摘要之后；
@@ -155,9 +155,9 @@ fn remote_im_advance_contact_cursor(
     }
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
     if message_store::chat_store_read_message_by_id(&paths, new_cursor_message_id)?.is_none() {
-        runtime_log_warn(format!(
-            "[群聊巡检][游标] 跳过，任务=推进游标，contact_id={}，reason=新游标消息不存在，target={}",
-            contact.id, new_cursor_message_id
+        runtime_log_info(format!(
+            "[远程IM] 跳过推进游标 原因=新游标消息不存在 目标={}",
+            new_cursor_message_id
         ));
         return Ok(false);
     }
@@ -185,8 +185,7 @@ fn remote_im_advance_contact_cursor(
         .unwrap_or(false);
     if !reached_target {
         runtime_log_warn(format!(
-            "[群聊巡检][游标] 跳过，任务=推进游标，contact_id={}，reason=区间未覆盖目标（可能倒退或消息缺失），处理=保持原值，previous={}，target={}",
-            contact.id,
+            "[远程IM] 跳过推进游标 原因=区间未覆盖目标（可能倒退或消息缺失） 处理=保持原值 原值={} 目标={}",
             previous_cursor.as_deref().unwrap_or(""),
             new_cursor_message_id
         ));

@@ -82,7 +82,7 @@ impl ConversationServiceV2 {
                 Ok(value) => (value, true),
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[会话切换] 读取主会话 ID 失败，按无主会话降级继续：error={err}"
+                        "[聊天] 读取主会话 ID 失败，按无主会话降级继续 原因={err}"
                     ));
                     (None, false)
                 }
@@ -319,8 +319,8 @@ impl ConversationServiceV2 {
                     Ok(conversation_meta) => Ok(Some(conversation_meta)),
                     Err(err) => {
                         runtime_log_debug(format!(
-                            "[会话已读] 读取会话失败，conversation_id={}，error={}",
-                            normalized_conversation_id, err
+                            "[聊天] 读取会话失败 原因={}",
+                            err
                         ));
                         Ok(None)
                     }

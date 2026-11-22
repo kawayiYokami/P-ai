@@ -113,8 +113,7 @@ fn refresh_inflight_chat_dispatch_identity(
     else {
         // 压缩重启途中这一轮已被停掉（表项没了或只剩取消标记）：没有可更新的句柄。
         runtime_log_warn(format!(
-            "[聊天] 压缩重启后刷新打断句柄落空 session={} expected_request_id={} 原因=表内无运行中轮次",
-            chat_key,
+            "[聊天] 压缩重启后刷新打断句柄落空 期望请求={} 原因=表内无运行中轮次",
             expected_request_id.trim()
         ));
         return Ok(());
@@ -122,8 +121,7 @@ fn refresh_inflight_chat_dispatch_identity(
     if registered_request_id.trim() != expected_request_id.trim() {
         // 已被更晚的一次调度接手：不是我们的条目，不碰。
         runtime_log_warn(format!(
-            "[聊天] 压缩重启后刷新打断句柄跳过 session={} 原因=条目已被其他调度接手 expected={} actual={}",
-            chat_key,
+            "[聊天] 压缩重启后刷新打断句柄跳过 原因=条目已被其他调度接手 期望={} 实际={}",
             expected_request_id.trim(),
             registered_request_id.trim()
         ));
@@ -400,10 +398,9 @@ fn abort_delegate_runtime_descendant_threads(
         if aborted_chat || aborted_tool {
             aborted_count += 1;
             runtime_log_info(format!(
-                "[聊天] 已中止同步委托子会话: parent_session={}, child_session={}, delegate_id={}",
+                "[聊天] 已中止同步委托子会话 父会话={} 子会话={}",
                 parent_chat_key,
-                child_chat_key,
-                thread.delegate_id
+                child_chat_key
             ));
         }
         aborted_count += abort_delegate_runtime_descendants_by_parent_session(state, &child_chat_key)?;
@@ -515,7 +512,7 @@ where
         };
         let wait = retry_delay(attempt, retry_after_ms);
         runtime_log_warn(format!(
-            "[聊天] 请求层重试：任务=request_retry，attempt={attempt}/{max_attempts}，delay_ms={}，pushed_any={pushed_any}",
+            "[聊天] 请求层重试 任务=request_retry 尝试={attempt}/{max_attempts} 延迟={} 已推送={pushed_any}",
             wait.as_millis()
         ));
         tokio::time::sleep(wait).await;

@@ -361,7 +361,7 @@ fn set_workspace_mcp_policy_oauth_capable(
 fn load_workspace_mcp_servers(state: &AppState) -> Result<Vec<McpServerConfig>, String> {
     let (mut servers, errors) = load_workspace_mcp_servers_with_errors(state)?;
     for err in errors {
-        runtime_log_warn(format!("[MCP] 跳过无效文件: {} | {}", err.item, err.error));
+        runtime_log_warn(format!("[工具] MCP 跳过无效文件: {} | {}", err.item, err.error));
     }
     for server in &mut servers {
         let policy = load_workspace_mcp_server_policy(state, &server.id)?;

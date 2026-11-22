@@ -107,13 +107,9 @@ impl ConversationServiceV2 {
         // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
         if let Some(promoted_conversation) = promoted {
             match create_next_draft_conversation_inherited(state, &promoted_conversation) {
-                Ok(new_draft_id) => runtime_log_info(format!(
-                    "[会话草稿] 完成，任务=scheduler 落盘转正，conversation_id={}，new_draft_conversation_id={}",
-                    conversation_id, new_draft_id
-                )),
+                Ok(_) => runtime_log_info("[聊天] 完成 任务=scheduler 落盘转正".to_string()),
                 Err(err) => runtime_log_warn(format!(
-                    "[会话草稿] 创建备用草稿失败，等待下次打开时重建，conversation_id={}，error={err}",
-                    conversation_id
+                    "[聊天] 创建备用草稿失败，等待下次打开时重建 原因={err}"
                 )),
             }
         }
@@ -123,9 +119,9 @@ impl ConversationServiceV2 {
             state,
             conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=scheduler 落盘后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=scheduler 落盘后推送单会话 原因={}",
+                err
             ));
         }
         match outcome {
@@ -191,8 +187,8 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         conversation: &mut Conversation,
-        conversation_id: &str,
-        event: &ChatPendingEvent,
+        _conversation_id: &str,
+        _event: &ChatPendingEvent,
         prepared_messages: Vec<(ChatMessage, Vec<String>)>,
         history_flush_time: &str,
         persisted_batch_messages: &mut Vec<ChatMessage>,
@@ -203,17 +199,15 @@ impl ConversationServiceV2 {
                     conversation.memory_recall_table.push(memory_id.clone());
                 }
                 runtime_log_debug(format!(
-                    "[记忆RAG][出队消息写入] conversation_id={} user_message_id={} agent_id={} retrieved_memory_ids={:?}",
-                    conversation_id,
-                    persisted.id,
-                    event.session_info.agent_id,
+                    "[聊天] 会话={} 命中记忆列表={}",
+                    conversation.title,
                     persisted
                         .provider_meta
                         .as_ref()
                         .and_then(|meta| meta.get("retrieved_memory_ids"))
                         .and_then(Value::as_array)
                         .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>())
-                        .unwrap_or_default()
+                        .unwrap_or_default().join("、")
                 ));
             }
             let persisted_for_event = persisted.clone();

@@ -1025,6 +1025,18 @@ enum RemoteImPlatform {
     QqOfficial,
 }
 
+impl RemoteImPlatform {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Feishu => "feishu",
+            Self::Dingtalk => "dingtalk",
+            Self::OnebotV11 => "onebot_v11",
+            Self::WeixinOc => "weixin_oc",
+            Self::QqOfficial => "qq_official",
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for RemoteImPlatform {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

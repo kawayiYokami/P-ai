@@ -40,7 +40,7 @@ fn local_utc_offset() -> Option<UtcOffset> {
         Ok(offset) => Some(offset),
         Err(err) => {
             runtime_log_error(format!(
-                "[时间语义] 获取本地 UTC 偏移失败，回退为 UTC 显示: {err}"
+                "[系统] 时间语义 获取本地UTC偏移失败 回退为UTC显示 错误={err}"
             ));
             None
         }

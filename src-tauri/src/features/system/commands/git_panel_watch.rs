@@ -110,7 +110,7 @@ impl GitPanelIgnoreFilter {
             );
         } else {
             runtime_log_debug(format!(
-                "[Git面板监视] 仓库根无 .gitignore，跳过忽略规则解析 path={}",
+                "[系统] 仓库根无 .gitignore，跳过忽略规则解析 文件={}",
                 ignore_file.display()
             ));
         }
@@ -248,7 +248,7 @@ async fn git_panel_watch_consumer(
         // loadStatus 会命中旧缓存，自动刷新失效
         git_executor().invalidate(&repo_root);
         runtime_log_debug(format!(
-            "[Git面板监视] 推送变化信号 workspace={} workdir={} head={} refs={}",
+            "[系统] 推送变化信号 工作区={} 工作目录={} 提交={} 引用={}",
             repo_root, signals.workdir_changed, signals.head_changed, signals.refs_changed
         ));
         let payload = GitPanelWatchEventPayload {
@@ -261,11 +261,10 @@ async fn git_panel_watch_consumer(
         // 「后端发了」与「某个消费者没收到」之间的断点。
         let client_ids = ide_context_chat_client_ids();
         runtime_log_debug(format!(
-            "[Git面板监视] 广播变化信号 workspace={} 原生事件={} 桥接客户端={} ids={:?}",
+            "[系统] 广播变化信号 工作区={} 原生事件={} 桥接客户端={}",
             repo_root,
             GIT_PANEL_WATCH_EVENT,
-            client_ids.len(),
-            client_ids
+            client_ids.len()
         ));
         let _ = app.emit(GIT_PANEL_WATCH_EVENT, payload.clone());
         // Web/VS Code 客户端经 WS bridge 收不到 Tauri 原生事件，必须主动广播
@@ -424,7 +423,7 @@ async fn git_panel_watch_start_internal(app: tauri::AppHandle, repo_root: String
     let handle = match git_panel_watch_try_native(&root_path, filter.clone(), tx.clone()) {
         Ok(handle) => {
             runtime_log_info(format!(
-                "[Git面板监视] 开始监听仓库（原生 watcher，防抖 {}ms）workspace={repo_root}",
+                "[系统] 开始监听仓库（原生 watcher，防抖 {}ms）工作区={repo_root}",
                 GIT_PANEL_WATCH_DEBOUNCE_MS
             ));
             GitPanelWatcherHandle {
@@ -434,7 +433,7 @@ async fn git_panel_watch_start_internal(app: tauri::AppHandle, repo_root: String
         }
         Err(native_error) => {
             runtime_log_warn(format!(
-                "[Git面板监视] 原生 watcher 失败({native_error})，回退轮询模式（间隔 {}ms）",
+                "[系统] 原生 watcher 失败({native_error})，回退轮询模式（间隔 {}ms）",
                 GIT_PANEL_WATCH_POLL_INTERVAL_MS
             ));
             let handle = git_panel_watch_try_poll(&root_path, filter, tx.clone())?;
@@ -474,7 +473,7 @@ async fn git_panel_watch_start(
             if state.repo_root == repo_root && state.handle.is_some() && !state.degraded {
                 state.ref_count += 1;
                 runtime_log_debug(format!(
-                    "[Git面板监视] 同仓库新实例启动，引用计数 {} workspace={repo_root}",
+                    "[系统] 同仓库新实例启动，引用计数 {} 工作区={repo_root}",
                     state.ref_count
                 ));
                 return Ok(());
@@ -510,12 +509,12 @@ async fn git_panel_watch_stop(input: GitPanelWorkspaceInput) -> Result<(), Strin
     if state.ref_count <= 1 {
         guard.take();
         runtime_log_info(format!(
-            "[Git面板监视] 停止监听仓库（最后一个实例退出）workspace={repo_root}"
+            "[系统] 停止监听仓库（最后一个实例退出）工作区={repo_root}"
         ));
     } else if let Some(state) = guard.as_mut() {
         state.ref_count -= 1;
         runtime_log_debug(format!(
-            "[Git面板监视] 实例退出，引用计数 {}，继续监听 workspace={repo_root}",
+            "[系统] 实例退出，引用计数 {}，继续监听 工作区={repo_root}",
             state.ref_count
         ));
     }
@@ -580,7 +579,7 @@ async fn git_panel_watch_adapt_after_status(
                         let handle_mode = handle.mode;
                         state.degraded = true;
                         runtime_log_warn(format!(
-                            "[Git面板监视] status 耗时 {elapsed_ms}ms 超过阈值 {}ms，暂停自动刷新（大仓库降级，等待下一次快速 status 恢复；原监视模式：{handle_mode}）workspace={repo_root}",
+                            "[系统] status 耗时 {elapsed_ms}ms 超过阈值 {}ms，暂停自动刷新（大仓库降级，等待下一次快速 status 恢复；原监视模式：{handle_mode}）工作区={repo_root}",
                             GIT_PANEL_WATCH_DEGRADE_MS,
                         ));
                     }
@@ -589,7 +588,7 @@ async fn git_panel_watch_adapt_after_status(
         }
         GitPanelWatchTimingAction::ExitDegraded => {
             runtime_log_info(format!(
-                "[Git面板监视] status 耗时 {elapsed_ms}ms 已回落到阈值 {}ms 内，恢复自动刷新 workspace={repo_root}",
+                "[系统] status 耗时 {elapsed_ms}ms 已回落到阈值 {}ms 内，恢复自动刷新 工作区={repo_root}",
                 GIT_PANEL_WATCH_DEGRADE_MS
             ));
             let _ = git_panel_watch_start_internal(app, repo_root.to_string()).await;

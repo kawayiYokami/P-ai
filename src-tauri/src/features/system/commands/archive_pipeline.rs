@@ -1,9 +1,6 @@
 fn mark_tasks_as_session_lost(data_path: &PathBuf, conversation_id: &str) {
     let Ok(tasks) = task_store_list_task_records(data_path) else {
-        runtime_log_error(format!(
-            "[TASK-CLEANUP] 查询任务列表失败: conversation_id={}",
-            conversation_id
-        ));
+        runtime_log_error("[系统] 查询任务列表失败".to_string());
         return;
     };
     for task in &tasks {
@@ -22,8 +19,8 @@ fn mark_tasks_as_session_lost(data_path: &PathBuf, conversation_id: &str) {
             },
         ) {
             runtime_log_error(format!(
-                "[TASK-CLEANUP] 标记任务失败: task_id={}, conversation_id={}, error={}",
-                task.task_id, conversation_id, err
+                "[系统] 标记任务失败 任务={} 错误={}",
+                task.task_id, err
             ));
         }
     }
@@ -162,7 +159,7 @@ fn apply_memory_actions_into_store(
                     }
                     if let Err(err) = memory_store_delete_memory(data_path, &source_id) {
                         runtime_log_error(format!(
-                            "[归档流程] 删除已合并来源记忆失败: id={}, err={}",
+                            "[存储] 删除已合并来源记忆失败 编号={} 错误={}",
                             source_id, err
                         ));
                     }
@@ -398,11 +395,10 @@ fn resolve_archive_request_conversation_by_id(
     conversation_service_v2().resolve_archive_request_conversation_by_id(state, conversation_id)
 }
 
-fn log_manual_archive_failure(conversation_id: &str, reason: String) -> String {
+fn log_manual_archive_failure(_conversation_id: &str, reason: String) -> String {
     let reason = decorate_manual_archive_failure_reason(reason);
     runtime_log_warn(format!(
-        "[归档] 失败，任务=手动归档，conversation_id={}，error={}",
-        conversation_id.trim(),
+        "[存储] 失败 任务=手动归档 错误={}",
         reason
     ));
     reason
@@ -854,10 +850,9 @@ fn emit_archive_history_flushed_event(
     let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
         None => {
-            runtime_log_warn(format!(
-                "[归档流程] history_flushed 事件发送跳过: app_handle unavailable, source_conversation_id={}, active_conversation_id={}",
-                source_conversation_id, active_conversation_id
-            ));
+            runtime_log_debug(
+                "[存储] history_flushed 事件发送跳过: app_handle unavailable".to_string(),
+            );
             return;
         }
     };
@@ -873,19 +868,19 @@ fn emit_archive_history_flushed_event(
     });
     if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
         runtime_log_error(format!(
-            "[归档流程] history_flushed 事件发送失败: source_conversation_id={}, active_conversation_id={}, archive_id={}, error={}",
-            source_conversation_id, active_conversation_id, archive_id, err
+            "[存储] history_flushed 事件发送失败 归档={} 错误={}",
+            archive_id, err
         ));
     } else {
         runtime_log_info(format!(
-            "[归档流程] history_flushed 事件发送完成: source_conversation_id={}, active_conversation_id={}, archive_id={}",
-            source_conversation_id, active_conversation_id, archive_id
+            "[存储] history_flushed 事件发送完成 归档={}",
+            archive_id
         ));
     }
     if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
         runtime_log_error(format!(
-            "[会话概览] archive_history_flushed 后推送失败: source_conversation_id={}, error={}",
-            source_conversation_id, err
+            "[聊天] archive_history_flushed 后推送失败 错误={}",
+            err
         ));
     }
 }
@@ -900,10 +895,9 @@ fn emit_compaction_history_flushed_event(
     let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
         None => {
-            runtime_log_warn(format!(
-                "[归档流程] 上下文整理 history_flushed 发送跳过: app_handle 不可用, conversation_id={}",
-                conversation_id
-            ));
+            runtime_log_debug(
+                "[存储] 上下文整理 history_flushed 发送跳过: app_handle 不可用".to_string(),
+            );
             return;
         }
     };
@@ -919,19 +913,19 @@ fn emit_compaction_history_flushed_event(
     });
     if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
         runtime_log_error(format!(
-            "[归档流程] 上下文整理 history_flushed 发送失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[存储] 上下文整理 history_flushed 发送失败 错误={}",
+            err
         ));
     } else {
         runtime_log_info(format!(
-            "[归档流程] 上下文整理 history_flushed 已发送: conversation_id={}, message_count={}",
-            conversation_id, message_count
+            "[存储] 上下文整理 history_flushed 已发送 消息数={}",
+            message_count
         ));
     }
     if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
         runtime_log_error(format!(
-            "[会话概览] compaction_history_flushed 后推送失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] compaction_history_flushed 后推送失败 错误={}",
+            err
         ));
     }
 }
@@ -965,10 +959,9 @@ fn emit_deleted_history_flushed_event(
     let app_handle = match state.app_handle.lock().ok().and_then(|guard| guard.clone()) {
         Some(handle) => handle,
         None => {
-            runtime_log_warn(format!(
-                "[归档流程] 删除 history_flushed 发送跳过: app_handle 不可用, deleted_conversation_id={}, active_conversation_id={}",
-                deleted_conversation_id, active_conversation_id
-            ));
+            runtime_log_debug(
+                "[存储] 删除 history_flushed 发送跳过: app_handle 不可用".to_string(),
+            );
             return;
         }
     };
@@ -983,14 +976,11 @@ fn emit_deleted_history_flushed_event(
     });
     if let Err(err) = app_handle.emit(CHAT_HISTORY_FLUSHED_EVENT, payload) {
         runtime_log_error(format!(
-            "[归档流程] 删除 history_flushed 发送失败: deleted_conversation_id={}, active_conversation_id={}, error={}",
-            deleted_conversation_id, active_conversation_id, err
+            "[存储] 删除 history_flushed 发送失败 错误={}",
+            err
         ));
     } else {
-        runtime_log_info(format!(
-            "[归档流程] 删除 history_flushed 已发送: deleted_conversation_id={}, active_conversation_id={}",
-            deleted_conversation_id, active_conversation_id
-        ));
+        runtime_log_info("[存储] 删除 history_flushed 已发送".to_string());
     }
 }
 
@@ -1187,8 +1177,7 @@ fn apply_summary_context_result(
     };
     if !agent_memory_recall_enabled(host_agent) {
         runtime_log_info(format!(
-            "[SummaryContext] 完成，任务=归档记忆落库，结果=跳过，原因=回忆方式=完全关闭，agent_id={}，丢弃memory_actions={}，丢弃useful_memory_ids={}",
-            host_agent.id,
+            "[聊天] 完成 任务=归档记忆落库 结果=跳过 原因=回忆方式=完全关闭 丢弃记忆动作={} 丢弃有用记忆={}",
             draft.memory_actions.len(),
             draft.useful_memory_ids.len()
         ));
@@ -1259,8 +1248,7 @@ async fn summarize_archive_summary_with_fallback(
                 }
                 if attempt < MAX_JSON_RETRIES {
                     runtime_log_warn(format!(
-                        "[SummaryContext] 归档反思 JSON 无效，准备重试: conversation_id={}, api_id={}, attempt={}，next_retry_secs={}，error={}",
-                        reporting_source.id,
+                        "[聊天] 归档反思 JSON 无效，准备重试 模型配置={} 尝试={} 下次重试秒={} 错误={}",
                         selected_api.id,
                         attempt,
                         RETRY_DELAY_SECS,
@@ -1346,8 +1334,8 @@ fn resolve_context_compaction_primary_model(
             Ok(api) => api,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[SummaryContext] 会话模型解析失败，沿用调用方模型: trace_id={}, conversation_id={}, fallback_api_id={}, err={}",
-                    trace_id, source.id, selected_api.id, err
+                    "[聊天] 会话模型解析失败，沿用调用方模型 追踪={} 兜底模型配置={} 错误={}",
+                    trace_id, selected_api.id, err
                 ));
                 selected_api.clone()
             }
@@ -1357,8 +1345,8 @@ fn resolve_context_compaction_primary_model(
     }
     let primary_resolved_api = resolve_api_config(&app_config, Some(primary_api.id.as_str()))?;
     runtime_log_debug(format!(
-        "[SummaryContext] 使用会话模型执行压缩: trace_id={}, conversation_id={}, conversation_api_id={}, incoming_api_id={}",
-        trace_id, source.id, primary_api.id, selected_api.id
+        "[聊天] 使用会话模型执行压缩 追踪={} 会话模型配置={} 传入模型配置={}",
+        trace_id, primary_api.id, selected_api.id
     ));
     Ok((primary_api, primary_resolved_api))
 }
@@ -1441,9 +1429,8 @@ async fn summarize_compaction_with_model_attempt(
                 last_err = err.to_string();
                 if !err.is_invalid_json() {
                     runtime_log_warn(format!(
-                        "[SummaryContext] 上下文整理失败，不重试非 JSON 错误: trace_id={}, conversation_id={}, model_role={}, api_id={}, attempt={}，err={}",
+                        "[聊天] 上下文整理失败，不重试非 JSON 错误 追踪={} 模型角色={} 模型配置={} 尝试={} 错误={}",
                         trace_id,
-                        source.id,
                         model_role.label(),
                         selected_api.id,
                         attempt,
@@ -1457,9 +1444,8 @@ async fn summarize_compaction_with_model_attempt(
                 }
                 if attempt < MAX_JSON_RETRIES {
                     runtime_log_warn(format!(
-                        "[归档流程] 上下文整理 JSON 无效，准备重试: trace_id={}, conversation_id={}, model_role={}, api_id={}, attempt={}，next_retry_secs={}，error={}",
+                        "[存储] 上下文整理 JSON 无效，准备重试 追踪={} 模型角色={} 模型配置={} 尝试={} 下次重试秒={} 错误={}",
                         trace_id,
-                        source.id,
                         model_role.label(),
                         selected_api.id,
                         attempt,
@@ -1473,9 +1459,8 @@ async fn summarize_compaction_with_model_attempt(
     }
 
     runtime_log_error(format!(
-        "[SummaryContext] 上下文整理失败: trace_id={}, conversation_id={}, model_role={}, api_id={}, attempts={}, err={}",
+        "[聊天] 上下文整理失败 追踪={} 模型角色={} 模型配置={} 尝试={} 错误={}",
         trace_id,
-        source.id,
         model_role.label(),
         selected_api.id,
         MAX_JSON_RETRIES,
@@ -1538,9 +1523,8 @@ async fn summarize_compaction_with_fallback(
     match resolve_compaction_quick_model(state, &selected_api.id) {
         Ok(Some((quick_selected_api, quick_resolved_api))) => {
             runtime_log_warn(format!(
-                "[SummaryContext] 会话模型压缩失败，切换快速模型: trace_id={}, conversation_id={}, conversation_api_id={}, quick_api_id={}, reason={}",
+                "[聊天] 会话模型压缩失败，切换快速模型 追踪={} 会话模型配置={} 快速模型配置={} 原因={}",
                 trace_id,
-                source.id,
                 selected_api.id,
                 quick_selected_api.id,
                 failures.last().map(String::as_str).unwrap_or("")
@@ -1564,25 +1548,24 @@ async fn summarize_compaction_with_fallback(
             }
         }
         Ok(None) => {
-            runtime_log_warn(format!(
-                "[SummaryContext] 快速模型跳过: trace_id={}, conversation_id={}, conversation_api_id={}, reason=not_configured_or_same_as_conversation",
-                trace_id, source.id, selected_api.id
+            runtime_log_info(format!(
+                "[聊天] 快速模型跳过 追踪={} 会话模型配置={} 原因=not_configured_or_same_as_conversation",
+                trace_id, selected_api.id
             ));
             failures.push("快速模型未配置或与会话模型相同，已跳过".to_string());
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[SummaryContext] 快速模型解析失败: trace_id={}, conversation_id={}, conversation_api_id={}, err={}",
-                trace_id, source.id, selected_api.id, err
+                "[聊天] 快速模型解析失败 追踪={} 会话模型配置={} 错误={}",
+                trace_id, selected_api.id, err
             ));
             failures.push(format!("快速模型解析失败：{}", err));
         }
     }
 
-    runtime_log_error(format!(
-        "[SummaryContext] 上下文整理失败，压缩摘要留空继续主流程: trace_id={}, conversation_id={}, errors={}",
+    runtime_log_warn(format!(
+        "[聊天] 上下文整理失败，压缩摘要留空继续主流程 追踪={} 错误={}",
         trace_id,
-        source.id,
         failures.join("；")
     ));
     (

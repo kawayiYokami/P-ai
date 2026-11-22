@@ -367,8 +367,7 @@ fn storage_scan_legacy_cleanup_candidates(
             Ok(false) => {}
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[存储] 跳过，任务=检查旧会话清理候选，conversation_id={}，reason={}",
-                    conversation_id,
+                    "[存储] 跳过 任务=检查旧会话清理候选 原因={}",
                     err
                 ));
             }
@@ -481,8 +480,8 @@ fn storage_abnormal_conversation_scan(
             Ok(value) => value,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[存储] 跳过，任务=识别异常会话，conversation_id={}，reason=读取会话元数据失败，error={}",
-                    conversation_id, err
+                    "[存储] 跳过 任务=识别异常会话 原因=读取会话元数据失败 错误={}",
+                    err
                 ));
                 continue;
             }
@@ -1128,8 +1127,8 @@ fn usage_trail_record_conversation_delta(
         message_store::chat_metadata_store_usage_trail_upsert_delta(&state.data_path, &bucket, &delta)
     {
         runtime_log_warn(format!(
-            "[用量台账] 写入失败，conversation_id={}，error={}",
-            conversation.id, err
+            "[系统] 写入失败 错误={}",
+            err
         ));
     }
 }
@@ -1988,14 +1987,14 @@ fn cleanup_storage_legacy_items_inner(
         STORAGE_CLEANUP_ABNORMAL_CONVERSATIONS => {
             let _migration_guard = lock_message_store_migration();
             runtime_log_error(format!(
-                "[存储] 开始，任务=清理异常会话目录，cleanup_kind={}",
+                "[存储] 开始 任务=清理异常会话目录 清理类型={}",
                 cleanup_kind
             ));
             let started_at = std::time::Instant::now();
             let result = cleanup_storage_abnormal_conversations(state);
             match &result {
                 Ok(report) => runtime_log_warn(format!(
-                    "[存储] 完成，任务=清理异常会话目录，cleanup_kind={}，删除文件数={}，跳过文件数={}，释放字节={}，耗时毫秒={}",
+                    "[存储] 完成 任务=清理异常会话目录 清理类型={} 删除文件数={} 跳过文件数={} 释放字节={} 耗时毫秒={}",
                     cleanup_kind,
                     report.deleted_file_count,
                     report.skipped_file_count,
@@ -2003,7 +2002,7 @@ fn cleanup_storage_legacy_items_inner(
                     started_at.elapsed().as_millis()
                 )),
                 Err(err) => runtime_log_error(format!(
-                    "[存储] 失败，任务=清理异常会话目录，cleanup_kind={}，error={}，耗时毫秒={}",
+                    "[存储] 失败 任务=清理异常会话目录 清理类型={} 错误={} 耗时毫秒={}",
                     cleanup_kind,
                     err,
                     started_at.elapsed().as_millis()
@@ -2013,14 +2012,14 @@ fn cleanup_storage_legacy_items_inner(
         }
         STORAGE_CLEANUP_IMAGE_TEXT_CACHE => {
             runtime_log_info(format!(
-                "[存储] 开始，任务=清理多媒体解析缓存，cleanup_kind={}",
+                "[存储] 开始 任务=清理多媒体解析缓存 清理类型={}",
                 cleanup_kind
             ));
             let started_at = std::time::Instant::now();
             let result = cleanup_storage_image_text_cache(state);
             match &result {
                 Ok(report) => runtime_log_warn(format!(
-                    "[存储] 完成，任务=清理多媒体解析缓存，cleanup_kind={}，删除文件数={}，跳过文件数={}，释放字节={}，耗时毫秒={}",
+                    "[存储] 完成 任务=清理多媒体解析缓存 清理类型={} 删除文件数={} 跳过文件数={} 释放字节={} 耗时毫秒={}",
                     cleanup_kind,
                     report.deleted_file_count,
                     report.skipped_file_count,
@@ -2028,7 +2027,7 @@ fn cleanup_storage_legacy_items_inner(
                     started_at.elapsed().as_millis()
                 )),
                 Err(err) => runtime_log_error(format!(
-                    "[存储] 失败，任务=清理多媒体解析缓存，cleanup_kind={}，error={}，耗时毫秒={}",
+                    "[存储] 失败 任务=清理多媒体解析缓存 清理类型={} 错误={} 耗时毫秒={}",
                     cleanup_kind,
                     err,
                     started_at.elapsed().as_millis()
@@ -2040,7 +2039,7 @@ fn cleanup_storage_legacy_items_inner(
     };
     let _migration_guard = lock_message_store_migration();
     runtime_log_info(format!(
-        "[存储] 开始，任务=清理{}，cleanup_kind={}",
+        "[存储] 开始 任务=清理{} 清理类型={}",
         label,
         cleanup_kind
     ));
@@ -2048,7 +2047,7 @@ fn cleanup_storage_legacy_items_inner(
     let result = cleanup_storage_legacy_scope(state, scope);
     match &result {
         Ok(report) => runtime_log_warn(format!(
-            "[存储] 完成，任务=清理{}，cleanup_kind={}，删除文件数={}，跳过文件数={}，释放字节={}，耗时毫秒={}",
+            "[存储] 完成 任务=清理{} 清理类型={} 删除文件数={} 跳过文件数={} 释放字节={} 耗时毫秒={}",
             label,
             cleanup_kind,
             report.deleted_file_count,
@@ -2057,7 +2056,7 @@ fn cleanup_storage_legacy_items_inner(
             started_at.elapsed().as_millis()
         )),
         Err(err) => runtime_log_error(format!(
-            "[存储] 失败，任务=清理{}，cleanup_kind={}，error={}，耗时毫秒={}",
+            "[存储] 失败 任务=清理{} 清理类型={} 错误={} 耗时毫秒={}",
             label,
             cleanup_kind,
             err,

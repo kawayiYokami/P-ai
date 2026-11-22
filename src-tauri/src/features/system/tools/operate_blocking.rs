@@ -32,13 +32,13 @@ where
         Ok(Ok(value)) => Some(value),
         Ok(Err(err)) => {
             runtime_log_warn(format!(
-                "[桌面脚本] 平台调用任务异常，任务=run_ui_call_timed，label={label}，原因={err}"
+                "[系统] 平台调用任务异常 任务=run_ui_call_timed 标签={label} 原因={err}"
             ));
             None
         }
         Err(_) => {
             runtime_log_warn(format!(
-                "[桌面脚本] 平台调用超时，任务=run_ui_call_timed，label={label}，超时毫秒={}；目标窗口可能无响应，本次按读取失败处理",
+                "[系统] 平台调用超时 任务=run_ui_call_timed 标签={label} 超时毫秒={}；目标窗口可能无响应，本次按读取失败处理",
                 limit.as_millis()
             ));
             None

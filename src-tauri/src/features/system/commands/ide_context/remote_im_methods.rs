@@ -87,8 +87,8 @@ async fn remote_im_restart_channel_inner(
         .await
         .map_err(|err| format!("重启渠道失败: {}", err))?;
     runtime_log_info(format!(
-        "[远程IM] 渠道 {} 已按配置收敛: enabled={}, platform={:?}",
-        channel_id, channel.enabled, channel.platform
+        "[远程IM] 渠道 {} 已按配置收敛 已启用={} 平台={}",
+        channel_id, channel.enabled, channel.platform.as_str()
     ));
 
     if channel.enabled && channel.platform == RemoteImPlatform::OnebotV11 {
@@ -106,8 +106,8 @@ async fn remote_im_restart_channel_inner(
                 .await
             {
                 runtime_log_error(format!(
-                    "[远程IM] 钉钉渠道收敛失败: channel_id={}, platform={:?}, error={}",
-                    channel_clone.id, channel_clone.platform, err
+                    "[远程IM] 钉钉渠道收敛失败 渠道={} 平台={} 错误={}",
+                    channel_clone.id, channel_clone.platform.as_str(), err
                 ));
             }
         });

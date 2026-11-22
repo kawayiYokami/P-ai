@@ -137,7 +137,7 @@ fn lock_message_store_block_file_cache(
 > {
     message_store_block_file_cache().lock().unwrap_or_else(|poison| {
         runtime_log_info(format!(
-            "[消息存储] 会话块缓存锁已污染，继续使用内部状态，error={:?}",
+            "[存储] 会话块缓存锁已污染，继续使用内部状态 原因={}",
             poison
         ));
         poison.into_inner()

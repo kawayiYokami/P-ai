@@ -16,7 +16,7 @@ fn question_emit_items_updated(
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话问题] 获取 app_handle 失败：锁已损坏，error={:?}",
+                "[聊天] 会话提问 获取窗口句柄失败：锁已损坏 错误={}",
                 err
             ));
             None
@@ -26,7 +26,7 @@ fn question_emit_items_updated(
         return;
     };
     if let Err(err) = app_handle.emit("easy-call:conversation-question-updated", payload) {
-        runtime_log_error(format!("[会话问题] 推送失败：错误={}", err));
+        runtime_log_error(format!("[聊天] 会话提问 推送失败 错误={}", err));
     }
     let _ = emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id);
 }

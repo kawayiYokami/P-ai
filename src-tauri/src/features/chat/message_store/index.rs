@@ -106,7 +106,7 @@ fn lock_message_store_index_cache(
 > {
     message_store_index_cache().lock().unwrap_or_else(|poison| {
         runtime_log_info(format!(
-            "[消息存储] 消息索引缓存锁已污染，继续使用内部状态，error={:?}",
+            "[存储] 消息索引缓存锁已污染，继续使用内部状态 原因={}",
             poison
         ));
         poison.into_inner()

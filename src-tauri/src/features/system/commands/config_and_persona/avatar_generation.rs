@@ -79,7 +79,6 @@ struct AgentAvatarGeneratedPayload {
 
 /// 广播一次生成结果。取不到 AppHandle 时静默跳过：生成本身已经完成，窗口下次加载会自愈。
 fn emit_agent_avatar_generated(state: &AppState, payload: AgentAvatarGeneratedPayload) {
-    let agent_id = payload.agent_id.clone();
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.clone(),
         Err(_) => None,
@@ -89,7 +88,7 @@ fn emit_agent_avatar_generated(state: &AppState, payload: AgentAvatarGeneratedPa
     };
     if let Err(err) = app_handle.emit(AGENT_AVATAR_GENERATED_EVENT, &payload) {
         runtime_log_warn(format!(
-            "[头像生成] 失败，agentId={agent_id}，stage=广播，error={err}"
+            "[系统] 失败 阶段=广播 错误={err}"
         ));
     }
 }
@@ -202,13 +201,13 @@ fn spawn_agent_avatar_generation(
             // 未配置快速模型＝用户主动禁用：静默跳过，不弹卡、不记失败、不消耗额度。
             Ok(None) => {
                 runtime_log_info(format!(
-                    "[头像生成] 跳过，agentId={agent_id}，stage=未配置快速模型"
+                    "[系统] 跳过 阶段=未配置快速模型"
                 ));
             }
             Ok(Some(_)) => {}
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[头像生成] 失败，agentId={agent_id}，stage=生成，error={err}"
+                    "[系统] 失败 阶段=生成 错误={err}"
                 ));
                 // 失败必须让界面看得见：用户据此去换一个可用的快速模型。
                 emit_agent_avatar_generated(
@@ -269,7 +268,7 @@ fn enqueue_agent_avatar_generation(
     // 同一时刻只排一张：招募时工具排一次、随后的保存又排一次，第二次丢掉。
     if !reserve_avatar_generation_queue(agent_id) {
         runtime_log_info(format!(
-            "[头像生成] 跳过，agentId={agent_id}，stage=已在队列或生成中"
+            "[系统] 跳过 阶段=已在队列或生成中"
         ));
         return;
     }
@@ -653,13 +652,12 @@ async fn generate_agent_avatar(
     input: GenerateAgentAvatarInput,
     state: State<'_, AppState>,
 ) -> Result<GenerateAgentAvatarOutput, String> {
-    let agent_id = input.agent_id.trim().to_string();
     match generate_agent_avatar_inner(input, state.inner()).await {
         Ok(Some(output)) => Ok(output),
         // 用户主动点生成时要明说；后台那条路把 None 当静默跳过。
         Ok(None) => Err("未配置快速模型，无法生成人格头像".to_string()),
         Err(err) => {
-            runtime_log_warn(format!("[头像生成] 失败，agentId={agent_id}，error={err}"));
+            runtime_log_warn(format!("[系统] 失败 错误={err}"));
             Err(err)
         }
     }
@@ -693,7 +691,7 @@ async fn generate_agent_avatar_inner(
     if let Some(path) = existing_path {
         // 不覆盖用户自己设的图，但要留一条痕：否则「点了没反应」永远查不清是跳过了还是没跑。
         runtime_log_info(format!(
-            "[头像生成] 跳过，agentId={agent_id}，stage=已有头像，path={path}"
+            "[系统] 跳过 阶段=已有头像 文件={path}"
         ));
         let existing =
             read_avatar_data_url_inner(AvatarDataPathInput { path: path.clone() }, state)?;
@@ -745,8 +743,7 @@ async fn generate_agent_avatar_inner(
     state_write_agents_cached(state, &next_agents)?;
 
     runtime_log_info(format!(
-        "[头像生成] 完成，agentId={}，字节={}，耗时={}ms",
-        agent_id,
+        "[系统] 完成 字节={} 耗时={}ms",
         svg.len(),
         started_at.elapsed().as_millis()
     ));

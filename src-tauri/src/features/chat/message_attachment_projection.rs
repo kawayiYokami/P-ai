@@ -236,8 +236,10 @@ fn materialize_prompt_message_attachments(
                         Ok(raw) => (Some(B64.encode(raw)), None, true),
                         Err(err) => {
                             runtime_log_warn(format!(
-                                "[附件投影] 二进制物化跳过，message_id={}，label={}，path={}，error={}",
-                                projected.message_id, label, path, err
+                                "[存储] 二进制物化跳过 标签={} 文件={} 原因={}",
+                                label,
+                                path,
+                                err
                             ));
                             (None, Some(err), false)
                         }
@@ -846,7 +848,7 @@ fn canonicalize_message_parts_for_persistence(
                     name.as_deref(),
                 );
                 if let Some(warning) = warning {
-                    runtime_log_warn(format!("[附件迁移] 降级继续：{warning}"));
+                    runtime_log_warn(format!("[存储] 降级继续：{warning}"));
                 }
                 next.push(attachment);
                 changed = true;
@@ -863,7 +865,7 @@ fn canonicalize_message_parts_for_persistence(
                     &normalized_mime,
                 );
                 if let Some(warning) = warning {
-                    runtime_log_warn(format!("[附件迁移] 降级继续：{warning}，path={path}"));
+                    runtime_log_warn(format!("[存储] 降级继续：{warning} 文件={path}"));
                 }
                 let normalized_path = message_attachment_display_path(&absolute_path.to_string_lossy());
                 let normalized_name = attachment_name_from_path_or_input(&absolute_path, &name);

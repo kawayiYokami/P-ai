@@ -8,7 +8,7 @@ fn lock_remote_im_reply_delegate_runtimes(
         Ok(runtimes) => Ok(runtimes),
         Err(poisoned) => {
             runtime_log_warn(
-                "[远程应答委托] 运行时锁中毒，已恢复并继续处理当前业务".to_string(),
+                "[远程IM] 运行时锁中毒，已恢复并继续处理当前业务".to_string(),
             );
             Ok(poisoned.into_inner())
         }
@@ -53,8 +53,7 @@ fn remote_im_reply_delegate_register(
     }
     let mut prompt_snapshot_messages = if force_memory_prompt_snapshot {
         runtime_log_warn(format!(
-            "[远程应答委托] 跳过，任务=读取启动 block，reason=dynamic_wake_persistence_failed，conversation_id={}，message_id={}",
-            conversation_id, trigger_message_id
+            "[远程IM] 跳过 任务=读取启动块 原因=唤醒持久化失败"
         ));
         vec![trigger_message.clone()]
     } else { match conversation_service_v2()
@@ -67,8 +66,8 @@ fn remote_im_reply_delegate_register(
         Ok(messages) => messages,
         Err(err) => {
             runtime_log_error(format!(
-                "[远程应答委托] 失败，任务=读取启动 block，改用触发消息内存快照，conversation_id={}，message_id={}，error={}",
-                conversation_id, trigger_message_id, err
+                "[远程IM] 失败 任务=读取启动块，改用触发消息内存快照 原因={}",
+                err
             ));
             vec![trigger_message.clone()]
         }
@@ -84,8 +83,7 @@ fn remote_im_reply_delegate_register(
             != Some(trigger_message_id)
     {
         runtime_log_error(format!(
-            "[远程应答委托] 失败，任务=触发消息不在启动 block，改用触发消息内存快照，conversation_id={}，message_id={}",
-            conversation_id, trigger_message_id
+            "[远程IM] 失败 任务=触发消息不在启动块，改用触发消息内存快照"
         ));
         prompt_snapshot_messages = vec![trigger_message.clone()];
     }
@@ -164,8 +162,8 @@ fn remote_im_reply_delegate_register(
         &remote_im_reply_delegate_prompt_messages(state, &delegate_id)?,
     ) {
         runtime_log_warn(format!(
-            "[远程应答委托] 镜像冻结快照失败，已降级继续，delegate_id={}，error={}",
-            delegate_id, err
+            "[远程IM] 镜像冻结快照失败，已降级继续 原因={}",
+            err
         ));
     }
     Ok(delegate_id)
@@ -200,8 +198,8 @@ fn build_remote_im_reply_delegate_system_reminder(
                 Ok(block) => block,
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[用户画像] 失败，任务=冻结远程应答系统提醒，contact_id={}，user_id={}，error={}",
-                        contact_id, user_id, err
+                        "[远程IM] 失败 任务=冻结远程应答系统提醒 原因={}",
+                        err
                     ));
                     None
                 }
@@ -394,8 +392,8 @@ fn remote_im_reply_delegate_enqueue_guidance(
         &[message],
     ) {
         runtime_log_warn(format!(
-            "[远程应答委托] 失败，任务=镜像秘书引导，delegate_id={}，error={}",
-            delegate_id, err
+            "[远程IM] 失败 任务=镜像秘书引导 原因={}",
+            err
         ));
     }
     Ok(())
@@ -449,10 +447,7 @@ fn remote_im_reply_delegate_active_ids_for_contact(
         .collect::<Vec<_>>();
     for runtime in &runtimes {
         runtime_log_debug(format!(
-            "[远程应答委托] 活跃快照，delegate_id={}，conversation_id={}，trigger_message_id={}，started_at={}",
-            runtime.delegate_id,
-            runtime.conversation_id,
-            runtime.trigger_message_id,
+            "[远程IM] 活跃快照 开始时间={}",
             runtime.started_at
         ));
     }
@@ -471,8 +466,8 @@ fn abort_remote_im_reply_delegates_for_contact(
         Ok(delegate_ids) => delegate_ids,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程应答委托] 闭嘴中止快照读取降级，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 闭嘴中止快照读取降级 原因={}",
+                err
             ));
             return Ok(0);
         }
@@ -485,8 +480,8 @@ fn abort_remote_im_reply_delegates_for_contact(
             Err(err) => {
                 // runtime 可能已从活跃表移除，但归档/状态回写失败；不能因此中断其余委托的中止。
                 runtime_log_warn(format!(
-                    "[远程应答委托] 降级，任务=闭嘴中止，delegate_id={}，error={}",
-                    delegate_id, err
+                    "[远程IM] 降级 任务=闭嘴中止 原因={}",
+                    err
                 ));
                 if !remote_im_reply_delegate_is_active(state, &delegate_id) {
                     aborted += 1;
@@ -548,20 +543,20 @@ fn remote_im_reply_delegate_finalize(
         Some("remote_im_work_ledger_terminal"),
     ) {
         runtime_log_warn(format!(
-            "[助理工作账本] 降级，任务=记录应答终态，delegate_id={}，error={}",
-            runtime.delegate_id, err
+            "[远程IM] 降级 任务=记录应答终态 原因={}",
+            err
         ));
     }
     if let Err(err) = delegate_runtime_thread_archive(state, &runtime.delegate_id, &archived_at) {
         runtime_log_warn(format!(
-            "[远程应答委托] 线程归档降级，delegate_id={}，error={}",
-            runtime.delegate_id, err
+            "[远程IM] 线程归档降级 原因={}",
+            err
         ));
     }
     if let Err(err) = delegate_store_update_status(&state.data_path, &runtime.delegate_id, status) {
         runtime_log_warn(format!(
-            "[远程应答委托] 状态落盘降级，delegate_id={}，status={}，error={}",
-            runtime.delegate_id, status, err
+            "[远程IM] 状态落盘降级 状态={} 原因={}",
+            status, err
         ));
     }
     remote_im_request_24h_maintenance_for_conversation(state.clone(), &runtime.conversation_id);
@@ -572,16 +567,16 @@ fn remote_im_reply_delegate_finalize(
         status,
     );
     runtime_log_info(format!(
-        "[应答委托] 结束：delegate_id={}，状态={}，原因={}",
-        runtime.delegate_id, status, reason
+        "[远程IM] 应答委托结束 状态={} 原因={}",
+        status, reason
     ));
     if let Err(err) = remote_im_reschedule_presence_timeout_after_delegate(
         state,
         &runtime.contact_id,
     ) {
         runtime_log_warn(format!(
-            "[在场] 降级：应答委托结束后重新计时失败，contact_id={}，error={}",
-            runtime.contact_id, err
+            "[远程IM] 降级：应答委托结束后重新计时失败 原因={}",
+            err
         ));
     }
     Ok(())
@@ -634,8 +629,7 @@ fn abort_remote_im_reply_delegate(
             Ok(guard) => guard,
             Err(poisoned) => {
                 runtime_log_warn(format!(
-                    "[远程应答委托] 聊天取消句柄锁中毒，已恢复，delegate_id={}",
-                    delegate_id
+                    "[远程IM] 聊天取消句柄锁中毒，已恢复"
                 ));
                 poisoned.into_inner()
             }
@@ -651,8 +645,8 @@ fn abort_remote_im_reply_delegate(
         Ok(aborted) => aborted,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程应答委托] 工具取消降级，delegate_id={}，error={}",
-                delegate_id, err
+                "[远程IM] 工具取消降级 原因={}",
+                err
             ));
             false
         }
@@ -664,13 +658,13 @@ fn abort_remote_im_reply_delegate(
         reason,
     ) {
         runtime_log_warn(format!(
-            "[远程应答委托] 终态归档降级，delegate_id={}，error={}",
-            delegate_id, err
+            "[远程IM] 终态归档降级 原因={}",
+            err
         ));
     }
     runtime_log_info(format!(
-        "[远程应答委托] 完成，任务=取消，delegate_id={}，aborted_chat={}，aborted_tool={}，reason={}",
-        delegate_id, aborted_chat, aborted_tool, reason
+        "[远程IM] 完成 任务=取消 中止聊天={} 中止工具={} 原因={}",
+        aborted_chat, aborted_tool, reason
     ));
     Ok(true)
 }
@@ -742,7 +736,7 @@ fn spawn_remote_im_reply_delegate(
             if let Err(err) =
                 remote_im_poke_contact_member(&poke_state, &poke_contact_id, &poke_member_id).await
             {
-                runtime_log_warn(format!("[应答委托] 戳一戳失败，不影响回复，原因：{err}"));
+                runtime_log_warn(format!("[远程IM] 戳一戳失败，不影响回复 原因={err}"));
             }
         });
     }
@@ -762,8 +756,7 @@ fn spawn_remote_im_reply_delegate(
             Ok(value) => value,
             Err(_) => {
                 runtime_log_error(format!(
-                    "[远程应答委托] 失败，任务=获取并发槽，delegate_id={}",
-                    delegate_id_for_task
+                    "[远程IM] 失败 任务=获取并发槽"
                 ));
                 let _ = remote_im_reply_delegate_finish(
                     &state_clone,
@@ -790,8 +783,8 @@ fn spawn_remote_im_reply_delegate(
                 Ok(messages) => messages,
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[远程应答委托] 失败，任务=读取私有提示词快照，delegate_id={}，error={}",
-                        delegate_id_for_task, err
+                        "[远程IM] 失败 任务=读取私有提示词快照 原因={}",
+                        err
                     ));
                     terminal_status = DELEGATE_STATUS_FAILED;
                     terminal_reason = "读取远程应答上下文失败";
@@ -842,14 +835,13 @@ fn spawn_remote_im_reply_delegate(
                         "远程应答委托已产生模型回答",
                     );
                     runtime_log_info(format!(
-                        "[远程应答委托] 完成一轮，delegate_id={}，conversation_id={}",
-                        delegate_id_for_task, conversation_id
+                        "[远程IM] 完成一轮"
                     ));
                 }
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[远程应答委托] 失败，delegate_id={}，conversation_id={}，error={}",
-                        delegate_id_for_task, conversation_id, err
+                        "[远程IM] 失败 原因={}",
+                        err
                     ));
                     terminal_status = DELEGATE_STATUS_FAILED;
                     terminal_reason = "远程应答模型执行失败";
@@ -867,21 +859,20 @@ fn spawn_remote_im_reply_delegate(
                         "远程应答完成",
                     ) {
                         runtime_log_warn(format!(
-                            "[远程应答委托] 失败，任务=终结，delegate_id={}，error={}",
-                            delegate_id_for_task, err
+                            "[远程IM] 失败 任务=终结 原因={}",
+                            err
                         ));
                     }
                     break;
                 }
                 Ok(RemoteImReplyDelegateNext::Guidance(messages)) => runtime_log_info(format!(
-                    "[远程应答委托] 继续，任务=消费引导，delegate_id={}，message_count={}",
-                    delegate_id_for_task,
+                    "[远程IM] 继续 任务=消费引导 消息数={}",
                     messages.len()
                 )),
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[远程应答委托] 跳过，任务=读取引导，delegate_id={}，error={}",
-                        delegate_id_for_task, err
+                        "[远程IM] 跳过 任务=读取引导 原因={}",
+                        err
                     ));
                     terminal_status = DELEGATE_STATUS_FAILED;
                     terminal_reason = "读取远程应答引导失败";
@@ -897,15 +888,15 @@ fn spawn_remote_im_reply_delegate(
             terminal_reason,
         ) {
             runtime_log_warn(format!(
-                "[远程应答委托] 失败，任务=终结，delegate_id={}，error={}",
-                delegate_id_for_task, err
+                "[远程IM] 失败 任务=终结 原因={}",
+                err
             ));
         }
         // 委托失败只影响本轮；下一轮巡检由定时器链自己排，不按编号重排。
         if terminal_status == DELEGATE_STATUS_FAILED {
             runtime_log_warn(format!(
-                "[群聊巡检] 降级，任务=委托终结失败，contact_id={}，reason={}",
-                contact_id_for_task, terminal_reason
+                "[远程IM] 降级 任务=委托终结失败 原因={}",
+                terminal_reason
             ));
         }
     });

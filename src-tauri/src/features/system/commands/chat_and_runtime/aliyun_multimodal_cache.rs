@@ -563,7 +563,7 @@ async fn ensure_aliyun_multimodal_urls_for_entries(
             Ok(url) => url,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[百炼多模态URL缓存] 上传失败，已回退为base64: model={} mime={} error={}",
+                    "[系统] 上传失败，已回退为base64 模型={} 格式={} 错误={}",
                     model_name,
                     entry.mime,
                     err
@@ -615,7 +615,7 @@ async fn maybe_prepare_aliyun_multimodal_urls_for_candidate(
     if is_aliyun_dashscope_coding_base_url(&resolved_api.base_url) {
         decode_prepared_prompt_binaries_base64(&state.data_path, prepared_prompt)?;
         runtime_log_warn(format!(
-            "[百炼多模态URL缓存] 跳过，任务=prepare_multimodal_url_cache，触发条件=百炼Coding地址，处理=保留base64，会话ID={}，模型={}",
+            "[系统] 跳过 任务=prepare_multimodal_url_cache 触发条件=百炼Coding地址 处理=保留base64 会话编号={} 模型={}",
             conversation.id,
             model_name
         ));
@@ -624,7 +624,7 @@ async fn maybe_prepare_aliyun_multimodal_urls_for_candidate(
     if resolved_api.api_key.trim().is_empty() {
         decode_prepared_prompt_binaries_base64(&state.data_path, prepared_prompt)?;
         runtime_log_warn(format!(
-            "[百炼多模态URL缓存] 跳过上传，已回退为base64: reason=api_key_empty，会话ID={}，模型={}",
+            "[系统] 跳过上传，已回退为base64 原因=api_key_empty 会话编号={} 模型={}",
             conversation.id,
             model_name
         ));
@@ -734,7 +734,7 @@ async fn maybe_prepare_aliyun_multimodal_urls_for_candidate(
     }
 
     runtime_log_info(format!(
-        "[百炼多模态URL缓存] 完成，任务=prepare_multimodal_url_cache，触发条件=base_url命中dashscope.aliyuncs.com，命中条数={}，上传条数={}，URL条数={}，会话ID={}，模型={}，耗时毫秒={}",
+        "[系统] 完成 任务=prepare_multimodal_url_cache 触发条件=base_url命中dashscope.aliyuncs.com 命中条数={} 上传条数={} URL条数={} 会话编号={} 模型={} 耗时毫秒={}",
         hit_count,
         upload_count,
         used_url_count,

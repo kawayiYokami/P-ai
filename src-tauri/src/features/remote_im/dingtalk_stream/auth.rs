@@ -84,7 +84,7 @@ impl dingtalk_stream::AsyncChatbotHandler for EasyCallDingtalkAsyncHandler {
                     &channel_id,
                     "info",
                     &format!(
-                        "[钉钉生命周期] task={} status=完成 trigger=callback_handler_ready key_counts=0 duration_ms=0",
+                        "[远程IM] 钉钉生命周期 task={} status=完成 trigger=callback_handler_ready key_counts=0 duration_ms=0",
                         channel_id
                     ),
                 )

@@ -64,7 +64,7 @@ async fn terminal_live_kill_child_with_timeout(
     {
         Ok(_) => {}
         Err(_) => runtime_log_error(format!(
-            "[终端] live shell 关闭等待超时: context={}, timeout_ms={}",
+            "[系统] live shell 关闭等待超时 上下文={} 超时={}",
             context, TERMINAL_LIVE_CLOSE_WAIT_MS
         )),
     }
@@ -577,8 +577,7 @@ fn terminal_background_shell_writeback(
         "terminal_background_shell",
     ) {
         runtime_log_error(format!(
-            "[终端后台] 写回失败，conversation_id={}，task_id={}，status={}，error={}",
-            task.conversation_id,
+            "[系统] 写回失败 任务={} 状态={} 错误={}",
             task.id,
             status_label,
             err
@@ -676,11 +675,11 @@ fn terminal_background_shell_wait_and_report_exit(
         let exit_code = match &waited {
             Ok(status) => status.code().unwrap_or(-1),
             Err(err) => {
-                runtime_log_error(format!("[终端后台] 等待进程退出失败，error={err}"));
+                runtime_log_error(format!("[系统] 等待进程退出失败 错误={err}"));
                 -1
             }
         };
-        runtime_log_info(format!("[终端后台] 进程退出，exit_code={exit_code}"));
+        runtime_log_info(format!("[系统] 进程退出 退出码={exit_code}"));
         let _ = exit_tx.send(exit_code);
     });
 }
@@ -795,9 +794,8 @@ async fn terminal_background_shell_spawn_and_register(
         ));
     }
     runtime_log_info(format!(
-        "[终端后台] 已启动，task_id={}，conversation_id={}，log={}",
+        "[系统] 已启动 任务={} 日志={}",
         id,
-        conversation_id,
         terminal_path_for_user(&log_path)
     ));
     Ok(id)

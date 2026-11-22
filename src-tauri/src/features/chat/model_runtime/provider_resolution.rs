@@ -6,6 +6,17 @@ enum ModelProtocolResolutionSource {
     Fallback,
 }
 
+impl ModelProtocolResolutionSource {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Explicit => "explicit",
+            Self::BaseUrl => "base_url",
+            Self::Model => "model",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderAuthScheme {
     Bearer,

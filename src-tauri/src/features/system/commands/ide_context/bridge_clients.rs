@@ -30,7 +30,7 @@ fn ide_context_web_access_enabled(state: &AppState) -> bool {
     match state_read_config_cached(state) {
         Ok(config) => config.web_access_enabled,
         Err(err) => {
-            runtime_log_error(format!("[网络访问] 读取配置失败，按关闭处理: {}", err));
+            runtime_log_error(format!("[系统] 读取配置失败，按关闭处理: {}", err));
             false
         }
     }
@@ -419,7 +419,7 @@ fn ide_context_consume_bridge_token_with_state(
             .unwrap_or(false);
         if should_restore {
             if let Err(err) = ide_context_try_restore_persisted_bridge_token(state, runtime) {
-                runtime_log_error(format!("[IDE 上下文桥] 恢复持久化 Web 访问令牌失败: {}", err));
+                runtime_log_error(format!("[系统] 恢复持久化 Web 访问令牌失败: {}", err));
             }
         }
     }

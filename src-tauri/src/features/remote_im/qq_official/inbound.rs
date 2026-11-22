@@ -247,7 +247,7 @@ async fn qq_official_parse_and_enqueue_message(
             Ok(part) => parts.push(part),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM][QQ官方机器人] 附件下载失败，已跳过并继续，error={err}"
+                    "[远程IM] 附件下载失败，已跳过并继续 原因={err}"
                 ));
                 parts.push(ChatIngressPart::Text {
                     text: format!("[附件不可用：{err}，已跳过并继续]"),

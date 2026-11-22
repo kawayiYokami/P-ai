@@ -37,11 +37,11 @@ async fn list_tool_review_commit_options_internal_command(
     let page = input.page.max(1);
     let page_size = input.page_size.clamp(1, 100);
     runtime_log_info(format!(
-        "[工具审查][commit列表] 开始 conversation_id={} page={} page_size={}",
-        conversation_id, page, page_size
+        "[工具] commit列表 开始 页={} 每页={}",
+        page, page_size
     ));
     if conversation_id.is_empty() {
-        runtime_log_warn("[工具审查][commit列表] 跳过 conversation_id 为空".to_string());
+        runtime_log_warn("[工具] commit列表 跳过 conversation_id 为空".to_string());
         return Ok(ListToolReviewCommitOptionsOutput { total: 0, page, page_size, commits: Vec::new() });
     }
     let conversation = with_tool_review_conversation(state, conversation_id, |conversation| {
@@ -49,8 +49,8 @@ async fn list_tool_review_commit_options_internal_command(
     })
     .map_err(|err| {
         runtime_log_error(format!(
-            "[工具审查][commit列表] 读取会话失败 conversation_id={} err={}",
-            conversation_id, err
+            "[工具] commit列表 读取会话失败 错误={}",
+            err
         ));
         err
     })?;
@@ -58,14 +58,13 @@ async fn list_tool_review_commit_options_internal_command(
         .await
         .map_err(|err| {
             runtime_log_error(format!(
-                "[工具审查][commit列表] 获取失败 conversation_id={} err={}",
-                conversation_id, err
+                "[工具] commit列表 获取失败 错误={}",
+                err
             ));
             err
         })?;
     runtime_log_info(format!(
-        "[工具审查][commit列表] 完成 conversation_id={} total={} count={}",
-        conversation_id,
+        "[工具] commit列表 完成 总数={} 数量={}",
         total,
         commits.len()
     ));
@@ -102,8 +101,7 @@ async fn tool_review_list_commit_options_internal(
     let workspace_text = workspace_path.to_string_lossy().to_string();
     let total_command = "git rev-list --count HEAD";
     runtime_log_info(format!(
-        "[工具审查][commit列表] 执行 git conversation_id={} cwd={} command={}",
-        conversation.id,
+        "[工具] commit列表 执行 git 目录={} 命令={}",
         workspace_text,
         total_command
     ));
@@ -126,8 +124,7 @@ async fn tool_review_list_commit_options_internal(
                 "0".to_string()
             } else {
                 runtime_log_error(format!(
-                    "[工具审查][commit列表] git失败 conversation_id={} cwd={} command={} err={}",
-                    conversation.id,
+                    "[工具] commit列表 git失败 目录={} 命令={} 错误={}",
                     workspace_text,
                     total_command,
                     err
@@ -140,8 +137,7 @@ async fn tool_review_list_commit_options_internal(
     let offset = page.saturating_sub(1).saturating_mul(page_size);
     let command = format!("git log --skip {} -n {} --pretty=format:%H%x1f%h%x1f%s%x1f%cI", offset, page_size);
     runtime_log_info(format!(
-        "[工具审查][commit列表] 执行 git conversation_id={} cwd={} command={}",
-        conversation.id,
+        "[工具] commit列表 执行 git 目录={} 命令={}",
         workspace_text,
         command
     ));
@@ -164,8 +160,7 @@ async fn tool_review_list_commit_options_internal(
                 String::new()
             } else {
                 runtime_log_error(format!(
-                    "[工具审查][commit列表] git失败 conversation_id={} cwd={} command={} err={}",
-                    conversation.id,
+                    "[工具] commit列表 git失败 目录={} 命令={} 错误={}",
                     workspace_text,
                     command,
                     err
@@ -175,8 +170,7 @@ async fn tool_review_list_commit_options_internal(
         }
     };
     runtime_log_info(format!(
-        "[工具审查][commit列表] git完成 conversation_id={} cwd={} stdout_lines={}",
-        conversation.id,
+        "[工具] commit列表 git完成 目录={} 输出行数={}",
         workspace_text,
         output.lines().count()
     ));
@@ -1677,8 +1671,8 @@ fn emit_tool_review_reports_updated(state: &AppState, conversation_id: &str, rep
         "status": status,
     });
     runtime_log_info(format!(
-        "[工具审查][事件] 推送 reports-updated conversation_id={} report_id={} status={}",
-        conversation_id, report_id, status
+        "[工具] 事件 推送 reports-updated 报告={} 状态={}",
+        report_id, status
     ));
     let _ = app_handle.emit("easy-call:tool-review-reports-updated", payload);
 }
@@ -2253,27 +2247,25 @@ async fn submit_tool_review_code_internal(
 ) -> Result<SubmitToolReviewCodeOutput, String> {
     let conversation_id = input.conversation_id.trim();
     runtime_log_info(format!(
-        "[工具审查][后端] 收到 submit_tool_review_code conversation_id={} scope={} target={}",
-        conversation_id,
+        "[工具] 后端 收到 submit_tool_review_code 范围={} 目标={}",
         input.scope.trim(),
         input.target.as_deref().unwrap_or("").trim()
     ));
     if conversation_id.is_empty() {
-        runtime_log_error("[工具审查][后端] submit_tool_review_code 失败 conversationId 为空".to_string());
+        runtime_log_error("[工具] 后端 submit_tool_review_code 失败 conversationId 为空".to_string());
         return Err("conversationId 不能为空。".to_string());
     }
     let scope = tool_review_parse_scope(&input.scope).map_err(|err| {
         runtime_log_error(format!(
-            "[工具审查][后端] 解析审查范围失败 conversation_id={} raw_scope={} err={}",
-            conversation_id,
+            "[工具] 后端 解析审查范围失败 原始范围={} 错误={}",
             input.scope.trim(),
             err
         ));
         err
     })?;
     runtime_log_info(format!(
-        "[工具审查][后端] 审查范围解析完成 conversation_id={} scope={}",
-        conversation_id, scope
+        "[工具] 后端 审查范围解析完成 范围={}",
+        scope
     ));
     let target = input
         .target
@@ -2287,14 +2279,13 @@ async fn submit_tool_review_code_internal(
     })
     .map_err(|err| {
         runtime_log_error(format!(
-            "[工具审查][后端] 读取会话失败 conversation_id={} err={}",
-            conversation_id, err
+            "[工具] 后端 读取会话失败 错误={}",
+            err
         ));
         err
     })?;
     runtime_log_info(format!(
-        "[工具审查][后端] 会话读取完成 conversation_id={} message_count={}",
-        conversation_id,
+        "[工具] 后端 会话读取完成 消息数={}",
         conversation.messages.len()
     ));
 
@@ -2306,15 +2297,15 @@ async fn submit_tool_review_code_internal(
     .map_err(|err| {
         let detail = format!("当前会话缺少可用主工作区，无法发起代码审查：{}", err);
         runtime_log_error(format!(
-            "[工具审查][后端] 解析工作区失败 conversation_id={} err={}",
-            conversation_id, detail
+            "[工具] 后端 解析工作区失败 错误={}",
+            detail
         ));
         detail
     })?;
     let workspace_text = workspace_path.to_string_lossy().to_string();
     runtime_log_info(format!(
-        "[工具审查][后端] 工作区解析完成 conversation_id={} workspace_path={}",
-        conversation_id, workspace_text
+        "[工具] 后端 工作区解析完成 工作区={}",
+        workspace_text
     ));
     let target_text = target.unwrap_or_default().to_string();
     let source_agent_id = if conversation.agent_id.trim().is_empty() {
@@ -2358,14 +2349,14 @@ async fn submit_tool_review_code_internal(
     )
     .map_err(|err| {
         runtime_log_error(format!(
-            "[工具审查][后端] 创建代码审查记录失败 conversation_id={} scope={} target={} err={}",
-            conversation_id, scope, target_text, err
+            "[工具] 后端 创建代码审查记录失败 范围={} 目标={} 错误={}",
+            scope, target_text, err
         ));
         err
     })?;
     runtime_log_info(format!(
-        "[工具审查][后端] 已创建代码审查记录 conversation_id={} scope={} report_id={} target={}",
-        conversation_id, scope, pending_report.id, target_text
+        "[工具] 后端 已创建代码审查记录 范围={} 报告={} 目标={}",
+        scope, pending_report.id, target_text
     ));
     emit_tool_review_reports_updated(&app_state, conversation_id, &pending_report.id, "pending");
 
@@ -2378,8 +2369,7 @@ async fn submit_tool_review_code_internal(
     let review_model_override_owned = review_model_override.clone();
     tauri::async_runtime::spawn(async move {
         runtime_log_info(format!(
-            "[工具审查][后端] 开始代码审查子任务 conversation_id={} scope={} report_id={} target={}",
-            conversation_id_owned,
+            "[工具] 后端 开始代码审查子任务 范围={} 报告={} 目标={}",
             scope_owned,
             report_id,
             target_owned.as_deref().unwrap_or("")
@@ -2398,8 +2388,8 @@ async fn submit_tool_review_code_internal(
                     None,
                 );
                 runtime_log_error(format!(
-                    "[工具审查][后端] 读取 code-review skill 失败 conversation_id={} scope={} report_id={} err={}",
-                    conversation_id_owned, scope_owned, report_id, err
+                    "[工具] 后端 读取 code-review skill 失败 范围={} 报告={} 错误={}",
+                    scope_owned, report_id, err
                 ));
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
                 return;
@@ -2425,13 +2415,9 @@ async fn submit_tool_review_code_internal(
         };
         let session_id = format!("{}::{}", source_agent_id_owned, conversation_id_owned);
         runtime_log_info(format!(
-            "[工具审查][后端] 发起代码审查委托 conversation_id={} scope={} report_id={} session_id={} source_agent_id={} target_agent_id={}",
-            conversation_id_owned,
+            "[工具] 后端 发起代码审查委托 范围={} 报告={}",
             scope_owned,
-            report_id,
-            session_id,
-            source_agent_id_owned,
-            target_agent_id_owned
+            report_id
         ));
         let delegate_result = match delegate_execute_sync(
             &app_state,
@@ -2457,8 +2443,8 @@ async fn submit_tool_review_code_internal(
                     None,
                 );
                 runtime_log_error(format!(
-                    "[工具审查][后端] 代码审查委托失败 conversation_id={} scope={} report_id={} err={}",
-                    conversation_id_owned, scope_owned, report_id, err
+                    "[工具] 后端 代码审查委托失败 范围={} 报告={} 错误={}",
+                    scope_owned, report_id, err
                 ));
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
                 return;
@@ -2489,8 +2475,8 @@ async fn submit_tool_review_code_internal(
                 result_delegate_id.as_deref(),
             );
             runtime_log_error(format!(
-                "[工具审查][后端] 代码审查委托返回失败 conversation_id={} scope={} report_id={} reason={}",
-                conversation_id_owned, scope_owned, report_id, reason
+                "[工具] 后端 代码审查委托返回失败 范围={} 报告={} 原因={}",
+                scope_owned, report_id, reason
             ));
             emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
             return;
@@ -2515,8 +2501,8 @@ async fn submit_tool_review_code_internal(
                     None,
                 );
                 runtime_log_error(format!(
-                    "[工具审查][后端] 代码审查结果缺失 conversation_id={} scope={} report_id={}",
-                    conversation_id_owned, scope_owned, report_id
+                    "[工具] 后端 代码审查结果缺失 范围={} 报告={}",
+                    scope_owned, report_id
                 ));
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
                 return;
@@ -2536,8 +2522,8 @@ async fn submit_tool_review_code_internal(
         ) {
             Ok(_) => {
                 runtime_log_info(format!(
-                    "[工具审查][后端] 代码审查完成 conversation_id={} scope={} report_id={}",
-                    conversation_id_owned, scope_owned, report_id
+                    "[工具] 后端 代码审查完成 范围={} 报告={}",
+                    scope_owned, report_id
                 ));
                 if let Err(err) = conversation_service_v2().enqueue_delegate_completion_notification(
                     &app_state,
@@ -2548,16 +2534,16 @@ async fn submit_tool_review_code_internal(
                     "tool_review_delegate_completion",
                 ) {
                     runtime_log_error(format!(
-                        "[工具审查][后端] 投递完成系统通知失败 conversation_id={} scope={} report_id={} err={}",
-                        conversation_id_owned, scope_owned, report_id, err
+                        "[工具] 后端 投递完成系统通知失败 范围={} 报告={} 错误={}",
+                        scope_owned, report_id, err
                     ));
                 }
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "success");
             }
             Err(err) => {
                 runtime_log_error(format!(
-                    "[工具审查][后端] 代码审查结果落盘失败 conversation_id={} scope={} report_id={} err={}",
-                    conversation_id_owned, scope_owned, report_id, err
+                    "[工具] 后端 代码审查结果落盘失败 范围={} 报告={} 错误={}",
+                    scope_owned, report_id, err
                 ));
                 let _ = tool_review_update_report_record(
                     &app_state.data_path,

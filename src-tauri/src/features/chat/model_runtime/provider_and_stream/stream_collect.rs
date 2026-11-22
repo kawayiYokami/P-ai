@@ -160,7 +160,7 @@ where
             }
             Err(err) => {
                 runtime_log_error(format!(
-                    "[聊天] GenAI 流式收集失败: error={:?}",
+                    "[聊天] GenAI 流式收集失败 原因={}",
                     err
                 ));
                 if let Some(guard) = stream_guard {

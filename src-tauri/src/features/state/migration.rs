@@ -35,7 +35,7 @@ fn run_state_migration_if_needed(state: &AppState) -> Result<bool, String> {
     if !state_migration_needed(&state.data_path)? {
         return Ok(false);
     }
-    runtime_log_info("[state迁移] 开始，任务=旧JSON迁入state.sqlite".to_string());
+    runtime_log_info("[存储] 状态迁移 开始 任务=旧JSON迁入state.sqlite".to_string());
 
     let mut conn = state_db_open(&state.data_path)?;
     let tx = conn
@@ -71,7 +71,7 @@ fn run_state_migration_if_needed(state: &AppState) -> Result<bool, String> {
     .map_err(|err| format!("写入 state 迁移版本失败，version={STATE_MIGRATION_VERSION}，error={err}"))?;
     tx.commit()
         .map_err(|err| format!("提交 state 迁移事务失败，error={err}"))?;
-    runtime_log_info("[state迁移] 完成，任务=旧JSON迁入state.sqlite".to_string());
+    runtime_log_info("[存储] 状态迁移 完成 任务=旧JSON迁入state.sqlite".to_string());
     Ok(true)
 }
 

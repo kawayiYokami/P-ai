@@ -512,7 +512,7 @@ fn persist_grok_login(state: &AppState, provider_id: &str, auth: &GrokAuthFile) 
     write_grok_auth_file(&path, auth)?;
     let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
     write_selected_grok_account(state, provider_id, file_name)?;
-    runtime_log_info(format!("[Grok登录] 已写入凭证 {}", path.display()));
+    runtime_log_info(format!("[系统] 已写入凭证 {}", path.display()));
     Ok(grok_status_from_file(provider_id, &path, auth))
 }
 
@@ -624,7 +624,7 @@ pub(crate) fn grok_auth_import(app: AppHandle, input: GrokImportInput) -> Result
     }
     let auth = load_grok_auth_from_path(&source)?;
     if auth.auth_kind.trim() != "oauth" && !auth.auth_kind.trim().is_empty() {
-        runtime_log_warn(format!("[Grok登录] 导入文件 auth_kind={}，仍按 OAuth 凭证处理", auth.auth_kind));
+        runtime_log_warn(format!("[系统] 导入文件 认证类型={}，仍按 OAuth 凭证处理", auth.auth_kind));
     }
     persist_grok_login(state.inner(), provider_id, &auth)
 }

@@ -148,10 +148,9 @@ fn memory_store_list_profile_memories_by_user_id_visible_for_agent(
 ) -> Result<Vec<MemoryEntry>, String> {
     let started_at = std::time::Instant::now();
     let Some(user_id_tag) = profile_user_id_tag(user_id) else {
-        runtime_log_warn(format!(
-            "[用户画像] 跳过，任务=fast_profile_lookup，user_id={}，agent_id={}，private_memory_enabled={}，requested_limit={}，reason=empty_user_id，elapsed_ms={}",
+        runtime_log_debug(format!(
+            "[记忆] 用户画像 跳过 任务=快速画像查询 用户={} 私有记忆={} 请求上限={} 原因=用户为空 耗时={}",
             user_id.trim(),
-            agent_id.trim(),
             private_memory_enabled,
             limit,
             started_at.elapsed().as_millis()
@@ -236,9 +235,8 @@ fn memory_store_list_profile_memories_by_user_id_visible_for_agent(
     }
     if ids.is_empty() {
         runtime_log_info(format!(
-            "[用户画像] 完成，任务=fast_profile_lookup，user_id={}，agent_id={}，private_memory_enabled={}，requested_limit={}，result_count=0，elapsed_ms={}",
+            "[记忆] 用户画像 完成 任务=快速画像查询 用户={} 私有记忆={} 请求上限={} 结果数=0 耗时={}",
             user_id.trim(),
-            agent_id.trim(),
             private_memory_enabled,
             limit,
             started_at.elapsed().as_millis()
@@ -263,9 +261,8 @@ fn memory_store_list_profile_memories_by_user_id_visible_for_agent(
         memories.truncate(limit);
     }
     runtime_log_info(format!(
-        "[用户画像] 完成，任务=fast_profile_lookup，user_id={}，agent_id={}，private_memory_enabled={}，requested_limit={}，result_count={}，elapsed_ms={}",
+        "[记忆] 用户画像 完成 任务=快速画像查询 用户={} 私有记忆={} 请求上限={} 结果数={} 耗时={}",
         user_id.trim(),
-        agent_id.trim(),
         private_memory_enabled,
         limit,
         memories.len(),

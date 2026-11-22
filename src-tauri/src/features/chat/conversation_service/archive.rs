@@ -20,8 +20,8 @@ fn build_archive_replacement_conversation(
             Ok(snapshot) => snapshot,
             Err(err) => {
                 runtime_log_error(format!(
-                    "[用户画像] 失败，任务=prepare_archive_active_conversation_seed_snapshot，agent_id={}，error={}",
-                    agent.id,
+                    "[聊天] 失败 任务=prepare_archive_active_conversation_seed_snapshot 人格={} 原因={}",
+                    agent.name,
                     err
                 ));
                 None

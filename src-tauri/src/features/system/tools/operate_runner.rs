@@ -73,7 +73,7 @@ fn enigo_unavailable_error(err: &enigo::NewConError) -> DesktopToolError {
     }
     #[cfg(target_os = "macos")]
     {
-        runtime_log_warn("[桌面脚本] 缺少辅助功能权限，任务=run_operate_tool".to_string());
+        runtime_log_warn("[系统] 缺少辅助功能权限 任务=run_operate_tool".to_string());
         DesktopToolError::internal_error(OPERATE_ENIGO_PERMISSION_HINT)
     }
     #[cfg(not(target_os = "macos"))]
@@ -91,14 +91,14 @@ async fn run_operate_tool(
     let mut warnings = Vec::<String>::new();
     if !ensure_dpi_awareness() {
         warnings.push("DPI 感知未生效（进程可能已被宿主设为其他感知模式）：高缩放或多显示器场景下坐标可能偏移，请用 screenshot 核对实际位置".to_string());
-        runtime_log_warn("[桌面脚本] DPI 感知设置失败，高缩放或多显示器场景下坐标可能偏移".to_string());
+        runtime_log_warn("[系统] DPI 感知设置失败，高缩放或多显示器场景下坐标可能偏移".to_string());
     }
     let actions = parse_script(&input)?;
     // 单步重试预算（D4）：只对输入步骤的执行调用生效，钳制在 0~3，默认不重试
     let retry_budget = input.retry.unwrap_or(0).min(3);
     let total_actions = actions.len();
     runtime_log_info(format!(
-        "[桌面脚本] 开始，任务=run_operate_tool，total_actions={}，timestamp={}",
+        "[系统] 开始 任务=run_operate_tool 动作总数={} 时间={}",
         total_actions,
         now_iso()
     ));
@@ -149,7 +149,7 @@ async fn run_operate_tool(
                         if __retryable && __attempts < retry_budget {
                             __attempts += 1;
                             runtime_log_warn(format!(
-                                "[桌面脚本] 步骤失败准备重试，任务=run_operate_tool，line={}，attempt={}，原因={}",
+                                "[系统] 步骤失败准备重试 任务=run_operate_tool 行={} 尝试={} 原因={}",
                                 $line, __attempts, __err.message
                             ));
                             sleep_duration(std::time::Duration::from_millis(200)).await;
@@ -212,8 +212,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseClick，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=MouseClick 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -231,8 +231,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseDrag，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=MouseDrag 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -250,8 +250,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseMove，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=MouseMove 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -276,8 +276,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseButtonState，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=MouseButtonState 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -296,8 +296,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseScroll，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=MouseScroll 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -312,8 +312,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=AppDeclare，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=AppDeclare 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -347,8 +347,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=App，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=App 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -367,8 +367,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=Key，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=Key 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -387,8 +387,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=Text，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=Text 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -402,8 +402,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=Wait，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=Wait 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -417,8 +417,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=WaitUntil，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=WaitUntil 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -441,8 +441,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=WindowList，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=WindowList 摘要={}",
                     line, step.summary
                 ));
                 latest_windows = Some(windows.iter().map(WindowBrief::from).collect());
@@ -482,8 +482,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=WindowActivate，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=WindowActivate 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -554,8 +554,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: result.path,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=Screenshot，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=Screenshot 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -578,8 +578,8 @@ async fn run_operate_tool(
                     ok: true,
                     saved_path: None,
                 };
-                runtime_log_info(format!(
-                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=Clipboard，summary={}",
+                runtime_log_debug(format!(
+                    "[系统] 步骤完成 任务=run_operate_tool 行={} 类型=Clipboard 摘要={}",
                     line, step.summary
                 ));
                 steps.push(step);
@@ -595,10 +595,10 @@ async fn run_operate_tool(
                 .map(|(_, ok)| ok)
                 .unwrap_or(false);
             if restored {
-                runtime_log_info("[桌面脚本] 已按 restore_focus 恢复执行前的前台窗口".to_string());
+                runtime_log_debug("[系统] 已按 restore_focus 恢复执行前的前台窗口".to_string());
             } else {
                 warnings.push(format!("restore_focus 恢复前台失败（window_id={window_id}，窗口可能已关闭）；不影响本次执行结果"));
-                runtime_log_warn(format!("[桌面脚本] restore_focus 恢复前台失败，window_id={window_id}"));
+                runtime_log_warn(format!("[系统] restore_focus 恢复前台失败 窗口={window_id}"));
             }
         } else {
             warnings.push("restore_focus 未生效：执行前没有记录到前台窗口；不影响本次执行结果".to_string());
@@ -608,7 +608,7 @@ async fn run_operate_tool(
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let ok = failure.is_none();
     runtime_log_info(format!(
-        "[桌面脚本] {}，任务=run_operate_tool，executed_count={}，failed_line={}，elapsed_ms={}，screenshots={}，latest_screenshot={}",
+        "[系统] {} 任务=run_operate_tool 执行数={} 失败行={} 耗时={} 截图数={} 最新截图={}",
         if ok { "完成" } else { "中断" },
         steps.len(),
         failure.as_ref().map(|item| item.line.to_string()).unwrap_or_else(|| "-".to_string()),
@@ -617,7 +617,7 @@ async fn run_operate_tool(
         latest_screenshot
             .as_ref()
             .map(|shot| format!(
-                "mode={},width={},height={},saved_path={}",
+                "模式={} 宽={} 高={} 保存路径={}",
                 shot.mode,
                 shot.width,
                 shot.height,
@@ -629,14 +629,14 @@ async fn run_operate_tool(
     // 操作审计（J2）：逐步骤记录时间、动作、目标、结果，关键操作可追溯
     let audit_time = now_iso();
     for step in &steps {
-        runtime_log_info(format!(
-            "[桌面脚本][审计] 时间={audit_time}，line={}，kind={:?}，结果=成功，摘要={}",
-            step.line, step.kind, step.summary
+        runtime_log_debug(format!(
+            "[系统] 审计 时间={audit_time} 行={} 类型={} 结果=成功 摘要={}",
+            step.line, step.kind.as_str(), step.summary
         ));
     }
     if let Some(item) = &failure {
-        runtime_log_info(format!(
-            "[桌面脚本][审计] 时间={audit_time}，line={}，结果=失败，原因={}",
+        runtime_log_debug(format!(
+            "[系统] 审计 时间={audit_time} 行={} 结果=失败 原因={}",
             item.line, item.message
         ));
     }

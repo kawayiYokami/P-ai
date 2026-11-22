@@ -87,7 +87,7 @@ fn migrate_v5_to_v6(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v6头像相对路径，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v6头像相对路径 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -124,8 +124,8 @@ fn migrate_v5_to_v6_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         } else {
             kept += 1;
             runtime_log_warn(format!(
-                "[应用数据迁移] 头像路径无法归一，任务=v6头像相对路径，人格={}，原值={}，原因=当前头像目录未找到同名文件",
-                agent.id, raw
+                "[存储] 应用数据迁移 头像路径无法归一 任务=v6头像相对路径 原值={} 原因=当前头像目录未找到同名文件",
+                raw
             ));
         }
     }
@@ -133,7 +133,7 @@ fn migrate_v5_to_v6_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         write_agents_shard(&context.state.data_path, &agents)?;
     }
     runtime_log_info(format!(
-        "[应用数据迁移] 头像路径迁移完成，任务=v6头像相对路径，改写={rewritten}，保留={kept}"
+        "[存储] 应用数据迁移 头像路径迁移完成 任务=v6头像相对路径 改写={rewritten} 保留={kept}"
     ));
     Ok(changed)
 }
@@ -148,7 +148,7 @@ fn migrate_v6_to_v7(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v7移除HR人格，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v7移除HR人格 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -176,7 +176,7 @@ fn migrate_v6_to_v7_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
     if changed {
         write_agents_shard(&context.state.data_path, &agents)?;
         runtime_log_info(format!(
-            "[应用数据迁移] HR 人格清理完成，任务=v7移除HR人格，删除节点={removed_nodes}，摘除下级引用={pruned_refs}"
+            "[存储] 应用数据迁移 HR 人格清理完成 任务=v7移除HR人格 删除节点={removed_nodes} 摘除下级引用={pruned_refs}"
         ));
     }
     Ok(changed)
@@ -192,7 +192,7 @@ fn migrate_v7_to_v8(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v8副手非系统，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v8副手非系统 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -212,7 +212,7 @@ fn migrate_v7_to_v8_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
     if changed {
         write_agents_shard(&context.state.data_path, &agents)?;
         runtime_log_info(format!(
-            "[应用数据迁移] 副手人格标记纠正完成，任务=v8副手非系统，agent_id={DEPUTY_AGENT_ID}，is_built_in_system=true→false，纠正节点={corrected}"
+            "[存储] 应用数据迁移 副手人格标记纠正完成 任务=v8副手非系统 内置系统=true→false 纠正节点={corrected}"
         ));
     }
     Ok(changed)
@@ -229,7 +229,7 @@ fn migrate_v8_to_v9(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v9人格按文件拆分，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v9人格按文件拆分 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -258,7 +258,7 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         // 迁移入口的兜底抓不到，启动期加载配置就崩。
         if !item.is_object() {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v9人格按文件拆分，第 {} 条不是人格对象，值={}",
+                "[存储] 应用数据迁移 跳过 任务=v9人格按文件拆分，第 {} 条不是人格对象 值={}",
                 index + 1,
                 item
             ));
@@ -296,7 +296,7 @@ fn migrate_v8_to_v9_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         written += 1;
     }
     runtime_log_info(format!(
-        "[应用数据迁移] 人格按文件拆分完成，任务=v9人格按文件拆分，写入={written}，已存在跳过={skipped}"
+        "[存储] 应用数据迁移 人格按文件拆分完成 任务=v9人格按文件拆分 写入={written} 已存在跳过={skipped}"
     ));
     Ok(written > 0)
 }
@@ -309,7 +309,7 @@ fn migrate_v1_to_v2(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v2补齐会话工作区，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v2补齐会话工作区 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -357,7 +357,7 @@ fn migrate_v1_to_v2_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
     }
     if conversation_writes > 0 {
         runtime_log_info(format!(
-            "[应用数据迁移] 工作区补齐完成，任务=v2补齐会话工作区，写入会话={conversation_writes}"
+            "[存储] 应用数据迁移 工作区补齐完成 任务=v2补齐会话工作区 写入会话={conversation_writes}"
         ));
     }
     Ok(conversation_writes > 0)
@@ -477,7 +477,7 @@ fn run_app_data_migrations_with_state(
     // 迁移不允许失败：门闩不满足、版本读不出来、版本写不进去，都只记日志。
     if let Err(err) = require_message_store_migration_completed_for_runtime(state, "执行应用数据迁移") {
         runtime_log_warn(format!(
-            "[应用数据迁移] 跳过整轮，原因=消息存储迁移未完成，error={err}"
+            "[存储] 应用数据迁移 跳过整轮 原因=消息存储迁移未完成 错误={err}"
         ));
         return false;
     }
@@ -485,7 +485,7 @@ fn run_app_data_migrations_with_state(
         Ok(version) => version,
         Err(err) => {
             runtime_log_error(format!(
-                "[应用数据迁移] 跳过整轮，原因=读取迁移版本失败，error={err}"
+                "[存储] 应用数据迁移 跳过整轮 原因=读取迁移版本失败 错误={err}"
             ));
             return false;
         }
@@ -539,12 +539,12 @@ fn run_app_data_migrations_with_state(
         // 每升一级立刻落盘；写不进去只记日志，不阻断启动。
         if let Err(err) = state_service_set_data_migration_version(state, version) {
             runtime_log_error(format!(
-                "[应用数据迁移] 版本写回失败，任务={name}，migration_version={version}，error={err}"
+                "[存储] 应用数据迁移 版本写回失败 任务={name} 迁移版本={version} 错误={err}"
             ));
         }
         changed |= step_changed;
         runtime_log_info(format!(
-            "[应用数据迁移] 完成，任务={name}，migration_version_after={version}，data_changed={step_changed}，duration_ms={}",
+            "[存储] 应用数据迁移 完成 任务={name} 迁移后版本={version} 数据变更={step_changed} 耗时={}",
             started.elapsed().as_millis()
         ));
     }
@@ -678,7 +678,7 @@ fn agent_org_salvage_legacy_expert_model_key(state: &AppState) -> Result<bool, S
     let migrated = carry_legacy_expert_model_key(config_path, &legacy_value)?;
     if migrated {
         runtime_log_info(
-            "[配置迁移] 迁移完成，任务=启动期抢救旧专家模型键，assistantDepartmentApiConfigId → expertApiConfigId"
+            "[存储] 配置迁移 完成 任务=启动期抢救旧专家模型键，字段 assistantDepartmentApiConfigId → expertApiConfigId"
                 .to_string(),
         );
     }
@@ -961,7 +961,7 @@ fn plan_agent_org_migration(departments: &[LegacyDepartment]) -> AgentOrgMigrati
                 )
             {
                 plan.warnings.push(format!(
-                    "[应用数据迁移] 权限模式冲突，人格={agent_id}，部门={department_id}，该部门模式={conflict_mode}，已保留先到模式与名单，丢弃该部门权限名单"
+                    "[存储] 应用数据迁移 权限模式冲突，部门={department_id}，该部门模式={conflict_mode}，已保留先到模式与名单，丢弃该部门权限名单"
                 ));
             }
         }
@@ -1033,7 +1033,7 @@ fn apply_agent_org_migration_plan(
                 .collect::<Vec<_>>()
                 .join(", ");
             runtime_log_warn(format!(
-                "[应用数据迁移] 组织迁移剔除无效下级边，count={}，edges={}（成环）",
+                "[存储] 应用数据迁移 组织迁移剔除无效下级边 数量={} 边={}（成环）",
                 removed.len(),
                 edges
             ));
@@ -1257,7 +1257,7 @@ fn migrate_v2_to_v5(context: &DataMigrationContext<'_>) -> bool {
         Ok(changed) => changed,
         Err(err) => {
             runtime_log_warn(format!(
-                "[应用数据迁移] 跳过，任务=v5部门转人格，原因=这一步无法完成，error={err}"
+                "[存储] 应用数据迁移 跳过 任务=v5部门转人格 原因=这一步无法完成 错误={err}"
             ));
             false
         }
@@ -1270,7 +1270,7 @@ fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
     if carry_legacy_assistant_agent_key(context.state)? {
         changed = true;
         runtime_log_info(
-            "[应用数据迁移] 主助理人格键迁移完成，任务=v5部门转人格，assistant_department_agent_id → assistant_agent_id".to_string(),
+            "[存储] 应用数据迁移 主助理人格键迁移完成 任务=v5部门转人格，assistant_department_agent_id → assistant_agent_id".to_string(),
         );
     }
 
@@ -1293,7 +1293,7 @@ fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         }
         if carry_legacy_expert_model_key(config_path, &legacy_expert_api_config_id)? {
             runtime_log_info(
-                "[应用数据迁移] 专家模型配置键迁移完成，任务=v5部门转人格，assistantDepartmentApiConfigId → expertApiConfigId".to_string(),
+                "[存储] 应用数据迁移 专家模型配置键迁移完成 任务=v5部门转人格，assistantDepartmentApiConfigId → expertApiConfigId".to_string(),
             );
         }
     }
@@ -1310,7 +1310,7 @@ fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         runtime_log_warn(warning.clone());
     }
     runtime_log_info(format!(
-        "[应用数据迁移] 组织迁移完成，任务=v5部门转人格，departments={}，人格增量={}，组织边={}，自定义技能写出={}，告警={}",
+        "[存储] 应用数据迁移 组织迁移完成 任务=v5部门转人格 部门数={} 人格增量={} 组织边={} 自定义技能写出={} 告警={}",
         department_count,
         plan.increments.len(),
         plan.child_agent_ids.len(),

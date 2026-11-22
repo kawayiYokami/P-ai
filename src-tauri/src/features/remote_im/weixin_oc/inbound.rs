@@ -54,11 +54,10 @@ async fn handle_weixin_oc_inbound_message(
     };
     let item_list = msg.item_list.unwrap_or_default();
     runtime_log_info(format!(
-        "[个人微信][入站] 收到消息: msg_id={:?}, from={}, to={:?}, group={:?}, item_count={}",
-        msg.message_id.as_ref().or(msg.msg_id.as_ref()),
+        "[远程IM] 收到消息 发送者={} 接收者={} 群={} 条目数={}",
         from_user_id,
-        msg.to_user_id.as_deref(),
-        msg.group_id.as_deref(),
+        msg.to_user_id.as_deref().unwrap_or("无"),
+        msg.group_id.as_deref().unwrap_or("无"),
         item_list.len()
     ));
     if let Some(token) = msg
@@ -76,7 +75,7 @@ async fn handle_weixin_oc_inbound_message(
         Ok(client) => weixin_oc_collect_media(&client, &creds, &item_list).await,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM][个人微信事件] 媒体客户端初始化失败，保留文本并跳过附件继续，error={err}"
+                "[远程IM] 媒体客户端初始化失败，保留文本并跳过附件继续 原因={err}"
             ));
             let mut parts = Vec::<ChatIngressPart>::new();
             for item in &item_list {
@@ -264,7 +263,7 @@ async fn run_single_weixin_oc_poll_cycle(
     let msgs = data.msgs.unwrap_or_default();
     if !msgs.is_empty() {
         runtime_log_info(format!(
-            "[个人微信][轮询] 收到服务器推送消息: count={}",
+            "[远程IM] 收到服务器推送消息 数量={}",
             msgs.len()
         ));
     }

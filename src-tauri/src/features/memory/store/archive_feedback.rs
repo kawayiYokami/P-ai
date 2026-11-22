@@ -254,7 +254,7 @@ fn memory_store_apply_archive_feedback(
     tx.commit()
         .map_err(|err| format!("Commit archive feedback transaction failed: {err}"))?;
     runtime_log_info(format!(
-        "[记忆存储] [简单记忆回灌] 完成，任务=archive_feedback，recalled_count={}，useful_requested_count={}，useful_accepted_count={}，useful_rejected_count={}，boosted_count={}，penalized_count={}，natural_decay_count={}，elapsed_ms={}",
+        "[记忆] 存储 [简单记忆回灌] 完成 任务=archive_feedback 召回数={} 有用请求数={} 有用采纳数={} 有用拒绝数={} 提升数={} 降权数={} 自然衰减数={} 耗时={}",
         recalled_existing.len(),
         useful_requested_count,
         useful_accepted.len(),

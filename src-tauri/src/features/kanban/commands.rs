@@ -33,15 +33,15 @@ fn kanban_emit_updated(state: &AppState, leader_conversation_id: &str) {
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[议题看板] 广播失败：app_handle 不可用，conversation_id={leader_conversation_id}"
+        runtime_log_debug(format!(
+            "[系统] 议题看板 广播失败 窗口句柄不可用"
         ));
         return;
     };
     let payload = serde_json::json!({ "conversationId": leader_conversation_id });
     if let Err(err) = app_handle.emit(KANBAN_UPDATED_EVENT, payload) {
         runtime_log_error(format!(
-            "[议题看板] 广播失败：conversation_id={leader_conversation_id}，error={err}"
+            "[系统] 议题看板 广播失败 错误={err}"
         ));
     }
 }

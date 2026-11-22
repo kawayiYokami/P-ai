@@ -389,8 +389,8 @@ async fn onebot_resolve_inbound_media(
         }
         let Some(raw) = resolved_raw else {
             runtime_log_warn(format!(
-                "[远程IM][OneBot v11 事件] 媒体下载失败，skip，kind={:?}，ref={}，file_id={}，err={}",
-                item.kind,
+                "[远程IM] 媒体下载失败，已跳过 类型={} 引用={} 文件={} 原因={}",
+                item.kind.as_str(),
                 item.file_ref,
                 item.file_id.clone().unwrap_or_default(),
                 last_err

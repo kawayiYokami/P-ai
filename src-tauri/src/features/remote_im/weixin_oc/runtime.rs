@@ -142,7 +142,7 @@ impl WeixinOcManager {
             },
         ) {
             runtime_log_error(format!(
-                "[个人微信] 持久化 context_token 失败: channel_id={}, user_id={}, error={}",
+                "[远程IM] 持久化 context_token 失败 渠道={} 发送者={} 原因={}",
                 channel_id,
                 user_id,
                 err
@@ -160,7 +160,7 @@ impl WeixinOcManager {
 
     async fn stop_channel_inner(&self, channel_id: &str) {
         let started_at = std::time::Instant::now();
-        self.add_log(channel_id, "info", "[个人微信] 开始停止渠道").await;
+        self.add_log(channel_id, "info", "[远程IM] 个人微信 开始停止渠道").await;
         if let Some(tx) = self.stop_senders.write().await.remove(channel_id) {
             let _ = tx.send(true);
         }
@@ -172,11 +172,11 @@ impl WeixinOcManager {
                         self.add_log(
                             channel_id,
                             "warn",
-                            &format!("[个人微信] 停止旧轮询任务失败: {}", err),
+                            &format!("[远程IM] 个人微信 停止旧轮询任务失败: {}", err),
                         )
                         .await;
                         runtime_log_error(format!(
-                            "[个人微信] 停止旧轮询任务失败: channel_id={}, error={}",
+                            "[远程IM] 停止旧轮询任务失败 渠道={} 原因={}",
                             channel_id,
                             err
                         ));
@@ -187,13 +187,13 @@ impl WeixinOcManager {
                         channel_id,
                         "warn",
                         &format!(
-                            "[个人微信] 停止旧轮询任务超时，正在中止: elapsed_ms={}",
+                            "[远程IM] 个人微信 停止旧轮询任务超时，正在中止: elapsed_ms={}",
                             started_at.elapsed().as_millis()
                         ),
                     )
                     .await;
                     runtime_log_error(format!(
-                        "[个人微信] 停止旧轮询任务超时，正在中止: channel_id={}, elapsed_ms={}",
+                        "[远程IM] 停止旧轮询任务超时，正在中止 渠道={} 耗时={}ms",
                         channel_id,
                         started_at.elapsed().as_millis()
                     ));
@@ -208,7 +208,7 @@ impl WeixinOcManager {
         })
         .await;
         runtime_log_info(format!(
-            "[个人微信] stop_channel_inner 完成: channel_id={}, elapsed_ms={}",
+            "[远程IM] 停止渠道完成 渠道={} 耗时={}ms",
             channel_id,
             started_at.elapsed().as_millis()
         ));
@@ -216,7 +216,7 @@ impl WeixinOcManager {
             channel_id,
             "info",
             &format!(
-                "[个人微信] 渠道已停止: elapsed_ms={}",
+                "[远程IM] 个人微信 渠道已停止: elapsed_ms={}",
                 started_at.elapsed().as_millis()
             ),
         )
@@ -248,8 +248,8 @@ impl WeixinOcManager {
         let ctx_token = match context_token {
             Some(ref t) if !t.trim().is_empty() => t.trim().to_string(),
             _ => {
-                runtime_log_warn(format!(
-                    "[个人微信] start_typing 跳过: 缺少 context_token, channel_id={}, ilink_user_id={}",
+                runtime_log_debug(format!(
+                    "[远程IM] 跳过输入状态 原因=缺少 context_token 渠道={} 用户={}",
                     channel_id, ilink_user_id
                 ));
                 return;
@@ -267,7 +267,7 @@ impl WeixinOcManager {
             Ok(ticket) => {
                 if ticket.trim().is_empty() {
                     runtime_log_info(format!(
-                        "[个人微信] getconfig 返回空 typing_ticket: channel_id={}, ilink_user_id={}",
+                        "[远程IM] 获取配置返回空输入票据 渠道={} 用户={}",
                         channel_id, ilink_user_id
                     ));
                     return;
@@ -276,7 +276,7 @@ impl WeixinOcManager {
             }
             Err(err) => {
                 runtime_log_error(format!(
-                    "[个人微信] getconfig 失败: channel_id={}, ilink_user_id={}, error={}",
+                    "[远程IM] 获取配置失败 渠道={} 用户={} 原因={}",
                     channel_id, ilink_user_id, err
                 ));
                 return;
@@ -293,7 +293,7 @@ impl WeixinOcManager {
         .await
         {
             runtime_log_error(format!(
-                "[个人微信] sendtyping(start) 失败: channel_id={}, ilink_user_id={}, error={}",
+                "[远程IM] 发送输入状态失败 渠道={} 用户={} 原因={}",
                 channel_id, ilink_user_id, err
             ));
             return;
@@ -348,7 +348,7 @@ impl WeixinOcManager {
                             .await
                             {
                                 runtime_log_error(format!(
-                                    "[个人微信] 保活任务 sendtyping(stop) 失败: channel_id={}, error={}",
+                                    "[远程IM] 保活任务停止输入状态失败 渠道={} 原因={}",
                                     keepalive_channel_id, err
                                 ));
                             }
@@ -389,14 +389,14 @@ impl WeixinOcManager {
                                 }
                                 Ok(_) => {
                                     runtime_log_info(format!(
-                                        "[个人微信] 保活 getconfig 返回空 ticket: channel_id={}",
+                                        "[远程IM] 保活获取配置返回空票据 渠道={}",
                                         keepalive_channel_id
                                     ));
                                     continue;
                                 }
                                 Err(err) => {
                                     runtime_log_error(format!(
-                                        "[个人微信] 保活 getconfig 失败: channel_id={}, error={}",
+                                        "[远程IM] 保活获取配置失败 渠道={} 原因={}",
                                         keepalive_channel_id, err
                                     ));
                                     continue;
@@ -423,7 +423,7 @@ impl WeixinOcManager {
                             .await
                             {
                                 runtime_log_error(format!(
-                                    "[个人微信] 保活 sendtyping(start) 失败: channel_id={}, error={}",
+                                    "[远程IM] 保活发送输入状态失败 渠道={} 原因={}",
                                     keepalive_channel_id, err
                                 ));
                             }
@@ -471,26 +471,26 @@ impl WeixinOcManager {
         self.port_service
             .reconcile_serialized(&channel.id, || async move {
                 runtime_log_info(format!(
-                    "[个人微信] reconcile_channel_runtime: channel_id={}, enabled={}, platform={:?}",
-                    channel.id, channel.enabled, channel.platform
+                    "[远程IM] 校准渠道运行时 渠道={} 启用={} 平台={}",
+                    channel.id, channel.enabled, channel.platform.as_str()
                 ));
                 self.load_state_from_channel(&state, channel).await;
                 self.stop_channel_inner(&channel.id).await;
                 if channel.platform != RemoteImPlatform::WeixinOc || !channel.enabled {
-                    runtime_log_info(format!("[个人微信] 渠道已停用: channel_id={}", channel.id));
+                    runtime_log_info(format!("[远程IM] 渠道已停用 渠道={}", channel.id));
                     self.set_state(&channel.id, |runtime| {
                         runtime.connected = false;
                         runtime.login_status = "disabled".to_string();
                         runtime.last_error.clear();
                     })
                     .await;
-                    self.add_log(&channel.id, "info", "[个人微信] 渠道已停用").await;
+                    self.add_log(&channel.id, "info", "[远程IM] 个人微信 渠道已停用").await;
                     return Ok(());
                 }
                 let effective_channel = remote_im_channel_with_effective_credentials(&state, channel)?;
                 let creds = WeixinOcCredentials::from_value(&effective_channel.credentials);
                 runtime_log_info(format!(
-                    "[个人微信] 当前凭证: channel_id={}, base_url={}, token_len={}, account_id={}, user_id={}",
+                    "[远程IM] 当前凭证 渠道={} 地址={} 令牌长度={} 账号={} 发送者={}",
                     channel.id,
                     creds.normalized_base_url(),
                     creds.token.trim().len(),
@@ -498,19 +498,19 @@ impl WeixinOcManager {
                     creds.user_id.trim()
                 ));
                 if creds.token.trim().is_empty() {
-                    runtime_log_warn(format!("[个人微信] 渠道已启用，但尚未登录（缺少 token）: channel_id={}", channel.id));
+                    runtime_log_info(format!("[远程IM] 渠道已启用，但尚未登录（缺少 token） 渠道={}", channel.id));
                     self.set_state(&channel.id, |runtime| {
                         runtime.connected = false;
                         runtime.login_status = "need_login".to_string();
                         runtime.last_error.clear();
                     })
                     .await;
-                    self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，但尚未登录（缺少 token）")
+                    self.add_log(&channel.id, "info", "[远程IM] 个人微信 渠道已启用，但尚未登录（缺少 token）")
                         .await;
                     return Ok(());
                 }
-                runtime_log_debug(format!("[个人微信] 渠道已启用，正在启动轮询: channel_id={}", channel.id));
-                self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，正在启动轮询")
+                runtime_log_debug(format!("[远程IM] 渠道已启用，正在启动轮询 渠道={}", channel.id));
+                self.add_log(&channel.id, "info", "[远程IM] 个人微信 渠道已启用，正在启动轮询")
                     .await;
                 self.start_channel_inner(effective_channel, state).await
             })
@@ -523,11 +523,11 @@ impl WeixinOcManager {
         state: AppState,
     ) -> Result<(), String> {
         let channel_id = channel.id.clone();
-        runtime_log_info(format!("[个人微信] start_channel: channel_id={}", channel_id));
-        self.add_log(&channel_id, "info", "[个人微信] 开始启动渠道").await;
+        runtime_log_info(format!("[远程IM] 启动渠道 渠道={}", channel_id));
+        self.add_log(&channel_id, "info", "[远程IM] 个人微信 开始启动渠道").await;
         self.stop_channel_inner(&channel_id).await;
-        runtime_log_info(format!("[个人微信] start_channel stop旧任务完成: channel_id={}", channel_id));
-        self.add_log(&channel_id, "info", "[个人微信] 旧轮询任务已停止，准备创建新任务")
+        runtime_log_info(format!("[远程IM] 启动渠道前停止旧任务完成 渠道={}", channel_id));
+        self.add_log(&channel_id, "info", "[远程IM] 个人微信 旧轮询任务已停止，准备创建新任务")
             .await;
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         self.stop_senders
@@ -538,12 +538,12 @@ impl WeixinOcManager {
         let task_channel_id = channel_id.clone();
         let handle = tauri::async_runtime::spawn(async move {
             manager
-                .add_log(&task_channel_id, "info", "[个人微信] 轮询任务开始")
+                .add_log(&task_channel_id, "info", "[远程IM] 个人微信 轮询任务开始")
                 .await;
             let task_credentials = WeixinOcCredentials::from_value(&channel.credentials);
             if let Err(err) = weixin_oc_notify_start(&task_credentials).await {
                 runtime_log_warn(format!(
-                    "[个人微信] notifyStart 失败（忽略，不阻塞启动）: channel_id={}, error={}",
+                    "[远程IM] 通知启动失败（忽略，不阻塞启动） 渠道={} 原因={}",
                     task_channel_id, err
                 ));
             }
@@ -577,7 +577,7 @@ impl WeixinOcManager {
                         .add_log(
                             &task_channel_id,
                             "warn",
-                            &format!("[个人微信] 拉取消息失败: {}", err),
+                            &format!("[远程IM] 个人微信 拉取消息失败: {}", err),
                         )
                         .await;
                     tokio::select! {
@@ -610,11 +610,11 @@ impl WeixinOcManager {
                 })
                 .await;
             manager
-                .add_log(&task_channel_id, "info", "[个人微信] 轮询任务结束")
+                .add_log(&task_channel_id, "info", "[远程IM] 个人微信 轮询任务结束")
                 .await;
             if let Err(err) = weixin_oc_notify_stop(&task_credentials).await {
                 runtime_log_warn(format!(
-                    "[个人微信] notifyStop 失败（忽略）: channel_id={}, error={}",
+                    "[远程IM] 通知停止失败（忽略） 渠道={} 原因={}",
                     task_channel_id, err
                 ));
             }

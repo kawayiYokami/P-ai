@@ -125,7 +125,7 @@ fn list_agent_memes_inner(
         match meme_item_view_from_candidate(candidate) {
             Ok(item) => items.push(item),
             Err(err) => runtime_log_warn(format!(
-                "[表情贴纸] 表情管理器读取素材失败，已跳过: relative_path={}, err={err}",
+                "[系统] 表情管理器读取素材失败，已跳过 相对路径={} 错误={err}",
                 candidate.relative_path
             )),
         }
@@ -188,14 +188,13 @@ fn add_agent_meme_inner(
         dhash_index.insert(relative_path.clone(), hash);
         if let Err(err) = meme_persist_dhash_index(state, &input.agent_id, &dhash_index) {
             runtime_log_warn(format!(
-                "[表情贴纸] 表情管理器入库后持久化 dHash 索引失败: {err}"
+                "[系统] 表情管理器入库后持久化 dHash 索引失败: {err}"
             ));
         }
     }
 
     runtime_log_info(format!(
-        "[表情贴纸] 表情管理器添加完成: agent_id={}, name={}, path={}",
-        input.agent_id,
+        "[系统] 表情管理器添加完成 名称={} 文件={}",
         emotion,
         target_path.display()
     ));

@@ -355,7 +355,7 @@ fn read_github_update_proxy_cursor(runtime: &UpdateRuntimePaths) -> usize {
         Ok(cursor) => cursor.index % UPDATER_GITHUB_DOWNLOAD_PROXY_PREFIXES.len(),
         Err(err) => {
             runtime_log_warn(format!(
-                "[自动更新] 读取代理游标失败，已回退首个代理：path={}，error={err}",
+                "[系统] 读取代理游标失败，已回退首个代理 文件={} 错误={err}",
                 path.display()
             ));
             0
@@ -382,7 +382,7 @@ fn advance_github_update_proxy_cursor(
     std_fs::write(&path, content)
         .map_err(|err| format!("写入更新代理游标失败（{}）：{err}", path.display()))?;
     runtime_log_warn(format!(
-        "[自动更新] 下载代理失败，游标已切换：{} -> {}",
+        "[系统] 下载代理失败，游标已切换：{} -> {}",
         current, next
     ));
     Ok(next)
@@ -397,7 +397,7 @@ fn finish_failed_update_download(
     ensure_update_not_cancelled()?;
     let route_name = github_update_download_route_name(method, cursor);
     runtime_log_warn(format!(
-        "[自动更新] 失败，任务=下载更新，阶段=downloading，线路={}，游标={cursor}，error={failure_detail}",
+        "[系统] 失败 任务=下载更新 阶段=downloading 线路={} 游标={cursor} 错误={failure_detail}",
         route_name,
     ));
     if !matches!(method, GithubUpdateMethod::Auto | GithubUpdateMethod::Proxy) {
@@ -405,12 +405,12 @@ fn finish_failed_update_download(
     }
     let next = advance_github_update_proxy_cursor(runtime, cursor).map_err(|err| {
         runtime_log_error(format!(
-            "[自动更新] 失败，任务=切换下载线路，当前游标={cursor}，error={err}"
+            "[系统] 失败 任务=切换下载线路 当前游标={cursor} 错误={err}"
         ));
         "下载更新失败，切换下一条线路失败，请稍后重试".to_string()
     })?;
     runtime_log_info(format!(
-        "[自动更新] 完成，任务=切换下载线路，当前游标={cursor}，下一游标={next}"
+        "[系统] 完成 任务=切换下载线路 当前游标={cursor} 下一游标={next}"
     ));
     Ok("下载更新失败，已切换到下一条线路，请重新发起更新".to_string())
 }
@@ -501,21 +501,21 @@ fn updater_public_key() -> Result<&'static str, String> {
 fn shutdown_background_services_before_windows_updater_exit(app: AppHandle) {
     // tauri-plugin-updater 在 Windows 安装版会启动安装器后直接 std::process::exit(0)，
     // 必须挂到 on_before_exit，并保留默认 cleanup_before_exit，才能在硬退出前收干净运行态。
-    runtime_log_info(format!("[自动更新] Windows 安装器退出前开始优雅停机后台服务"));
+    runtime_log_info(format!("[系统] Windows 安装器退出前开始优雅停机后台服务"));
     let cleanup_app = app.clone();
     let handle = thread::spawn(move || {
         tauri::async_runtime::block_on(graceful_shutdown_background_services_with_timeout(&app))
     });
     match handle.join() {
         Ok(true) => {
-            runtime_log_info(format!("[自动更新] Windows 安装器退出前优雅停机后台服务完成"));
+            runtime_log_info(format!("[系统] Windows 安装器退出前优雅停机后台服务完成"));
         }
         Ok(false) => {
-            runtime_log_error(format!("[自动更新] Windows 安装器退出前优雅停机后台服务超时"));
+            runtime_log_error(format!("[系统] Windows 安装器退出前优雅停机后台服务超时"));
             show_background_shutdown_timeout_dialog(&cleanup_app);
         }
         Err(_) => {
-            runtime_log_error(format!("[自动更新] Windows 安装器退出前优雅停机后台服务失败：停机线程异常退出"));
+            runtime_log_error(format!("[系统] Windows 安装器退出前优雅停机后台服务失败：停机线程异常退出"));
         }
     }
     cleanup_app.cleanup_before_exit();
@@ -581,7 +581,7 @@ fn emit_update_progress(app: &AppHandle, payload: UpdateProgressPayload) {
     let _ = app.emit(PORTABLE_UPDATE_EVENT_NAME, payload.clone());
     match serde_json::to_value(payload) {
         Ok(value) => ide_chat_broadcast_notification(PORTABLE_UPDATE_EVENT_NAME, value),
-        Err(err) => runtime_log_error(format!("[自动更新] 广播 Web 更新进度失败：{}", err)),
+        Err(err) => runtime_log_error(format!("[系统] 广播 Web 更新进度失败：{}", err)),
     }
 }
 
@@ -733,7 +733,7 @@ async fn fetch_project_changelog_markdown() -> Result<String, String> {
         if let Some(cached) = guard.as_ref() {
             if (now_utc() - cached.fetched_at).whole_hours() < CHANGELOG_FETCH_COOLDOWN_HOURS {
                 runtime_log_info(format!(
-                    "[更新日志] 命中缓存（{} 小时内），跳过远程拉取",
+                    "[系统] 命中缓存（{} 小时内），跳过远程拉取",
                     CHANGELOG_FETCH_COOLDOWN_HOURS
                 ));
                 return Ok(cached.markdown.clone());
@@ -946,8 +946,8 @@ async fn check_github_update(
     let runtime = detect_update_runtime_paths()?;
     if respect_cooldown.unwrap_or(false) {
         if should_skip_auto_update_check()? {
-            runtime_log_warn(format!(
-                "[自动更新] 自动检查仍处于 {} 小时冷却期，本次跳过远端检查",
+            runtime_log_info(format!(
+                "[系统] 自动检查仍处于 {} 小时冷却期，本次跳过远端检查",
                 GITHUB_AUTO_UPDATE_COOLDOWN_HOURS
             ));
             let result = build_skipped_auto_update_result(runtime.runtime_kind);
@@ -972,7 +972,7 @@ async fn check_github_update(
     .await {
         Ok(notes) => notes,
         Err(err) => {
-            runtime_log_error(format!("[自动更新] 远程更新日志读取失败：{err}"));
+            runtime_log_error(format!("[系统] 远程更新日志读取失败：{err}"));
             payload.body.clone().unwrap_or_default()
         }
     };
@@ -1019,7 +1019,7 @@ fn copy_file_with_retry(src: &StdPath, dest: &StdPath, log_path: &StdPath) -> Re
         if let Some(parent) = dest.parent() {
             if let Err(err) = std_fs::create_dir_all(parent) {
                 last_err = format!("创建目录失败（{}）：{err}", parent.display());
-                append_helper_log(log_path, &format!("[自动更新] 重试 {attempt}/{} 失败：{last_err}", PORTABLE_REPLACE_MAX_RETRIES));
+                append_helper_log(log_path, &format!("[系统] 自动更新 重试 {attempt}/{} 失败：{last_err}", PORTABLE_REPLACE_MAX_RETRIES));
                 thread::sleep(StdDuration::from_millis(PORTABLE_REPLACE_RETRY_DELAY_MS));
                 continue;
             }
@@ -1034,14 +1034,14 @@ fn copy_file_with_retry(src: &StdPath, dest: &StdPath, log_path: &StdPath) -> Re
                     append_helper_log(
                         log_path,
                         &format!(
-                            "[自动更新] 文件被占用，重试 {attempt}/{}：{last_err}",
+                            "[系统] 自动更新 文件被占用，重试 {attempt}/{}：{last_err}",
                             PORTABLE_REPLACE_MAX_RETRIES
                         ),
                     );
                 } else {
                     append_helper_log(
                         log_path,
-                        &format!("[自动更新] 重试 {attempt}/{} 失败：{last_err}", PORTABLE_REPLACE_MAX_RETRIES),
+                        &format!("[系统] 自动更新 重试 {attempt}/{} 失败：{last_err}", PORTABLE_REPLACE_MAX_RETRIES),
                     );
                 }
                 if attempt < PORTABLE_REPLACE_MAX_RETRIES {
@@ -1092,17 +1092,17 @@ fn wait_for_parent_process_exit(parent_pid: Option<u32>, log_path: &StdPath) {
     unsafe {
         let handle = OpenProcess(SYNCHRONIZE, 0, pid);
         if handle == std::ptr::null_mut() {
-            append_helper_log(log_path, &format!("[自动更新] 无法打开父进程 {pid}，可能已退出，等待 2s 后替换"));
+            append_helper_log(log_path, &format!("[系统] 自动更新 无法打开父进程 {pid}，可能已退出，等待 2s 后替换"));
             thread::sleep(StdDuration::from_millis(2000));
             return;
         }
-        append_helper_log(log_path, &format!("[自动更新] 等待主进程 {pid} 退出，最长 {}ms", PORTABLE_PARENT_WAIT_TIMEOUT_MS));
+        append_helper_log(log_path, &format!("[系统] 自动更新 等待主进程 {pid} 退出，最长 {}ms", PORTABLE_PARENT_WAIT_TIMEOUT_MS));
         let wait = WaitForSingleObject(handle, PORTABLE_PARENT_WAIT_TIMEOUT_MS as u32);
         CloseHandle(handle);
         if wait == WAIT_OBJECT_0 {
-            append_helper_log(log_path, "[自动更新] 主进程已退出，开始替换");
+            append_helper_log(log_path, "[系统] 自动更新 主进程已退出，开始替换");
         } else {
-            append_helper_log(log_path, "[自动更新] 等待超时，主进程可能仍在退出中，尝试替换");
+            append_helper_log(log_path, "[系统] 自动更新 等待超时，主进程可能仍在退出中，尝试替换");
         }
     }
     thread::sleep(StdDuration::from_millis(400));
@@ -1111,7 +1111,7 @@ fn wait_for_parent_process_exit(parent_pid: Option<u32>, log_path: &StdPath) {
 #[cfg(not(target_os = "windows"))]
 fn wait_for_parent_process_exit(parent_pid: Option<u32>, log_path: &StdPath) {
     let _ = parent_pid;
-    append_helper_log(log_path, "[自动更新] 非 Windows 平台，等待 1.8s 后替换");
+    append_helper_log(log_path, "[系统] 自动更新 非 Windows 平台，等待 1.8s 后替换");
     thread::sleep(StdDuration::from_millis(1800));
 }
 
@@ -1251,7 +1251,7 @@ fn cleanup_portable_update_temp_artifacts(temp_root: &StdPath) {
         }
         if let Err(err) = remove_if_exists(&path) {
             runtime_log_error(format!(
-                "[自动更新] 清理便携版更新临时文件失败: path={}，error={}",
+                "[系统] 清理便携版更新临时文件失败 文件={} 错误={}",
                 path.display(),
                 err
             ));
@@ -1509,7 +1509,7 @@ async fn check_updater_with_manifest_fallbacks(
             None,
         );
         runtime_log_info(format!(
-            "[自动更新] 开始，任务=检查更新清单，阶段=checking，运行类型={}，线路={}，force={force}",
+            "[系统] 开始 任务=检查更新清单 阶段=checking 运行类型={} 线路={} 强制={force}",
             runtime_kind.as_str(),
             candidate.log_name,
         ));
@@ -1529,7 +1529,7 @@ async fn check_updater_with_manifest_fallbacks(
             Ok(Some(update)) if force || is_newer_version(current_version, &update.version) => update,
             Ok(_) => {
                 runtime_log_info(format!(
-                    "[自动更新] 完成，任务=检查更新清单，阶段=checking，运行类型={}，线路={}，结果=当前已是最新版本，耗时={}ms",
+                    "[系统] 完成 任务=检查更新清单 阶段=checking 运行类型={} 线路={} 结果=当前已是最新版本 耗时={}ms",
                     runtime_kind.as_str(),
                     candidate.log_name,
                     started_at.elapsed().as_millis(),
@@ -1538,7 +1538,7 @@ async fn check_updater_with_manifest_fallbacks(
             }
             Err(error) => {
                 runtime_log_warn(format!(
-                    "[自动更新] 失败，任务=检查更新清单，阶段=checking，运行类型={}，线路={}，耗时={}ms，error={error}",
+                    "[系统] 失败 任务=检查更新清单 阶段=checking 运行类型={} 线路={} 耗时={}ms 错误={error}",
                     runtime_kind.as_str(),
                     candidate.log_name,
                     started_at.elapsed().as_millis(),
@@ -1553,7 +1553,7 @@ async fn check_updater_with_manifest_fallbacks(
             }
         };
         runtime_log_info(format!(
-            "[自动更新] 完成，任务=检查更新清单，阶段=checking，运行类型={}，线路={}，结果=发现更新，target_version={}，耗时={}ms",
+            "[系统] 完成 任务=检查更新清单 阶段=checking 运行类型={} 线路={} 结果=发现更新 目标版本={} 耗时={}ms",
             runtime_kind.as_str(),
             candidate.log_name,
             update.version,
@@ -1599,7 +1599,7 @@ where
     let endpoint = updater_download_endpoint(&origin_url, method, cursor);
     let started_at = StdInstant::now();
     runtime_log_info(format!(
-        "[自动更新] 开始，任务=下载更新，阶段=downloading，线路={}，游标={cursor}",
+        "[系统] 开始 任务=下载更新 阶段=downloading 线路={} 游标={cursor}",
         route_name,
     ));
     ensure_update_not_cancelled()?;
@@ -1669,7 +1669,7 @@ where
     }
     on_download_finish();
     runtime_log_info(format!(
-        "[自动更新] 完成，任务=下载更新，阶段=downloading，线路={}，字节数={}，耗时={}ms",
+        "[系统] 完成 任务=下载更新 阶段=downloading 线路={} 字节数={} 耗时={}ms",
         route_name,
         bytes.len(),
         started_at.elapsed().as_millis(),
@@ -1993,7 +1993,7 @@ async fn run_auto_update_cycle(app: AppHandle) {
     let result = match result {
         Ok(result) => result,
         Err(err) => {
-            runtime_log_warn(format!("[自动更新] 自动检查失败：error={err}"));
+            runtime_log_warn(format!("[系统] 自动检查失败 错误={err}"));
             update_github_update_state(|state| {
                 state.last_error = Some(err.clone());
                 state.last_checked_at = read_last_auto_update_checked_at_rfc3339();
@@ -2007,7 +2007,7 @@ async fn run_auto_update_cycle(app: AppHandle) {
     }
     if !skipped_version.is_empty() && skipped_version == result.latest_version {
         runtime_log_info(format!(
-            "[自动更新] 跳过，latest_version={}，reason=版本已被用户跳过",
+            "[系统] 跳过 最新版本={} 原因=版本已被用户跳过",
             result.latest_version
         ));
         return;
@@ -2017,7 +2017,7 @@ async fn run_auto_update_cycle(app: AppHandle) {
     }
     if let Err(err) = start_github_update(app.clone(), false, None).await {
         runtime_log_warn(format!(
-            "[自动更新] 静默准备失败：latest_version={}，error={err}",
+            "[系统] 静默准备失败 最新版本={} 错误={err}",
             result.latest_version
         ));
     }
@@ -2325,7 +2325,7 @@ async fn open_portable_pending_dir(kind: String) -> Result<(), String> {
     // 对外恒为 Ok：这里只是「打不开就算了」的顺手动作，前端是裸 invoke，不能冒未处理的 rejection。
     if let Err(err) = tauri_plugin_opener::open_path(&target, None::<&str>) {
         runtime_log_warn(format!(
-            "[自动更新] 打开更新暂存目录失败 path={} err={err}",
+            "[系统] 打开更新暂存目录失败 文件={} 错误={err}",
             target.display()
         ));
     }
@@ -2438,7 +2438,7 @@ fn replace_from_staging(plan: &PortableUpdatePlan) -> Result<(), String> {
     let backup_root = StdPathBuf::from(&plan.backup_root);
     let log_path = StdPathBuf::from(&plan.log_path);
     let zip_path = StdPathBuf::from(&plan.zip_path);
-    append_helper_log(&log_path, "[自动更新] helper 开始执行便携版替换");
+    append_helper_log(&log_path, "[系统] 自动更新 helper 开始执行便携版替换");
     if !staging_dir.exists() {
         return Err(format!("staging 目录不存在：{}", staging_dir.display()));
     }
@@ -2501,10 +2501,10 @@ fn replace_from_staging(plan: &PortableUpdatePlan) -> Result<(), String> {
         Ok(())
     })();
     if let Err(err) = replace_result {
-        append_helper_log(&log_path, &format!("[自动更新] 便携版替换失败，开始回滚：{err}"));
+        append_helper_log(&log_path, &format!("[系统] 自动更新 便携版替换失败，开始回滚：{err}"));
         match restore_backup_files(&target_dir, &backup_dir, &replaced_files, &new_files) {
-            Ok(_) => append_helper_log(&log_path, "[自动更新] 便携版回滚完成"),
-            Err(rollback_err) => append_helper_log(&log_path, &format!("[自动更新] 便携版回滚失败：{rollback_err}，旧备份保留在 {}", backup_dir.display())),
+            Ok(_) => append_helper_log(&log_path, "[系统] 自动更新 便携版回滚完成"),
+            Err(rollback_err) => append_helper_log(&log_path, &format!("[系统] 自动更新 便携版回滚失败：{rollback_err}，旧备份保留在 {}", backup_dir.display())),
         }
         // 落盘 pending，供下次启动弹窗指引手动替换
         let temp_root = StdPathBuf::from(&plan.temp_root);
@@ -2512,7 +2512,7 @@ fn replace_from_staging(plan: &PortableUpdatePlan) -> Result<(), String> {
         return Err(format!("便携版更新失败，已回滚旧版本：{err}"));
     }
     spawn_detached_hidden(&target_exe_path, &[])?;
-    append_helper_log(&log_path, "[自动更新] 新版本已启动，开始清理临时文件");
+    append_helper_log(&log_path, "[系统] 自动更新 新版本已启动，开始清理临时文件");
     let _ = remove_if_exists(&staging_dir);
     let _ = remove_if_exists(&zip_path);
     // 成功则清理 pending（若存在）
@@ -2530,15 +2530,15 @@ fn run_portable_update_helper(plan_path: &str) -> Result<(), String> {
     let plan: PortableUpdatePlan = serde_json::from_slice(&raw)
         .map_err(|err| format!("解析便携版更新计划失败：{err}"))?;
     let log_path = StdPathBuf::from(&plan.log_path);
-    append_helper_log(&log_path, "[自动更新] helper 已启动，等待主程序退出");
+    append_helper_log(&log_path, "[系统] 自动更新 helper 已启动，等待主程序退出");
     wait_for_parent_process_exit(plan.parent_pid, &log_path);
     let result = replace_from_staging(&plan);
     match &result {
         Ok(_) => {
             let _ = remove_if_exists(&plan_path);
-            append_helper_log(&log_path, "[自动更新] helper 执行完成");
+            append_helper_log(&log_path, "[系统] 自动更新 helper 执行完成");
         }
-        Err(err) => append_helper_log(&log_path, &format!("[自动更新] helper 执行失败：{err}")),
+        Err(err) => append_helper_log(&log_path, &format!("[系统] 自动更新 helper 执行失败：{err}")),
     }
     result
 }

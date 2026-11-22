@@ -92,7 +92,7 @@ fn with_memory_lock<T>(
     let waited = start.elapsed();
     if waited >= MEMORY_LOCK_WARN_TIMEOUT {
         runtime_log_warn(format!(
-            "[记忆生成] 获取记忆锁耗时过长: 任务名={} 耗时毫秒={} 阈值毫秒={}",
+            "[记忆] 获取记忆锁耗时过长 任务名={} 耗时毫秒={} 阈值毫秒={}",
             task_name,
             waited.as_millis(),
             MEMORY_LOCK_WARN_TIMEOUT.as_millis()

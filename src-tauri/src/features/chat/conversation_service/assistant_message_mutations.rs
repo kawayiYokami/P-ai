@@ -168,9 +168,7 @@ impl ConversationServiceV2 {
                     &target_message.tool_call,
                 );
                 runtime_log_debug(format!(
-                    "[表情替换] FinalAppend开始，conversation_id={}，assistant_message_id={}，existing_annotation_count={}，incoming_annotation_count={}，incoming_tokens=[{}]",
-                    conversation_id,
-                    assistant_message_id,
+                    "[聊天] FinalAppend开始 已有标注数={} 传入标注数={} 传入标记=[{}]",
                     target_message
                         .meme_annotations
                         .as_ref()
@@ -198,15 +196,13 @@ impl ConversationServiceV2 {
             state,
             conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=assistant final 写回后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=assistant final 写回后推送单会话 原因={}",
+                err
             ));
         }
         runtime_log_debug(format!(
-            "[表情替换] FinalAppend完成，conversation_id={}，assistant_message_id={}，stored_annotation_count={}，stored_tokens=[{}]",
-            conversation_id,
-            assistant_message_id,
+            "[聊天] FinalAppend完成 已存标注数={} 已存标记=[{}]",
             target_message
                 .meme_annotations
                 .as_ref()
@@ -273,9 +269,7 @@ impl ConversationServiceV2 {
                 inherited_message.tool_call = Some(preserved.tool_history_events.clone());
                 if assistant_message_tool_append_closed(&inherited_message) {
                     runtime_log_error(format!(
-                        "[聊天调度] 失败，任务=继承压缩保留工具组，原因=继承后 assistant message 已带 final 正文，conversation_id={}，assistant_message_id={}，preserved_events={}",
-                        conversation_id,
-                        assistant_message_id,
+                        "[聊天] 失败 任务=继承压缩保留工具组 原因=继承后 assistant message 已带 final 正文 保留事件数={}",
                         preserved.tool_history_events.len()
                     ));
                 } else {
@@ -605,9 +599,9 @@ impl ConversationServiceV2 {
             state,
             &conversation_id,
         ) {
-            runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=停止生成持久化后推送单会话，conversation_id={}，error={}",
-                conversation_id, err
+            runtime_log_debug(format!(
+                "[聊天] 跳过 任务=停止生成持久化后推送单会话 原因={}",
+                err
             ));
         }
 

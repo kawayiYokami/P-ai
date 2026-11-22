@@ -72,7 +72,7 @@ async fn parse_and_enqueue_dingtalk_callback(
                     name: format!("dingtalk-picture-{}.png", Uuid::new_v4()),
                 }),
                 Err(err) => {
-                    runtime_log_warn(format!("[远程IM][钉钉事件] 图片下载失败，已跳过并继续，error={err}"));
+                    runtime_log_warn(format!("[远程IM] 图片下载失败，已跳过并继续 原因={err}"));
                     parts.push(ChatIngressPart::Text {
                         text: "[附件不可用：钉钉图片下载失败，已跳过并继续]".to_string(),
                     });
@@ -114,7 +114,7 @@ async fn parse_and_enqueue_dingtalk_callback(
                             name: format!("dingtalk-rich-picture-{}.png", Uuid::new_v4()),
                         }),
                         Err(err) => {
-                            runtime_log_warn(format!("[远程IM][钉钉事件] 富文本图片下载失败，已跳过并继续，error={err}"));
+                            runtime_log_warn(format!("[远程IM] 富文本图片下载失败，已跳过并继续 原因={err}"));
                             parts.push(ChatIngressPart::Text { text: "[附件不可用：钉钉富文本图片下载失败，已跳过并继续]".to_string() });
                         }
                     }
@@ -145,7 +145,7 @@ async fn parse_and_enqueue_dingtalk_callback(
                     });
                 }
                 Err(err) => {
-                    runtime_log_warn(format!("[远程IM][钉钉事件] 语音下载失败，已跳过并继续，error={err}"));
+                    runtime_log_warn(format!("[远程IM] 语音下载失败，已跳过并继续 原因={err}"));
                     parts.push(ChatIngressPart::Text { text: "[附件不可用：钉钉语音下载失败，已跳过并继续]".to_string() });
                 }
             }
@@ -178,7 +178,7 @@ async fn parse_and_enqueue_dingtalk_callback(
                     });
                 }
                 Err(err) => {
-                    runtime_log_warn(format!("[远程IM][钉钉事件] 文件下载失败，已跳过并继续，file_name={}，error={}", file_name, err));
+                    runtime_log_warn(format!("[远程IM] 文件下载失败，已跳过并继续 文件={} 原因={}", file_name, err));
                     parts.push(ChatIngressPart::Text { text: format!("[附件不可用：{} 下载失败，已跳过并继续]", file_name) });
                 }
             }
@@ -267,7 +267,7 @@ async fn run_single_dingtalk_stream_session(
             &channel.id,
             "info",
             &format!(
-                "[钉钉生命周期] 开始 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms=0",
+                "[远程IM] 钉钉生命周期 开始 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms=0",
                 channel.id
             ),
         )
@@ -314,7 +314,7 @@ async fn run_single_dingtalk_stream_session(
             &channel.id,
             "info",
             &format!(
-                "[钉钉生命周期] 完成 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms={}",
+                "[远程IM] 钉钉生命周期 完成 task={} trigger=run_single_dingtalk_stream_session key_counts=0 duration_ms={}",
                 channel.id,
                 started_at.elapsed().as_millis()
             ),

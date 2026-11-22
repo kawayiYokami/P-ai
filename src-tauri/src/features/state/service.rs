@@ -1024,7 +1024,7 @@ fn remove_conversation_from_pdf_cache_table(
     let mut removed = 0usize;
     for (file_hash, file_name) in removals {
         runtime_log_info(format!(
-            "[PDF缓存清理] 删除缓存条目 table={table}，file={file_name}，hash={file_hash}"
+            "[存储] PDF缓存清理 删除缓存条目 表={table} 文件={file_name} 校验={file_hash}"
         ));
         tx.execute(
             &format!("DELETE FROM {table} WHERE file_hash=?1"),

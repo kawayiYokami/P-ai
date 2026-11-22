@@ -188,7 +188,7 @@ fn memory_sync_vectors_after_delete(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(c) => c,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_delete，原因=open_db_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_delete 原因=open_db_failed 异常={err}",
             ));
             return false;
         }
@@ -196,7 +196,7 @@ fn memory_sync_vectors_after_delete(data_path: &PathBuf, memory_ids: &[String]) 
     let provider_id = match memory_store_active_embedding_provider_id(&conn) {
         Ok(Some(id)) if !id.trim().is_empty() => id,
         _ => {
-            runtime_log_warn("[记忆向量同步] 跳过，任务=after_delete，原因=no_active_provider".to_string());
+            runtime_log_info("[记忆] 向量同步 跳过 任务=after_delete 原因=no_active_provider".to_string());
             return true;
         }
     };
@@ -204,7 +204,7 @@ fn memory_sync_vectors_after_delete(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(c) => c,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_delete，原因=open_vector_db_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_delete 原因=open_vector_db_failed 异常={err}",
             ));
             return false;
         }
@@ -222,13 +222,13 @@ fn memory_sync_vectors_after_delete(data_path: &PathBuf, memory_ids: &[String]) 
             Ok(n) => deleted += n,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[记忆向量同步] 失败，任务=after_delete，chunk_id={target}，异常={err}",
+                    "[记忆] 向量同步 失败 任务=after_delete 异常={err}",
                 ));
             }
         }
     }
     runtime_log_info(format!(
-        "[记忆向量同步] 完成，任务=after_delete，请求删除条数={}，实际删除条数={deleted}",
+        "[记忆] 向量同步 完成 任务=after_delete 请求删除条数={} 实际删除条数={deleted}",
         memory_ids.len(),
     ));
     true
@@ -247,7 +247,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
     }
     let Some((provider_id, _model_name, embedder)) = memory_build_active_embedder(data_path)
     else {
-        runtime_log_warn("[记忆向量同步] 跳过，任务=after_upsert，原因=no_active_embedder".to_string());
+        runtime_log_info("[记忆] 向量同步 跳过 任务=after_upsert 原因=no_active_embedder".to_string());
         return true;
     };
     let started = std::time::Instant::now();
@@ -256,7 +256,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(c) => c,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_upsert，原因=open_db_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_upsert 原因=open_db_failed 异常={err}",
             ));
             return false;
         }
@@ -268,7 +268,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(s) => s,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_upsert，原因=prepare_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_upsert 原因=prepare_failed 异常={err}",
             ));
             return false;
         }
@@ -281,7 +281,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(rows) => rows.filter_map(|r| r.ok()).collect::<Vec<(String, String)>>(),
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_upsert，原因=query_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_upsert 原因=query_failed 异常={err}",
             ));
             return false;
         }
@@ -294,7 +294,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(v) => v,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 失败，任务=after_upsert，原因=embed_failed，异常={}，条数={}，耗时毫秒={}",
+                "[记忆] 向量同步 失败 任务=after_upsert 原因=embed_failed 异常={} 条数={} 耗时毫秒={}",
                 err,
                 texts.len(),
                 started.elapsed().as_millis(),
@@ -304,7 +304,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
     };
     if vectors.len() != pairs.len() {
         runtime_log_warn(format!(
-            "[记忆向量同步] 失败，任务=after_upsert，原因=length_mismatch，期望={}，实际={}",
+            "[记忆] 向量同步 失败 任务=after_upsert 原因=length_mismatch 期望={} 实际={}",
             pairs.len(),
             vectors.len(),
         ));
@@ -314,7 +314,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
         Ok(c) => c,
         Err(err) => {
             runtime_log_warn(format!(
-                "[记忆向量同步] 跳过，任务=after_upsert，原因=open_vector_db_failed，异常={err}",
+                "[记忆] 向量同步 跳过 任务=after_upsert 原因=open_vector_db_failed 异常={err}",
             ));
             return false;
         }
@@ -325,7 +325,7 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
             Ok(s) => s,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[记忆向量同步] 失败，任务=after_upsert，chunk_id={chunk_id}，异常=serialize_failed，详情={err}",
+                    "[记忆] 向量同步 失败 任务=after_upsert 异常=serialize_failed 详情={err}",
                 ));
                 continue;
             }
@@ -339,13 +339,13 @@ fn memory_sync_vectors_after_upsert(data_path: &PathBuf, memory_ids: &[String]) 
             Ok(_) => upserted += 1,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[记忆向量同步] 失败，任务=after_upsert，chunk_id={chunk_id}，异常=upsert_failed，详情={err}",
+                    "[记忆] 向量同步 失败 任务=after_upsert 异常=upsert_failed 详情={err}",
                 ));
             }
         }
     }
     runtime_log_info(format!(
-        "[记忆向量同步] 完成，任务=after_upsert，请求条数={}，成功条数={upserted}，耗时毫秒={}",
+        "[记忆] 向量同步 完成 任务=after_upsert 请求条数={} 成功条数={upserted} 耗时毫秒={}",
         pairs.len(),
         started.elapsed().as_millis(),
     ));

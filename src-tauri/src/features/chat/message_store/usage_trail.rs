@@ -375,7 +375,7 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
     tx.commit()
         .map_err(|err| format!("提交用量台账迁移事务失败: {err}"))?;
     runtime_log_info(format!(
-        "[用量台账] 完成历史迁移，写入会话数={}，data_path={}",
+        "[存储] 完成历史迁移 写入会话数={} 数据目录={}",
         migrated_row_count,
         data_path.display()
     ));

@@ -157,8 +157,8 @@ impl ConversationServiceV2 {
                     Ok(conversation_meta) => conversation_meta,
                     Err(err) => {
                         runtime_log_error(format!(
-                            "[会话索引读取] 状态=失败，任务=collect_unarchived_conversation_summaries_cached，conversation_id={}，error={}",
-                            item.id, err
+                            "[聊天] 状态=失败 任务=collect_unarchived_conversation_summaries_cached 原因={}",
+                            err
                         ));
                         return None;
                     }

@@ -28,44 +28,42 @@ fn maybe_undo_rewind_apply_patch(
     state: &AppState,
     input: &RewindConversationInput,
     removed_messages: &[ChatMessage],
-    message_id: &str,
+    _message_id: &str,
     started_at: &std::time::Instant,
 ) -> Result<(), String> {
     if !input.undo_apply_patch {
         return Ok(());
     }
     runtime_log_info(format!(
-        "[会话撤回] 开始工具逆向，任务=rewind_conversation_from_message，removed_messages={}，message_id={}",
-        removed_messages.len(),
-        message_id
+        "[聊天] 开始工具逆向 任务=rewind_conversation_from_message 移除消息数={}",
+        removed_messages.len()
     ));
     let (undone_patch_count, overwritten_files) = match try_undo_apply_patch_from_removed_messages(state, removed_messages) {
         Ok(value) => value,
         Err(err) => {
             let elapsed_ms = started_at.elapsed().as_millis();
             runtime_log_error(format!(
-                "[会话撤回] 失败，任务=rewind_conversation_from_message，stage=undo_apply_patch，message_id={}，duration_ms={}，error={}",
-                message_id, elapsed_ms, err
+                "[聊天] 失败 任务=rewind_conversation_from_message 阶段=undo_apply_patch 耗时={} 原因={}",
+                elapsed_ms, err
             ));
             return Err(err);
         }
     };
     runtime_log_info(format!(
-        "[会话撤回] 工具逆向处理，任务=rewind_conversation_from_message，patches={}，overwritten={}，message_id={}",
-        undone_patch_count, overwritten_files.len(), message_id
+        "[聊天] 工具逆向处理 任务=rewind_conversation_from_message 补丁数={} 覆盖数={}",
+        undone_patch_count, overwritten_files.len()
     ));
     if undone_patch_count > 0 {
         runtime_log_info(format!(
-            "[会话撤回] 已执行 apply_patch 反向撤回: patches={}, message_id={}",
-            undone_patch_count,
-            message_id
+            "[聊天] 已执行 apply_patch 反向撤回 补丁数={}",
+            undone_patch_count
         ));
     }
     if !overwritten_files.is_empty() {
         runtime_log_warn(format!(
-            "[会话撤回] 有 {} 个文件存在非LLM修改被覆盖: {:?}",
+            "[聊天] 有 {} 个文件存在非LLM修改被覆盖: {}",
             overwritten_files.len(),
-            overwritten_files
+            overwritten_files.join("、")
         ));
     }
     Ok(())
@@ -528,15 +526,14 @@ fn create_unarchived_conversation_shared(
             conversation.preferred_api_config_id.as_deref(),
         ) {
             runtime_log_warn(format!(
-                "[会话模型] 跳过，任务=补齐专家模型，conversation_id={conversation_id}，error={err}"
+                "[聊天] 跳过 任务=补齐专家模型 原因={err}"
             ));
         }
     }
     runtime_log_info(format!(
-        "[会话] 完成，任务=新建未归档会话，阶段=调度持久化，conversation_id={}，persist_seq={}，agent_id={}，preferred_api_config_id={}，message_count={}，duration_ms={}",
-        conversation_id,
+        "[聊天] 完成 任务=新建未归档会话 阶段=调度持久化 会话={} 持久化序号={} 首选模型配置={} 消息数={} 耗时={}",
+        conversation.title,
         persist_seq,
-        conversation.agent_id,
         conversation.preferred_api_config_id.as_deref().unwrap_or(""),
         conversation.messages.len(),
         started_at.elapsed().as_millis()
@@ -549,8 +546,7 @@ fn create_unarchived_conversation_shared(
             .unwrap_or_default(),
     };
     runtime_log_debug(format!(
-        "[会话] 完成，任务=新建未归档会话，阶段=构建概览，conversation_id={}，overview_count={}，duration_ms={}",
-        conversation_id,
+        "[聊天] 完成 任务=新建未归档会话 阶段=构建概览 概览数量={} 耗时={}",
         overview_payload.unarchived_conversations.len(),
         started_at.elapsed().as_millis()
     ));
@@ -588,8 +584,8 @@ fn build_unarchived_conversation_record_from_runtime(
             Ok(snapshot) => snapshot,
             Err(err) => {
                 runtime_log_error(format!(
-                    "[用户画像] 失败，任务=build_unarchived_conversation_record_from_runtime，agent_id={}，error={}",
-                    agent.id, err
+                    "[聊天] 失败 任务=build_unarchived_conversation_record_from_runtime 人格={} 原因={}",
+                    agent.name, err
                 ));
                 None
             }
@@ -657,8 +653,8 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
             Ok(snapshot) => snapshot,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[会话分支] 跳过，任务=构建用户画像快照，agent_id={}，error={}",
-                    agent.id, err
+                    "[聊天] 跳过 任务=构建用户画像快照 人格={} 原因={}",
+                    agent.name, err
                 ));
                 None
             }

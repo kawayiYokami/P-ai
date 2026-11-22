@@ -217,8 +217,8 @@ fn remote_im_emit_contact_dashboard_snapshot(state: &AppState, contact_id: &str)
         Ok(snapshot) => snapshot,
         Err(err) => {
             runtime_log_debug(format!(
-                "[远程会话仪表盘] 跳过，任务=构建推送快照，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 跳过 任务=构建推送快照 原因={}",
+                err
             ));
             return;
         }
@@ -234,8 +234,8 @@ fn remote_im_emit_contact_dashboard_snapshot(state: &AppState, contact_id: &str)
         if let Some(app_handle) = guard.as_ref() {
             if let Err(err) = app_handle.emit(REMOTE_IM_CONTACT_DASHBOARD_UPDATED_EVENT, snapshot) {
                 runtime_log_debug(format!(
-                    "[远程会话仪表盘] 跳过，任务=推送快照，contact_id={}，error={}",
-                    contact_id, err
+                    "[远程IM] 跳过 任务=推送快照 原因={}",
+                    err
                 ));
             }
         }
@@ -457,8 +457,7 @@ fn remote_im_resolve_contact_session_target_atomic(
             Ok(contact) => contact,
             Err(latest_contact) => {
                 runtime_log_warn(format!(
-                    "[远程IM] 联系人绑定并发变化，使用最新配置重新解析，contact_id={}，attempt={}",
-                    contact_id,
+                    "[远程IM] 联系人绑定并发变化，使用最新配置重新解析 尝试={}",
                     attempt + 1
                 ));
                 candidate = latest_contact;
@@ -490,16 +489,15 @@ fn remote_im_resolve_contact_session_target_atomic(
                     &conversation_id,
                 ) {
                     runtime_log_warn(format!(
-                        "[远程IM] 联系人路由已提交，会话绑定同步降级，contact_id={}，conversation_id={}，error={}",
-                        contact_id, conversation_id, err
+                        "[远程IM] 联系人路由已提交，会话绑定同步降级 原因={}",
+                        err
                     ));
                 }
                 return Ok((agent_id, conversation_id, contact));
             }
             Err(latest_contact) => {
                 runtime_log_warn(format!(
-                    "[远程IM] 联系人会话绑定并发变化，使用最新配置重新解析，contact_id={}，attempt={}",
-                    contact_id,
+                    "[远程IM] 联系人会话绑定并发变化，使用最新配置重新解析 尝试={}",
                     attempt + 1
                 ));
                 candidate = latest_contact;
@@ -507,8 +505,7 @@ fn remote_im_resolve_contact_session_target_atomic(
         }
     }
     runtime_log_warn(format!(
-        "[远程IM] 联系人绑定持续变化，本次按最新快照继续路由且不覆盖配置，contact_id={}",
-        contact_id
+        "[远程IM] 联系人绑定持续变化，本次按最新快照继续路由且不覆盖配置"
     ));
     let latest_contact = state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("联系人不存在: {contact_id}"))?;
@@ -537,8 +534,8 @@ fn remote_im_resolve_contact_session_target_fail_soft(
     ) {
         Ok(resolved) => return Some(resolved),
         Err(err) => runtime_log_warn(format!(
-            "[远程IM] 入站路由解析降级，contact_id={}，error={}",
-            contact_id, err
+            "[远程IM] 入站路由解析降级 原因={}",
+            err
         )),
     }
 
@@ -577,8 +574,8 @@ fn remote_im_resolve_contact_session_target_fail_soft(
                 .map(|conversation| conversation.id)
                 .map_err(|err| {
                     runtime_log_warn(format!(
-                        "[远程IM] 入站专属会话创建降级，contact_id={}，error={}",
-                        contact_id, err
+                        "[远程IM] 入站专属会话创建降级 原因={}",
+                        err
                     ));
                     err
                 })
@@ -594,9 +591,8 @@ fn remote_im_resolve_contact_session_target_fail_soft(
                 .map(ToOwned::to_owned)
         });
     let Some(conversation_id) = conversation_id else {
-        runtime_log_error(format!(
-            "[远程IM] 跳过，任务=接收入站消息，contact_id={}，原因=无法取得可用会话",
-            contact_id
+        runtime_log_warn(format!(
+            "[远程IM] 跳过 任务=接收入站消息 原因=无法取得可用会话"
         ));
         return None;
     };
@@ -613,8 +609,8 @@ fn remote_im_resolve_contact_session_target_fail_soft(
         Ok(())
     })() {
         runtime_log_warn(format!(
-            "[远程IM] 入站降级路由继续执行，联系人会话绑定未落盘，contact_id={}，conversation_id={}，error={}",
-            contact_id, conversation_id, err
+            "[远程IM] 入站降级路由继续执行，联系人会话绑定未落盘 原因={}",
+            err
         ));
     }
     Some((
@@ -772,9 +768,8 @@ fn remote_im_update_contact_blocked_message_prefixes_inner(
     input: RemoteImContactBlockedMessagePrefixesUpdateInput,
 ) -> Result<RemoteImContact, String> {
     let _ = input.blocked_message_prefixes;
-    runtime_log_warn(format!(
-        "[远程IM] 已忽略旧联系人消息头过滤保存，请改用渠道统一行为设置，contact_id={}",
-        input.contact_id
+    runtime_log_info(format!(
+        "[远程IM] 已忽略旧联系人消息头过滤保存，请改用渠道统一行为设置"
     ));
     remote_im_get_contact_by_id(state, &input.contact_id)
 }
@@ -792,9 +787,8 @@ fn remote_im_update_contact_behavior_inner(
     input: RemoteImContactBehaviorUpdateInput,
 ) -> Result<RemoteImContact, String> {
     let contact_id = input.contact_id;
-    runtime_log_warn(format!(
-        "[远程IM] 已忽略旧联系人行为保存，请改用渠道统一行为设置，contact_id={}",
-        contact_id
+    runtime_log_info(format!(
+        "[远程IM] 已忽略旧联系人行为保存，请改用渠道统一行为设置"
     ));
     remote_im_get_contact_by_id(state, &contact_id)
 }
@@ -820,7 +814,7 @@ fn remote_im_reconfigure_channel_behavior_inner(
 ) -> RemoteImChannelBehaviorReconfigureResult {
     let channel_id = channel_id.trim();
     if channel_id.is_empty() {
-        runtime_log_warn("[群聊巡检] 渠道行为重排跳过，原因=渠道ID为空".to_string());
+        runtime_log_warn("[远程IM] 渠道行为重排跳过 原因=渠道ID为空".to_string());
         return RemoteImChannelBehaviorReconfigureResult {
             reconfigured_contacts: 0,
             skipped_contacts: 0,
@@ -830,7 +824,7 @@ fn remote_im_reconfigure_channel_behavior_inner(
         Ok(contacts) => contacts,
         Err(err) => {
             runtime_log_warn(format!(
-                "[群聊巡检] 渠道行为已保存，但联系人快照读取失败，跳过本次重排并保持业务继续，channel_id={}，error={}",
+                "[远程IM] 渠道行为已保存，但联系人快照读取失败，跳过本次重排并保持业务继续 渠道={} 原因={}",
                 channel_id, err
             ));
             return RemoteImChannelBehaviorReconfigureResult {
@@ -851,14 +845,14 @@ fn remote_im_reconfigure_channel_behavior_inner(
             Err(err) => {
                 skipped_contacts = skipped_contacts.saturating_add(1);
                 runtime_log_warn(format!(
-                    "[群聊巡检] 渠道行为保存后单联系人重排降级，channel_id={}，contact_id={}，error={}",
-                    channel_id, contact.id, err
+                    "[远程IM] 渠道行为保存后单联系人重排降级 渠道={} 原因={}",
+                    channel_id, err
                 ));
             }
         }
     }
     runtime_log_info(format!(
-        "[群聊巡检] 渠道行为重排完成，channel_id={}，reconfigured_contacts={}，skipped_contacts={}",
+        "[远程IM] 渠道行为重排完成 渠道={} 重排联系人={} 跳过联系人={}",
         channel_id, reconfigured_contacts, skipped_contacts
     ));
     RemoteImChannelBehaviorReconfigureResult {
@@ -883,8 +877,8 @@ fn remote_im_patch_contact_settings_inner(
         Ok(snapshot) => Some(snapshot),
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 联系人完整设置读取组织配置失败，本次保存用户输入并延后校验，contact_id={}，error={}",
-                input.contact_id, err
+                "[远程IM] 联系人完整设置读取组织配置失败，本次保存用户输入并延后校验 原因={}",
+                err
             ));
             None
         }
@@ -953,14 +947,14 @@ fn remote_im_patch_contact_settings_inner(
                     conversation_id,
                 ) {
                     runtime_log_warn(format!(
-                        "[远程IM] 联系人设置已保存，会话绑定同步降级，contact_id={}，conversation_id={}，error={}",
-                        output.id, conversation_id, err
+                        "[远程IM] 联系人设置已保存，会话绑定同步降级 原因={}",
+                        err
                     ));
                 }
             }
             Err(err) => runtime_log_warn(format!(
-                "[远程IM] 联系人设置已保存，会话路由解析降级，contact_id={}，error={}",
-                output.id, err
+                "[远程IM] 联系人设置已保存，会话路由解析降级 原因={}",
+                err
             )),
         }
     }
@@ -1053,7 +1047,7 @@ fn remote_im_create_contact_group_inner(
     };
     state_service_upsert_remote_im_contact_group(state, &group)?;
     runtime_log_info(format!(
-        "[远程IM] 联系人分组创建完成，channel_id={channel_id}，group_id={}，name={name}",
+        "[远程IM] 联系人分组创建完成 渠道={channel_id} 群={} 名称={name}",
         group.id
     ));
     Ok(group)
@@ -1085,7 +1079,7 @@ fn remote_im_rename_contact_group_inner(
         return Err("联系人分组不存在".to_string());
     }
     runtime_log_info(format!(
-        "[远程IM] 联系人分组重命名完成，group_id={group_id}，name={name}"
+        "[远程IM] 联系人分组重命名完成 群={group_id} 名称={name}"
     ));
     Ok(())
 }
@@ -1111,7 +1105,7 @@ fn remote_im_delete_contact_group_inner(
     }
     let detached_contact_count = state_service_delete_remote_im_contact_group(state, group_id)?;
     runtime_log_info(format!(
-        "[远程IM] 联系人分组删除完成，group_id={group_id}，回落未分组联系人={detached_contact_count}"
+        "[远程IM] 联系人分组删除完成 群={group_id} 回落未分组联系人={detached_contact_count}"
     ));
     Ok(RemoteImContactGroupDeleteResult {
         detached_contact_count,
@@ -1150,7 +1144,7 @@ fn remote_im_set_contact_group_inner(
     let moved_contact_count =
         state_service_set_remote_im_contacts_group(state, channel_id, &contact_ids, group_id)?;
     runtime_log_info(format!(
-        "[远程IM] 联系人分组移动完成，channel_id={channel_id}，group_id={}，contact_count={moved_contact_count}",
+        "[远程IM] 联系人分组移动完成 渠道={channel_id} 群={} 联系人数量={moved_contact_count}",
         group_id.unwrap_or("")
     ));
     Ok(RemoteImSetContactGroupResult {
@@ -1188,7 +1182,7 @@ fn remote_im_batch_patch_contact_settings_inner(
         Ok(snapshot) => Some(snapshot),
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 联系人批量设置读取组织配置失败，本次按输入保存并延后校验，error={err}"
+                "[远程IM] 联系人批量设置读取组织配置失败，本次按输入保存并延后校验 原因={err}"
             ));
             None
         }
@@ -1298,14 +1292,13 @@ fn remote_im_batch_patch_contact_settings_inner(
         };
         if let Err(err) = sync_remote_im_contact_conversation_binding(state, contact, conversation_id) {
             runtime_log_warn(format!(
-                "[远程IM] 联系人批量设置已保存，会话绑定同步降级，contact_id={}，conversation_id={conversation_id}，error={err}",
-                contact.id
+                "[远程IM] 联系人批量设置已保存，会话绑定同步降级 原因={err}"
             ));
         }
     }
 
     runtime_log_info(format!(
-        "[远程IM] 联系人批量设置完成，contact_count={}，workspace_changed_contacts={updated_workspace_contact_count}",
+        "[远程IM] 联系人批量设置完成 联系人数量={} 工作区变更联系人={updated_workspace_contact_count}",
         contacts.len()
     ));
     Ok(RemoteImBatchContactSettingsResult {
@@ -1382,8 +1375,8 @@ fn remote_im_update_contact_route_mode(
         let final_mode = remote_im_resolve_effective_route_mode(&config, contact);
         if requested_mode != final_mode {
             runtime_log_info(format!(
-                "[远程IM] 联系人路由模式已被约束修正: contact_id={}, requested={}, final={}",
-                contact.id, requested_mode, final_mode
+                "[远程IM] 联系人路由模式已被约束修正 请求={} 最终={}",
+                requested_mode, final_mode
             ));
         }
         contact.route_mode = final_mode;
@@ -1399,8 +1392,8 @@ fn remote_im_update_contact_agent_binding_inner(
         Ok(snapshot) => Some(snapshot),
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 更新联系人处理人格时组织配置读取失败，本次保存原始绑定并延后校验，contact_id={}，error={}",
-                input.contact_id, err
+                "[远程IM] 更新联系人处理人格时组织配置读取失败，本次保存原始绑定并延后校验 原因={}",
+                err
             ));
             None
         }
@@ -1436,27 +1429,13 @@ fn remote_im_update_contact_agent_binding_inner(
         Ok((_, _, resolved)) => resolved,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 联系人处理人格已保存，会话绑定修复降级，contact_id={}，error={}",
-                input.contact_id, err
+                "[远程IM] 联系人处理人格已保存，会话绑定修复降级 原因={}",
+                err
             ));
             return Ok(output);
         }
     };
-    let conversation_id = resolved
-        .bound_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("");
-    runtime_log_info(format!(
-        "[远程IM] 完成，任务=更新联系人处理人格，contact_id={}，conversation_id={}，agent_id={}",
-        resolved.id,
-        conversation_id,
-        conversation_service_v2()
-            .get_conversation_meta(state, &conversation_id)
-            .map(|conversation| conversation.agent_id)
-            .unwrap_or_default()
-    ));
+    runtime_log_info("[远程IM] 完成 任务=更新联系人处理人格".to_string());
     Ok(resolved)
 }
 
@@ -1518,10 +1497,10 @@ fn remote_im_list_contact_conversations(
     state: State<'_, AppState>,
 ) -> Result<Vec<RemoteImContactConversationSummary>, String> {
     let started_at = std::time::Instant::now();
-    runtime_log_debug("[远程IM][联系人会话][列表] 开始".to_string());
+    runtime_log_debug("[远程IM] 联系人会话列表开始".to_string());
     let items = conversation_service_v2().list_remote_im_contact_conversations(state.inner())?;
     runtime_log_debug(format!(
-        "[远程IM][联系人会话][列表] 完成: contact_count={}, elapsed_ms={}",
+        "[远程IM] 联系人会话列表完成 联系人数量={} 耗时={}ms",
         items.len(),
         started_at.elapsed().as_millis()
     ));
@@ -1541,14 +1520,12 @@ async fn remote_im_get_contact_conversation_messages(
     tokio::task::spawn_blocking(move || {
         let started_at = std::time::Instant::now();
         runtime_log_debug(format!(
-            "[远程IM][联系人会话][读取] 开始: contact_id={}",
-            contact_id
+            "[远程IM] 联系人会话读取开始"
         ));
         let messages = conversation_service_v2()
             .get_remote_im_contact_conversation_messages(&app_state, &contact_id)?;
         runtime_log_debug(format!(
-            "[远程IM][联系人会话][读取] 完成: contact_id={}, message_count={}, elapsed_ms={}",
-            contact_id,
+            "[远程IM] 联系人会话读取完成 消息数量={} 耗时={}ms",
             messages.len(),
             started_at.elapsed().as_millis()
         ));
@@ -1611,8 +1588,7 @@ fn remote_im_get_contact_conversation_block_page_inner(
     }
     let started_at = std::time::Instant::now();
     runtime_log_debug(format!(
-        "[远程IM][联系人会话][块分页] 开始: contact_id={}, requested_block_id={}",
-        contact_id,
+        "[远程IM] 联系人会话块分页开始 请求块={}",
         input.block_id
             .map(|value| value.to_string())
             .unwrap_or_else(|| "latest".to_string())
@@ -1623,8 +1599,7 @@ fn remote_im_get_contact_conversation_block_page_inner(
         input.block_id,
     )?;
     runtime_log_debug(format!(
-        "[远程IM][联系人会话][块分页] 完成: contact_id={}, selected_block_id={}, message_count={}, elapsed_ms={}",
-        contact_id,
+        "[远程IM] 联系人会话块分页完成 选中块={} 消息数量={} 耗时={}ms",
         page.selected_block_id,
         page.messages.len(),
         started_at.elapsed().as_millis()
@@ -1662,8 +1637,8 @@ fn remote_im_delete_contact_inner(
     if removed {
         if let Err(err) = clear_remote_im_debounces_for_contact(state, contact_id) {
             runtime_log_warn(format!(
-                "[群聊巡检] 删除联系人后清理状态失败，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 删除联系人后清理状态失败 原因={}",
+                err
             ));
         }
         if let Err(err) = abort_remote_im_reply_delegates_for_contact(
@@ -1672,8 +1647,8 @@ fn remote_im_delete_contact_inner(
             "远程联系人已删除",
         ) {
             runtime_log_warn(format!(
-                "[远程应答委托] 删除联系人后终止委托失败，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 删除联系人后终止委托失败 原因={}",
+                err
             ));
         }
     }
@@ -1706,14 +1681,12 @@ fn remote_im_clear_contact_conversation_inner(
     }
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[远程IM][联系人会话][清空] 开始: contact_id={}",
-        contact_id
+        "[远程IM] 联系人会话清空开始"
     ));
     let cleared =
         conversation_service_v2().clear_remote_im_contact_conversation(state, contact_id)?;
     runtime_log_info(format!(
-        "[远程IM][联系人会话][清空] 完成: contact_id={}, elapsed_ms={}",
-        contact_id,
+        "[远程IM] 联系人会话清空完成 耗时={}ms",
         started_at.elapsed().as_millis()
     ));
     Ok(cleared)
@@ -1821,7 +1794,7 @@ pub(crate) async fn remote_im_enqueue_message_internal(
                 // 窗口内重推按平台消息 ID 去重；重推只发生在同一窗口内。
                 if !bucket.seen_platform_message_ids.insert(platform_message_id.to_string()) {
                     runtime_log_info(format!(
-                        "[远程IM][入站缓冲] 窗口内重复消息已丢弃: key={}，platform_message_id={}",
+                        "[远程IM] 窗口内重复消息已丢弃 键={} 平台消息={}",
                         key, platform_message_id
                     ));
                     return Ok(remote_im_empty_enqueue_result());
@@ -1840,7 +1813,7 @@ pub(crate) async fn remote_im_enqueue_message_internal(
             let entries = {
                 let Ok(mut buffers) = remote_im_inbound_buffers().lock() else {
                     runtime_log_warn(
-                        "[远程IM][入站缓冲] 缓冲锁不可用，窗口内消息未能入库".to_string(),
+                        "[远程IM] 缓冲锁不可用，窗口内消息未能入库".to_string(),
                     );
                     return;
                 };
@@ -1857,14 +1830,14 @@ pub(crate) async fn remote_im_enqueue_message_internal(
                 entries
             };
             runtime_log_info(format!(
-                "[远程IM][入站缓冲] 窗口安静，开始入库: key={}，count={}",
+                "[远程IM] 窗口安静，开始入库 键={} 数量={}",
                 key,
                 entries.len()
             ));
             for entry in entries {
                 if let Err(err) = remote_im_enqueue_message_direct(entry, &state_for_window).await {
                     runtime_log_error(format!(
-                        "[远程IM][入站缓冲] 入库失败: key={}，error={}",
+                        "[远程IM] 入库失败 键={} 原因={}",
                         key, err
                     ));
                 }
@@ -1883,12 +1856,12 @@ async fn remote_im_enqueue_message_direct(
         Ok(config) => validate_enqueue_input(&input, &config)?,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 入站渠道配置读取失败，尝试使用最后可信快照，channel_id={}，error={}",
+                "[远程IM] 入站渠道配置读取失败，尝试使用最后可信快照 渠道={} 原因={}",
                 input.channel_id.trim(), err
             ));
             let Some(config) = remote_im_stale_cached_config_best_effort(state) else {
                 runtime_log_warn(format!(
-                    "[远程IM] 跳过，任务=接收入站消息，channel_id={}，原因=没有可信渠道权限快照",
+                    "[远程IM] 跳过 任务=接收入站消息 渠道={} 原因=没有可信渠道权限快照",
                     input.channel_id.trim()
                 ));
                 return Ok(RemoteImEnqueueResult {
@@ -1902,7 +1875,7 @@ async fn remote_im_enqueue_message_direct(
                 Ok(validated) => validated,
                 Err(permission_err) => {
                     runtime_log_warn(format!(
-                        "[远程IM] 跳过，任务=接收入站消息，channel_id={}，原因=最后可信权限快照拒绝，error={}",
+                        "[远程IM] 跳过 任务=接收入站消息 渠道={} 原因=最后可信权限快照拒绝 详情={}",
                         input.channel_id.trim(), permission_err
                     ));
                     return Ok(RemoteImEnqueueResult {
@@ -1937,14 +1910,14 @@ async fn remote_im_enqueue_message_direct(
             .unwrap_or("未知联系人")
             .to_string();
         runtime_log_info(format!(
-            "[远程IM] 入站消息跳过：渠道={}，联系人={}，原因=命中消息头过滤，过滤前缀={}，文本长度={}",
+            "[远程IM] 入站消息跳过 渠道={} 联系人={} 原因=命中消息头过滤 过滤前缀={} 文本长度={}",
             channel_label,
             contact_label,
             prefix,
             text.chars().count()
         ));
         let log_message = format!(
-                "[联系人消息] 过滤跳过: contact={}, prefix={}, text_len={}",
+                "[远程IM] 联系人消息 过滤跳过: contact={}, prefix={}, text_len={}",
                 contact_label,
                 prefix,
                 text.chars().count()
@@ -1962,7 +1935,7 @@ async fn remote_im_enqueue_message_direct(
         input.platform_message_id.as_deref(),
     )? {
         runtime_log_info(format!(
-            "[远程IM] 入站消息跳过：渠道={}，原因=命中最近平台消息ID去重，platform_message_id={}",
+            "[远程IM] 入站消息跳过 渠道={} 原因=命中最近平台消息去重 平台消息={}",
             channel_label,
             input
                 .platform_message_id
@@ -1974,7 +1947,7 @@ async fn remote_im_enqueue_message_direct(
             input.channel_id.trim(),
             "info",
             format!(
-                "[联系人消息] 去重跳过: channel={}, platform_message_id={}",
+                "[远程IM] 联系人消息 去重跳过: channel={}, platform_message_id={}",
                 channel_label,
                 input
                     .platform_message_id
@@ -2003,15 +1976,15 @@ async fn remote_im_enqueue_message_direct(
         Ok(result) => result,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 入站联系人落盘失败，使用临时联系人继续接入，channel_id={}，remote_contact_id={}，error={}",
-                input.channel_id.trim(), input.remote_contact_id.trim(), err
+                "[远程IM] 入站联系人落盘失败，使用临时联系人继续接入 渠道={} 原因={}",
+                input.channel_id.trim(), err
             ));
             let contact_id = match remote_im_upsert_contact_for_inbound(state, &input, &now) {
                 Ok(contact_id) => contact_id,
                 Err(fallback_err) => {
                     runtime_log_error(format!(
-                        "[远程IM] 跳过，任务=接收入站消息，channel_id={}，remote_contact_id={}，原因=临时联系人创建失败，error={}",
-                        input.channel_id.trim(), input.remote_contact_id.trim(), fallback_err
+                        "[远程IM] 跳过 任务=接收入站消息 渠道={} 原因=临时联系人创建失败 详情={}",
+                        input.channel_id.trim(), fallback_err
                     ));
                     return Ok(RemoteImEnqueueResult {
                         event_id: String::new(),
@@ -2024,8 +1997,8 @@ async fn remote_im_enqueue_message_direct(
             let Some(contact) = state_service_get_remote_im_contact(state, &contact_id).ok().flatten()
             else {
                 runtime_log_error(format!(
-                    "[远程IM] 跳过，任务=接收入站消息，channel_id={}，remote_contact_id={}，原因=临时联系人创建失败",
-                    input.channel_id.trim(), input.remote_contact_id.trim()
+                    "[远程IM] 跳过 任务=接收入站消息 渠道={} 原因=临时联系人创建失败",
+                    input.channel_id.trim()
                 ));
                 return Ok(RemoteImEnqueueResult {
                     event_id: String::new(),
@@ -2040,7 +2013,7 @@ async fn remote_im_enqueue_message_direct(
     };
     if !allow_receive {
         runtime_log_info(format!(
-            "[远程IM] 入站消息忽略：渠道={}，联系人={}，原因=联系人未开启收信",
+            "[远程IM] 入站消息忽略 渠道={} 联系人={} 原因=联系人未开启收信",
             channel_label,
             remote_im_contact_log_label(&detached_contact)
         ));
@@ -2048,7 +2021,7 @@ async fn remote_im_enqueue_message_direct(
             &detached_contact,
             "info",
             format!(
-                "[联系人消息] 忽略: channel={}, contact={}, reason=联系人未开启收信",
+                "[远程IM] 联系人消息 忽略: channel={}, contact={}, reason=联系人未开启收信",
                 channel_label,
                 remote_im_contact_log_label(&detached_contact)
             ),
@@ -2084,7 +2057,7 @@ async fn remote_im_enqueue_message_direct(
         input.sender_name.trim().to_string()
     };
     runtime_log_info(format!(
-        "[远程IM] 入站路由完成：联系人={}，处理模式={}，应答策略={}",
+        "[远程IM] 入站路由完成 联系人={} 处理模式={} 应答策略={}",
         remote_im_contact_log_label(&contact_for_log),
         contact_for_log.route_mode,
         contact_for_log.response_strategy
@@ -2114,7 +2087,7 @@ async fn remote_im_enqueue_message_direct(
         &contact_for_log,
         "info",
         format!(
-            "[联系人消息] 收到: {} : {}{}",
+            "[远程IM] 联系人消息 收到: {} : {}{}",
             sender_label,
             if received_preview.trim().is_empty() {
                 "（无文字）"
@@ -2166,8 +2139,8 @@ async fn remote_im_enqueue_message_direct(
             )
         {
             runtime_log_warn(format!(
-                "[远程IM] 入站附件外部化降级，contact_id={}，conversation_id={}，message_id={}，error={}",
-                contact_id, conversation_id, persisted_message.id, err
+                "[远程IM] 入站附件外部化降级 原因={}",
+                err
             ));
         }
         let persisted_message = conversation_service_v2()
@@ -2196,7 +2169,7 @@ async fn remote_im_enqueue_message_direct(
             state_service_set_remote_im_contact_checkpoint(state, &checkpoint)
         })() {
             runtime_log_warn(format!(
-                "[远程IM] 已收消息标记更新失败：渠道={}，联系人={}，内容={}，error={}",
+                "[远程IM] 已收消息标记更新失败 渠道={} 联系人={} 内容={} 原因={}",
                 channel_label,
                 remote_im_contact_log_label(&contact_for_log),
                 remote_im_preview_text(&text, 100),
@@ -2211,8 +2184,8 @@ async fn remote_im_enqueue_message_direct(
             Ok(result) => result,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM] 入库后入场判定失败，本次只保留消息，contact_id={}，conversation_id={}，error={}",
-                    contact_id, conversation_id, err
+                    "[远程IM] 入库后入场判定失败，本次只保留消息 原因={}",
+                    err
                 ));
                 (false, "入场判定失败，仅保留已入库消息".to_string())
             }
@@ -2238,7 +2211,7 @@ async fn remote_im_enqueue_message_direct(
         });
     }
     runtime_log_info(format!(
-        "[远程IM] 私聊入站交接：渠道={}，联系人={}，发送人={}，内容={}，处理=绑定会话引导",
+        "[远程IM] 私聊入站交接 渠道={} 联系人={} 发送人={} 内容={} 处理=绑定会话引导",
         channel_label,
         remote_im_contact_log_label(&contact_for_log),
         sender_label,
@@ -2257,7 +2230,7 @@ async fn remote_im_enqueue_message_direct(
         &contact_for_log,
         "info",
         format!(
-            "[联系人状态] 已交接: action=绑定会话引导, channel={}, contact={}, message={}",
+            "[远程IM] 联系人状态 已交接: action=绑定会话引导, channel={}, contact={}, message={}",
             channel_label,
             remote_im_contact_log_label(&contact_for_log),
             remote_im_preview_text(&text, 100)

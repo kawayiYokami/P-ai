@@ -188,14 +188,14 @@ pub(crate) fn builtin_plan(
                 &resolved_path.display_path,
             ) {
                 runtime_log_warn(format!(
-                    "[计划] 自动同意写入执行中计划失败 conversation_id={} session_id={} error={}",
-                    conversation_id, session_id, err
+                    "[工具] 自动同意写入执行中计划失败 原因={}",
+                    err
                 ));
             }
             if let Err(err) = set_conversation_plan_mode_enabled(app_state, conversation_id, false) {
                 runtime_log_warn(format!(
-                    "[计划] 自动同意关闭计划模式失败 conversation_id={} session_id={} error={}",
-                    conversation_id, session_id, err
+                    "[工具] 自动同意关闭计划模式失败 原因={}",
+                    err
                 ));
             }
         }
@@ -210,8 +210,8 @@ pub(crate) fn builtin_plan(
                 None,
             ) {
                 runtime_log_warn(format!(
-                    "[计划] 标记完成失败 conversation_id={} session_id={} error={}",
-                    conversation_id, session_id, err
+                    "[工具] 标记完成失败 原因={}",
+                    err
                 ));
             }
         }

@@ -358,7 +358,7 @@ fn ensure_default_shell_workspace_in_config(config: &mut AppConfig, state: &AppS
             {
                 workspace.path = default_path.clone();
                 runtime_log_info(format!(
-                    "[终端工作空间迁移] 助理空间路径已更新: '{}' -> '{}'",
+                    "[系统] 助理空间路径已更新: '{}' -> '{}'",
                     candidate.display(),
                     workspace.path
                 ));
@@ -555,7 +555,7 @@ fn terminal_workspace_cache_lock_recover<'a, T>(
         Ok(guard) => guard,
         Err(err) => {
             runtime_log_info(format!(
-                "[终端工作区] 警告: {} 锁已 poison，继续恢复使用 error={:?}",
+                "[系统] 警告: {} 锁已 poison，继续恢复使用 错误={}",
                 label, err
             ));
             err.into_inner()

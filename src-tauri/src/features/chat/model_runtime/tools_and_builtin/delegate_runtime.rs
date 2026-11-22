@@ -371,8 +371,7 @@ async fn delegate_run_thread_to_completion(
                 DELEGATE_STATUS_FAILED,
             ) {
                 runtime_log_error(format!(
-                    "[委托线程] 创建失败后更新委托状态失败: delegate_id={}, status={}, error={}",
-                    delegate.delegate_id,
+                    "[工具] 创建失败后更新委托状态失败 状态={} 原因={}",
                     DELEGATE_STATUS_FAILED,
                     status_err
                 ));
@@ -398,10 +397,7 @@ async fn delegate_run_thread_to_completion(
         &delegate.delegate_id,
     ) {
         runtime_log_error(format!(
-            "[委托线程] 推送开工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
-            delegate_thread_id,
-            delegate.delegate_id,
-            delegate.target_agent_id,
+            "[工具] 推送开工信号失败 函数=delegate_run_thread_to_completion 原因={}",
             err
         ));
     }
@@ -410,9 +406,7 @@ async fn delegate_run_thread_to_completion(
     for api_config_id in target_api_config_ids.iter() {
         if let Err(err) = delegate_runtime_thread_touch(&app_state, &delegate_thread_id) {
             runtime_log_error(format!(
-                "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
-                delegate_thread_id,
-                delegate.delegate_id,
+                "[工具] 更新运行模型失败 函数=delegate_run_thread_to_completion 模型配置={} 原因={}",
                 api_config_id,
                 err
             ));
@@ -443,9 +437,7 @@ async fn delegate_run_thread_to_completion(
                 delegate_runtime_thread_archive(&app_state, &delegate_thread_id, &completed_at)
             {
                 runtime_log_error(format!(
-                    "[委托线程] 归档运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, archived_at={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
+                    "[工具] 归档运行线程失败 函数=delegate_run_thread_to_completion 状态={} 归档时间={} 原因={}",
                     DELEGATE_STATUS_COMPLETED,
                     completed_at,
                     err
@@ -457,9 +449,7 @@ async fn delegate_run_thread_to_completion(
                 DELEGATE_STATUS_COMPLETED,
             ) {
                 runtime_log_error(format!(
-                    "[委托线程] 更新委托状态失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
+                    "[工具] 更新委托状态失败 函数=delegate_run_thread_to_completion 状态={} 原因={}",
                     DELEGATE_STATUS_COMPLETED,
                     err
                 ));
@@ -482,10 +472,7 @@ async fn delegate_run_thread_to_completion(
                 &delegate.delegate_id,
             ) {
                 runtime_log_error(format!(
-                    "[委托线程] 推送停工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
-                    delegate.target_agent_id,
+                    "[工具] 推送停工信号失败 函数=delegate_run_thread_to_completion 原因={}",
                     err
                 ));
             }
@@ -497,9 +484,7 @@ async fn delegate_run_thread_to_completion(
                 delegate_runtime_thread_archive(&app_state, &delegate_thread_id, &archived_at)
             {
                 runtime_log_error(format!(
-                    "[委托线程] 归档运行线程失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, archived_at={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
+                    "[工具] 归档运行线程失败 函数=delegate_run_thread_to_completion 状态={} 归档时间={} 原因={}",
                     DELEGATE_STATUS_FAILED,
                     archived_at,
                     remove_err
@@ -511,9 +496,7 @@ async fn delegate_run_thread_to_completion(
                 DELEGATE_STATUS_FAILED,
             ) {
                 runtime_log_error(format!(
-                    "[委托线程] 更新委托状态失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, status={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
+                    "[工具] 更新委托状态失败 函数=delegate_run_thread_to_completion 状态={} 原因={}",
                     DELEGATE_STATUS_FAILED,
                     status_err
                 ));
@@ -536,10 +519,7 @@ async fn delegate_run_thread_to_completion(
                 &delegate.delegate_id,
             ) {
                 runtime_log_error(format!(
-                    "[委托线程] 推送停工信号失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, target_agent_id={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
-                    delegate.target_agent_id,
+                    "[工具] 推送停工信号失败 函数=delegate_run_thread_to_completion 原因={}",
                     stop_err
                 ));
             }

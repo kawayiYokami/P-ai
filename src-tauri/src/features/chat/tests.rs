@@ -12395,7 +12395,7 @@
         let elapsed_ms = started.elapsed().as_millis();
 
         runtime_log_info(format!(
-            "[压测] prepared_prompt_to_messages_json 大上下文结果：messages={}，bytes={}，elapsed={}ms",
+            "[压测] prepared_prompt_to_messages_json 大上下文结果 messages={} bytes={} elapsed={}ms",
             messages.len(),
             json_bytes.len(),
             elapsed_ms
@@ -12441,7 +12441,7 @@
         // 也可通过整库估算校验
         let estimated = schedule_event_estimated_json_bytes(&store);
         runtime_log_info(format!(
-            "[压测] llm_round_log_large_response 调度事件序列化结果：run_bytes={}，store_estimated_bytes={}，events={}",
+            "[压测] llm_round_log_large_response 调度事件序列化结果 run_bytes={}，store_estimated_bytes={} events={}",
             serialized.len(),
             estimated,
             run.events.len()
@@ -12587,7 +12587,7 @@
         let total_ms = started.elapsed().as_millis() as u64;
         let avg_ms = total_ms / u64::from(runs);
         runtime_log_info(format!(
-            "[提示词性能探针] build_prepared_prompt_for_mode 平均耗时={}ms, total={}ms, runs={}, history_len={}, latest_extra_len={}",
+            "[提示词性能探针] build_prepared_prompt_for_mode 平均耗时={}ms total={}ms runs={} history_len={}, latest_extra_len={}",
             avg_ms,
             total_ms,
             runs,

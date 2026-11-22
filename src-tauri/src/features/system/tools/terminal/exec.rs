@@ -1527,7 +1527,7 @@ mod terminal_exec_tests {
 
     async fn verify_default_workspace_skip_for_shell(kind: &str) -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind(kind) else {
-            runtime_log_warn(format!("[测试] 跳过 Shell，类型={kind}: 当前设备不可用"));
+            runtime_log_warn(format!("[测试] 跳过 Shell 类型={kind}: 当前设备不可用"));
             return Ok(());
         };
 
@@ -1579,7 +1579,7 @@ mod terminal_exec_tests {
 
     async fn verify_dev_null_read_command_for_shell(kind: &str) -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind(kind) else {
-            runtime_log_warn(format!("[测试] 跳过 Shell，类型={kind}: 当前设备不可用"));
+            runtime_log_warn(format!("[测试] 跳过 Shell 类型={kind}: 当前设备不可用"));
             return Ok(());
         };
 
@@ -2525,7 +2525,7 @@ mod terminal_exec_tests {
     #[tokio::test]
     async fn background_shell_should_spawn_complete_and_cleanup() -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind("git-bash") else {
-            runtime_log_warn(format!("[测试] 跳过后台 shell 启动验证，类型=git-bash: 当前设备不可用"));
+            runtime_log_warn(format!("[测试] 跳过后台 shell 启动验证 类型=git-bash: 当前设备不可用"));
             return Ok(());
         };
         let root = std::env::temp_dir().join(format!("eca-background-spawn-{}", Uuid::new_v4()));
@@ -2606,7 +2606,7 @@ mod terminal_exec_tests {
     #[tokio::test]
     async fn background_shell_kill_should_terminate_and_cleanup() -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind("git-bash") else {
-            runtime_log_warn(format!("[测试] 跳过后台 shell 终止验证，类型=git-bash: 当前设备不可用"));
+            runtime_log_warn(format!("[测试] 跳过后台 shell 终止验证 类型=git-bash: 当前设备不可用"));
             return Ok(());
         };
         let root = std::env::temp_dir().join(format!("eca-background-kill-{}", Uuid::new_v4()));
@@ -2695,7 +2695,7 @@ mod terminal_exec_tests {
     #[tokio::test]
     async fn shell_exec_result_should_not_expose_session_id() -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind("git-bash") else {
-            runtime_log_warn(format!("[测试] 跳过 Shell，类型=git-bash: 当前设备不可用"));
+            runtime_log_warn(format!("[测试] 跳过 Shell 类型=git-bash: 当前设备不可用"));
             return Ok(());
         };
         let root = std::env::temp_dir().join(format!("eca-terminal-no-session-id-{}", Uuid::new_v4()));

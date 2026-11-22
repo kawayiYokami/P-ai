@@ -234,18 +234,16 @@ fn session_notification_dispatch_sender(
                 Ok(runtime) => runtime,
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[会话通知] 失败，任务=启动后台投递 worker，error={err}"
+                        "[聊天] 失败 任务=启动后台投递 worker 原因={err}"
                     ));
                     return;
                 }
             };
-            runtime_log_info("[会话通知] 完成，任务=启动后台投递 worker".to_string());
+            runtime_log_info("[聊天] 完成 任务=启动后台投递 worker".to_string());
             for request in rx {
-                runtime_log_info(format!(
-                    "[会话通知] 开始，任务=接收投递请求，action={}，target_conversation_id={}，message_id={}，body_preview={}",
+                runtime_log_debug(format!(
+                    "[聊天] 开始 任务=接收投递请求 动作={} 正文预览={}",
                     request.action,
-                    request.target_conversation_id,
-                    request.message.id,
                     session_notification_body_preview(&request.body)
                 ));
                 runtime.spawn(async move {
@@ -257,7 +255,7 @@ fn session_notification_dispatch_sender(
                     match outcome {
                         Ok(Ok(())) => {}
                         Ok(Err(err)) => runtime_log_error(format!(
-                            "[会话通知] 失败，任务=执行会话投递，error={err}"
+                            "[聊天] 失败 任务=执行会话投递 原因={err}"
                         )),
                         Err(panic_payload) => {
                             let panic_text = panic_payload
@@ -268,13 +266,13 @@ fn session_notification_dispatch_sender(
                                 })
                                 .unwrap_or_else(|| "未知 panic".to_string());
                             runtime_log_error(format!(
-                                "[会话通知] 失败，任务=执行会话投递，原因=投递协程 panic，panic={panic_text}"
+                                "[聊天] 失败 任务=执行会话投递 原因=投递协程 panic 崩溃={panic_text}"
                             ));
                         }
                     }
                 });
             }
-            runtime_log_warn("[会话通知] 跳过，任务=后台投递 worker，原因=请求通道已关闭".to_string());
+            runtime_log_warn("[聊天] 跳过 任务=后台投递 worker 原因=请求通道已关闭".to_string());
         })
         .map_err(|err| format!("启动会话通知 worker 失败: {err}"))?;
 
@@ -309,10 +307,8 @@ fn enqueue_session_notification_dispatch(
     let normalized_target_conversation_id = target_conversation_id.trim();
     let sender = session_notification_dispatch_sender()?;
     runtime_log_info(format!(
-        "[会话通知] 开始，任务=投递请求入队，action={}，target_conversation_id={}，message_id={}，body_preview={}",
+        "[聊天] 开始 任务=投递请求入队 动作={} 正文预览={}",
         action,
-        normalized_target_conversation_id,
-        message.id,
         session_notification_body_preview(body)
     ));
     sender
@@ -325,10 +321,8 @@ fn enqueue_session_notification_dispatch(
         })
         .map_err(|err| format!("投递会话通知入队失败: {err}"))?;
     runtime_log_info(format!(
-        "[会话通知] 完成，任务=投递请求入队，action={}，target_conversation_id={}，message_id={}",
-        action,
-        normalized_target_conversation_id,
-        message.id
+        "[聊天] 完成 任务=投递请求入队 动作={}",
+        action
     ));
     Ok(())
 }
@@ -338,10 +332,8 @@ async fn process_session_notification_dispatch_request(
 ) -> Result<(), String> {
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[会话通知] 开始，任务=执行会话投递，action={}，target_conversation_id={}，message_id={}",
-        request.action,
-        request.target_conversation_id,
-        request.message.id
+        "[聊天] 开始 任务=执行会话投递 动作={}",
+        request.action
     ));
 
     let service = conversation_service_v2();
@@ -350,18 +342,14 @@ async fn process_session_notification_dispatch_request(
         .get_conversation_meta(&request.state, &target_conversation_id)
         .map_err(|err| {
             runtime_log_error(format!(
-                "[会话通知] 失败，任务=目标会话元数据读取，action={}，target_conversation_id={}，message_id={}，error={err}",
-                request.action,
-                target_conversation_id,
-                request.message.id
+                "[聊天] 失败 任务=目标会话元数据读取 动作={} 原因={err}",
+                request.action
             ));
             format!("目标会话元数据读取失败: {err}")
         })?;
     runtime_log_info(format!(
-        "[会话通知] 节点，任务=投递元数据读取完成，action={}，target_conversation_id={}，message_id={}，is_remote_im_contact={}，kind={}，duration_ms={}",
+        "[聊天] 节点 任务=投递元数据读取完成 动作={} 远程IM联系人={} 类型={} 耗时={}",
         request.action,
-        target_conversation_id,
-        request.message.id,
         target_conversation_meta.is_remote_im_contact,
         target_conversation_meta.conversation_kind.trim(),
         started_at.elapsed().as_millis()
@@ -379,10 +367,8 @@ async fn process_session_notification_dispatch_request(
             )
             .await?;
         runtime_log_info(format!(
-            "[会话通知] 完成，任务=会话间投递，action={}，target_conversation_id={}，message_id={}，duration_ms={}",
+            "[聊天] 完成 任务=会话间投递 动作={} 耗时={}",
             request.action,
-            target_conversation_id,
-            request.message.id,
             started_at.elapsed().as_millis()
         ));
         return Ok(());
@@ -438,10 +424,8 @@ async fn process_session_notification_dispatch_request(
         ChatEventIngress::Queued { .. } => "queued",
     };
     runtime_log_info(format!(
-        "[会话通知] 节点，任务=引导消息入队，action={}，target_conversation_id={}，message_id={}，ingress={}，duration_ms={}",
+        "[聊天] 节点 任务=引导消息入队 动作={} 入口={} 耗时={}",
         request.action,
-        target_conversation_id,
-        request.message.id,
         ingress_kind,
         started_at.elapsed().as_millis()
     ));
@@ -451,10 +435,8 @@ async fn process_session_notification_dispatch_request(
         std::time::Duration::from_secs(1),
     );
     runtime_log_info(format!(
-        "[会话通知] 完成，任务=会话间投递，action={}，target_conversation_id={}，message_id={}，duration_ms={}",
+        "[聊天] 完成 任务=会话间投递 动作={} 耗时={}",
         request.action,
-        target_conversation_id,
-        request.message.id,
         started_at.elapsed().as_millis()
     ));
     Ok(())

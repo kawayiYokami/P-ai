@@ -44,7 +44,7 @@ impl Drop for ProviderConcurrencyGuard {
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         runtime_log_info(format!(
-            "[推理并发] 完成并释放供应商并发门: provider_id={}, model={}, held_ms={}",
+            "[系统] 完成并释放供应商并发门 供应商={} 模型={} 耗时={}",
             self.provider_id, self.model_name, held_ms
         ));
     }
@@ -144,8 +144,7 @@ fn record_fast_request_turn_best_effort(
         ),
         Ok(false) => {}
         Err(err) => runtime_log_warn(format!(
-            "[快速请求记录] 失败，任务=追加会话快速请求记录，conversation_id={}，kind={}，error={}",
-            normalized_conversation_id,
+            "[系统] 失败 任务=追加会话快速请求记录 类型={} 错误={}",
             kind,
             err
         )),
@@ -302,7 +301,7 @@ async fn maybe_acquire_provider_concurrency_guard(
     };
 
     runtime_log_info(format!(
-        "[推理并发] 开始等待供应商并发门: provider_id={}, model={}, max={}",
+        "[系统] 开始等待供应商并发门 供应商={} 模型={} 上限={}",
         provider_id, model_name, max
     ));
     let gate = {
@@ -331,7 +330,7 @@ async fn maybe_acquire_provider_concurrency_guard(
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
     runtime_log_info(format!(
-        "[推理并发] 已进入供应商并发门: provider_id={}, model={}, waited_ms={}",
+        "[系统] 已进入供应商并发门 供应商={} 模型={} 耗时={}",
         provider_id, model_name, waited_ms
     ));
     Ok(Some(ProviderConcurrencyGuard {
@@ -523,7 +522,7 @@ async fn invoke_model_with_policy(
         && move_system_preamble_to_user_prompt(&mut prepared)
     {
         runtime_log_warn(format!(
-            "[推理] key={}, scene={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
+            "[系统] 键={} 场景={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
             stream_cache_key, policy.scene
         ));
     }
@@ -596,7 +595,7 @@ async fn invoke_model_with_policy(
                 provider_mark_system_message_user_fallback(app_state, &resolved_api.base_url)
             {
                 runtime_log_warn(format!(
-                    "[推理] 标记本次运行内 system->user 降级失败: key={}, scene={}, err={}",
+                    "[系统] 标记本次运行内 system->user 降级失败 键={} 场景={} 错误={}",
                     stream_cache_key, policy.scene, mark_err
                 ));
             }
@@ -605,7 +604,7 @@ async fn invoke_model_with_policy(
                 Err(err)
             } else {
                 runtime_log_warn(format!(
-                    "[推理] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试: key={}, scene={}, err={}",
+                    "[系统] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试 键={} 场景={} 错误={}",
                     stream_cache_key, policy.scene, err
                 ));
                 if let Some(timeout_secs) = policy.timeout_secs {
@@ -643,12 +642,12 @@ async fn invoke_model_with_policy(
                 model_name,
             ) {
                 runtime_log_warn(format!(
-                    "[推理] 标记本次运行内非流式 base_url 失败: key={}, scene={}, err={}",
+                    "[系统] 标记本次运行内非流式 base_url 失败 键={} 场景={} 错误={}",
                     stream_cache_key, policy.scene, mark_err
                 ));
             }
             runtime_log_error(format!(
-                "[推理] 流式失败，已在本次运行内切换为非流式: key={}, scene={}, err={}",
+                "[系统] 流式失败，已在本次运行内切换为非流式 键={} 场景={} 错误={}",
                 stream_cache_key, policy.scene, err
             ));
             if let Some(timeout_secs) = policy.timeout_secs {
@@ -683,7 +682,7 @@ async fn invoke_model_with_policy(
             model_name,
         ) {
             runtime_log_warn(format!(
-                "[推理] 清理流式降级缓存失败: key={}, scene={}, err={}",
+                "[系统] 清理流式降级缓存失败 键={} 场景={} 错误={}",
                 stream_cache_key, policy.scene, clear_err
             ));
         }

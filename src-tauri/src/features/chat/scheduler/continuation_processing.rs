@@ -91,9 +91,8 @@ fn maybe_enqueue_goal_continue_after_idle(
         runtime_tool_origin_scope_from_conversation(state, &conversation),
         RuntimeToolOriginScope::RemoteGroup | RuntimeToolOriginScope::RemoteUnknown
     ) {
-        runtime_log_warn(format!(
-            "[目标续跑] 跳过，任务=goal_continue，conversation_id={}，goal_id={}，原因=远程群聊的应答委托禁止 Goal",
-            conversation_id, goal.goal_id
+        runtime_log_info(format!(
+            "[聊天] 跳过 任务=goal_continue 原因=远程群聊的应答委托禁止 Goal"
         ));
         return Ok(false);
     }
@@ -129,8 +128,8 @@ fn maybe_enqueue_goal_continue_after_idle(
     };
     let ingress = ingress_chat_event(state, event)?;
     runtime_log_info(format!(
-        "[目标续跑] 开始，任务=goal_continue，conversation_id={}，goal_id={}，goal_turn={}",
-        conversation_id, goal.goal_id, goal_turn
+        "[聊天] 开始 任务=goal_continue 目标轮次={}",
+        goal_turn
     ));
     trigger_chat_event_after_ingress_with_delay(state, ingress, std::time::Duration::from_secs(1));
     Ok(true)
@@ -179,23 +178,22 @@ fn trigger_wheelchair_after_idle(
         Ok(true) => {}
         Ok(false) => {
             runtime_log_info(format!(
-                "[护航] 跳过，任务=发起委托，conversation_id={}，原因=该会话有进行中的调度",
-                trimmed_id
+                "[聊天] 跳过 任务=发起委托 原因=该会话有进行中的调度"
             ));
             return;
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[护航] 跳过，任务=发起委托，conversation_id={}，原因=调度状态读取失败，error={}",
-                trimmed_id, err
+                "[聊天] 跳过 任务=发起委托 原因=调度状态读取失败 错误={}",
+                err
             ));
             return;
         }
     }
     if let Err(err) = start_wheelchair_delegate_after_reply(state, trimmed_id, &agent_id) {
         runtime_log_warn(format!(
-            "[护航] 委托发起失败，conversation_id={}，error={}",
-            trimmed_id, err
+            "[聊天] 委托发起失败 原因={}",
+            err
         ));
     }
 }
@@ -224,7 +222,7 @@ fn conversation_is_stopped(state: &AppState, conversation_id: &str) -> bool {
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[聊天调度] 跳过，任务=判定会话是否停下，conversation_id={conversation_id}，原因=运行态读取失败，error={err}"
+                "[聊天] 跳过 任务=判定会话是否停下 原因=运行态读取失败 错误={err}"
             ));
             return false;
         }
@@ -272,19 +270,19 @@ async fn process_claimed_conversation_batch(
     // 清掉，避免它在随后同请求号复用时把无关的调度打断。
     match clear_conversation_cancel_requests(state, conversation_id) {
         Ok(cleared) if cleared > 0 => runtime_log_info(format!(
-            "[聊天调度] 清理残留提交期取消，任务=clear_conversation_cancel_requests，conversation_id={}，count={}",
-            conversation_id, cleared
+            "[聊天] 清理残留提交期取消 任务=clear_conversation_cancel_requests 数量={}",
+            cleared
         )),
         Ok(_) => {}
         Err(err) => runtime_log_warn(format!(
-            "[聊天调度] 清理残留提交期取消失败，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 清理残留提交期取消失败 原因={}",
+            err
         )),
     }
     if let Err(release_err) = release_conversation_processing_claim(state, conversation_id) {
         runtime_log_error(format!(
-            "[聊天调度] 释放会话处理声明失败: conversation_id={}, error={}",
-            conversation_id, release_err
+            "[聊天] 释放会话处理声明失败 原因={}",
+            release_err
         ));
     }
     emit_chat_queue_snapshot(state);
@@ -346,14 +344,12 @@ async fn process_guided_queue_after_round(
     let guided_event_count = guided_events.len();
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[引导投送] 开始，任务=process_guided_queue_after_round，conversation_id={}，event_count={}",
-        conversation_id,
+        "[聊天] 开始 任务=process_guided_queue_after_round 事件数={}",
         guided_event_count
     ));
     let round_completed = process_conversation_batch(state, conversation_id, guided_events).await?;
     runtime_log_info(format!(
-        "[引导投送] 完成，任务=process_guided_queue_after_round，conversation_id={}，event_count={}，duration_ms={}",
-        conversation_id,
+        "[聊天] 完成 任务=process_guided_queue_after_round 事件数={} 耗时={}",
         guided_event_count,
         started_at.elapsed().as_millis()
     ));
@@ -379,16 +375,16 @@ async fn process_guided_queue_when_idle(
     let guided_result_ok = guided_round_outcome.is_ok();
     if let Err(release_err) = release_conversation_processing_claim(state, conversation_id) {
         runtime_log_warn(format!(
-            "[引导投送] 失败，任务=release_guided_claim，conversation_id={}，error={}",
-            conversation_id, release_err
+            "[聊天] 失败 任务=release_guided_claim 原因={}",
+            release_err
         ));
     }
     if let Err(state_err) =
         set_conversation_runtime_state_and_emit(state, conversation_id, MainSessionState::Idle)
     {
         runtime_log_warn(format!(
-            "[引导投送] 失败，任务=restore_guided_runtime_state，conversation_id={}，error={}",
-            conversation_id, state_err
+            "[聊天] 失败 任务=restore_guided_runtime_state 原因={}",
+            state_err
         ));
     }
     emit_chat_queue_snapshot(state);
@@ -423,8 +419,8 @@ pub(crate) fn trigger_guided_queue_processing(state: &AppState, conversation_id:
     tauri::async_runtime::spawn(async move {
         if let Err(err) = process_guided_queue_when_idle(&state_clone, &conversation_id).await {
             runtime_log_warn(format!(
-                "[引导投送] 失败，任务=trigger_guided_queue_processing，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 失败 任务=trigger_guided_queue_processing 原因={}",
+                err
             ));
         }
     });

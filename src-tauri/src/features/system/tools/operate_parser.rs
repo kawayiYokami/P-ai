@@ -57,6 +57,21 @@ enum DesktopScriptStepKind {
     Clipboard,
 }
 
+impl DesktopScriptStepKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mouse => "mouse",
+            Self::Key => "key",
+            Self::Text => "text",
+            Self::Wait => "wait",
+            Self::Screenshot => "screenshot",
+            Self::App => "app",
+            Self::Window => "window",
+            Self::Clipboard => "clipboard",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopScriptStepResult {

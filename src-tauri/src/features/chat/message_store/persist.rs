@@ -27,8 +27,8 @@ pub(super) fn write_jsonl_snapshot_directory_shard(
             jsonl_snapshot_directory_incremental_fallback_reason(paths, &existing_manifest)
         {
             runtime_log_error(format!(
-                "[消息存储] ready 快照基线不可用于增量写入，回退全量重写：conversation_id={}，reason={}",
-                paths.conversation_id, reason
+                "[存储] ready 快照基线不可用于增量写入，回退全量重写 原因={}",
+                reason
             ));
         } else {
             return write_jsonl_snapshot_directory_shard_incremental(
@@ -63,8 +63,8 @@ fn directory_store_write_if_changed(
         Ok(None) => {}
         Err(err) => {
             runtime_log_error(format!(
-                "[消息存储] ready 快照读取失败，改为强制重写：conversation_id={}，error={}",
-                paths.conversation_id, err
+                "[存储] ready 快照读取失败，改为强制重写 原因={}",
+                err
             ));
         }
     }
@@ -184,9 +184,9 @@ fn write_jsonl_snapshot_directory_shard_incremental(
     let new_block_count = source_blocks.len();
     if new_block_count < old_block_count {
         runtime_log_info(format!(
-            "[消息存储] 增量写入命中 block 数量减少，回退全量重写：conversation_id={}，old_count={}，new_count={}",
-            paths.conversation_id,
-            old_block_count, new_block_count
+            "[存储] 增量写入命中 block 数量减少，回退全量重写 旧数量={} 新数量={}",
+            old_block_count,
+            new_block_count
         ));
         return write_jsonl_snapshot_directory_shard_full(paths, conversation);
     }
@@ -198,11 +198,8 @@ fn write_jsonl_snapshot_directory_shard_incremental(
             continue;
         }
         runtime_log_info(format!(
-            "[消息存储] 增量写入命中 block 顺序不一致，回退全量重写：conversation_id={}，index={}，old_block={:?}，new_block={}",
-            paths.conversation_id,
-            idx,
-            old_block_ids.get(idx),
-            block.block_file
+            "[存储] 增量写入命中 block 顺序不一致，回退全量重写 序号={}",
+            idx
         ));
         return write_jsonl_snapshot_directory_shard_full(paths, conversation);
     }

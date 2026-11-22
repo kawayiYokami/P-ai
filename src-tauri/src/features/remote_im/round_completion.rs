@@ -32,7 +32,7 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
     state: &AppState,
     contacts: &[RemoteImContact],
     checkpoints: &mut Vec<RemoteImContactCheckpoint>,
-    conversation: &mut Conversation,
+    _conversation: &mut Conversation,
     event: &ChatPendingEvent,
     now: &str,
     activated_contacts_in_batch: &mut std::collections::HashSet<String>,
@@ -55,7 +55,7 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
             &contact,
             "info",
             format!(
-                "[联系人状态] 历史落地: contact={}, activate=否, reason=event_gate_blocked",
+                "[远程IM] 联系人状态 历史落地: contact={}, activate=否, reason=event_gate_blocked",
                 remote_im_contact_log_label(&contact)
             ),
         );
@@ -75,8 +75,8 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
         Ok(result) => result,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 历史落地后入场判定失败，本次不启动巡检，contact_id={}, conversation_id={}, error={}",
-                contact.id, conversation.id, err
+                "[远程IM] 历史落地后入场判定失败，本次不启动巡检 原因={}",
+                err
             ));
             (false, "入场判定失败，仅保留已入库消息".to_string())
         }
@@ -86,7 +86,7 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
             &contact,
             "info",
             format!(
-                "[联系人状态] 历史落地: contact={}, activate=否, reason={}",
+                "[远程IM] 联系人状态 历史落地: contact={}, activate=否, reason={}",
                 remote_im_contact_log_label(&contact),
                 entry_reason
             ),
@@ -132,15 +132,14 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
         // 不会因为联系人仍处于在场状态而让新的未入场消息混入。
         activated_contacts_in_batch.insert(format!("{}:{}", contact.id, event.id));
         runtime_log_info(format!(
-            "[远程联系人状态机] 激活调度 开始: contact_id={}, conversation_id={}",
-            contact.id, conversation.id
+            "[远程IM] 激活调度开始"
         ));
     }
     remote_im_append_contact_log(
         &contact,
         "info",
         format!(
-            "[联系人状态] 历史落地: contact={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
+            "[远程IM] 联系人状态 历史落地: contact={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
             remote_im_contact_log_label(&contact),
             remote_im_presence_state_label(previous_presence),
             remote_im_presence_state_label(current_presence),
@@ -200,10 +199,9 @@ fn remote_im_finalize_round_completion(
         };
         if let Some(error) = failed_error {
             runtime_log_error(format!(
-                "[远程联系人状态机] 轮次结束 失败: contact_id={}, presence={:?}->{:?}, pending={}, error={}",
-                contact.id,
-                previous_presence,
-                runtime.presence_state,
+                "[远程IM] 轮次结束失败 在场={}->{} 待回复={} 原因={}",
+                previous_presence.as_str(),
+                runtime.presence_state.as_str(),
                 previous_pending,
                 error
             ));
@@ -211,7 +209,7 @@ fn remote_im_finalize_round_completion(
                 &contact,
                 "warn",
                 format!(
-                    "[联系人状态] 轮次收尾失败: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, error={}",
+                    "[远程IM] 联系人状态 轮次收尾失败: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, error={}",
                     remote_im_contact_log_label(&contact),
                     decision_label,
                     remote_im_presence_state_label(previous_presence),
@@ -274,11 +272,10 @@ fn remote_im_finalize_round_completion(
         }
         dashboard_contact_ids.insert(contact.id.clone());
         runtime_log_info(format!(
-            "[远程联系人状态机] 轮次结束 完成: contact_id={}, decision={}, presence={:?}->{:?}, pending={}->{}, no_reply_count={}->{}, follow_up={}, last_success_reply_at={}",
-            contact.id,
+            "[远程IM] 轮次结束完成 决策={} 在场={}->{} 待回复={}->{} 连续未回复={}->{} 跟进={} 最近成功回复={}",
             decision_label,
-            previous_presence,
-            runtime.presence_state,
+            previous_presence.as_str(),
+            runtime.presence_state.as_str(),
             previous_pending,
             runtime.has_pending,
             previous_no_reply_count,
@@ -290,7 +287,7 @@ fn remote_im_finalize_round_completion(
             &contact,
             "info",
             format!(
-                "[联系人状态] 轮次结束: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, no_reply_count={} -> {}, follow_up={}, last_success_reply_at={}",
+                "[远程IM] 联系人状态 轮次结束: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, no_reply_count={} -> {}, follow_up={}, last_success_reply_at={}",
                 remote_im_contact_log_label(&contact),
                 decision_label,
                 remote_im_presence_state_label(previous_presence),

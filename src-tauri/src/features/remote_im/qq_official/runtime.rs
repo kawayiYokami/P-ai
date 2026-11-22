@@ -215,7 +215,7 @@ impl QqOfficialManager {
     }
 
     async fn stop_channel_inner(&self, channel_id: &str) {
-        self.add_log(channel_id, "info", "[QQ官方机器人] 正在停止渠道连接")
+        self.add_log(channel_id, "info", "[远程IM] QQ官方机器人 正在停止渠道连接")
             .await;
         if let Some(tx) = self.stop_senders.write().await.remove(channel_id) {
             let _ = tx.send(true);
@@ -225,7 +225,7 @@ impl QqOfficialManager {
                 self.add_log(
                     channel_id,
                     "warn",
-                    &format!("[QQ官方机器人] 停止渠道任务失败: error={err}"),
+                    &format!("[远程IM] QQ官方机器人 停止渠道任务失败: error={err}"),
                 )
                 .await;
             }
@@ -239,7 +239,7 @@ impl QqOfficialManager {
                 .retain(|key, _| !key.starts_with(&prefix));
         }
         self.set_state(channel_id, false, None, None).await;
-        self.add_log(channel_id, "info", "[QQ官方机器人] 渠道已停止")
+        self.add_log(channel_id, "info", "[远程IM] QQ官方机器人 渠道已停止")
             .await;
     }
 
@@ -262,7 +262,7 @@ impl QqOfficialManager {
             .reconcile_serialized(&channel.id, || async move {
                 self.stop_channel_inner(&channel.id).await;
                 if channel.enabled && channel.platform == RemoteImPlatform::QqOfficial {
-                    self.add_log(&channel.id, "info", "[QQ官方机器人] 渠道已启用，开始建立网关连接")
+                    self.add_log(&channel.id, "info", "[远程IM] QQ官方机器人 渠道已启用，开始建立网关连接")
                         .await;
                     self.start_channel_inner(channel.clone(), state).await?;
                 } else {
@@ -270,7 +270,7 @@ impl QqOfficialManager {
                         .set_status_text(&channel.id, Some("disabled".to_string()))
                         .await;
                     self.port_service.set_last_error(&channel.id, None).await;
-                    self.add_log(&channel.id, "info", "[QQ官方机器人] 渠道已停用，跳过启动")
+                    self.add_log(&channel.id, "info", "[远程IM] QQ官方机器人 渠道已停用，跳过启动")
                         .await;
                 }
                 Ok(())
@@ -301,7 +301,7 @@ impl QqOfficialManager {
                 .add_log(
                     &task_channel_id,
                     "info",
-                    "[QQ官方机器人] 渠道任务已启动",
+                    "[远程IM] QQ官方机器人 渠道任务已启动",
                 )
                 .await;
             loop {
@@ -340,7 +340,7 @@ impl QqOfficialManager {
                                 &task_channel_id,
                                 "warn",
                                 &format!(
-                                    "[QQ官方机器人] 网关会话中断，{} 秒后重连: error={}",
+                                    "[远程IM] QQ官方机器人 网关会话中断，{} 秒后重连: error={}",
                                     backoff_secs, err
                                 ),
                             )
@@ -366,7 +366,7 @@ impl QqOfficialManager {
                 .set_state(&task_channel_id, false, None, None)
                 .await;
             manager
-                .add_log(&task_channel_id, "info", "[QQ官方机器人] 渠道任务已结束")
+                .add_log(&task_channel_id, "info", "[远程IM] QQ官方机器人 渠道任务已结束")
                 .await;
         });
         self.tasks.write().await.insert(channel_id, handle);
@@ -413,8 +413,8 @@ impl QqOfficialManager {
     ) {
         if let Err(err) = qq_official_send_input_notify(channel, contact_type, contact_id).await {
             runtime_log_debug(format!(
-                "[远程IM][QQ官方机器人] 发送输入中状态失败: channel_id={}, contact_id={}, error={}",
-                channel.id, contact_id, err
+                "[远程IM] 发送输入中状态失败 渠道={} 原因={}",
+                channel.id, err
             ));
         }
     }
@@ -454,7 +454,7 @@ async fn run_qq_official_ws_once(
         .await
         .map_err(|err| format!("连接 QQ 网关失败: {err}"))?;
     manager
-        .add_log(channel_id, "info", "[QQ官方机器人] 网关连接已建立")
+        .add_log(channel_id, "info", "[远程IM] QQ官方机器人 网关连接已建立")
         .await;
 
     let mut identified = false;
@@ -541,7 +541,7 @@ async fn run_qq_official_ws_once(
                                 .await
                                 .map_err(|err| format!("发送 QQ 网关鉴权消息失败: {err}"))?;
                                 manager
-                                    .add_log(channel_id, "debug", "[QQ官方机器人] 已发送网关鉴权消息")
+                                    .add_log(channel_id, "debug", "[远程IM] QQ官方机器人 已发送网关鉴权消息")
                                     .await;
                             }
                             QQ_OFFICIAL_OP_DISPATCH => {
@@ -564,7 +564,7 @@ async fn run_qq_official_ws_once(
                                         .set_state(channel_id, true, bot_id, None)
                                         .await;
                                     manager
-                                        .add_log(channel_id, "info", "[QQ官方机器人] 网关鉴权完成")
+                                        .add_log(channel_id, "info", "[远程IM] QQ官方机器人 网关鉴权完成")
                                         .await;
                                 } else {
                                     qq_official_dispatch_event(channel, state, event_name, &data)

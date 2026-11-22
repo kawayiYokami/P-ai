@@ -215,7 +215,7 @@ async fn qq_official_send_text(
         }),
         Err(err) if passive.is_some() && err.client_error => {
             runtime_log_warn(format!(
-                "[远程IM][QQ官方机器人] 被动回复被拒绝，降级为主动消息重试: {}",
+                "[远程IM] 被动回复被拒绝，降级为主动消息重试 原因={}",
                 err.message
             ));
             qq_official_post_message_body(credentials, access_token, scope, openid, &body, None)
@@ -418,7 +418,7 @@ async fn qq_official_send_media(
         }),
         Err(err) if passive.is_some() && err.client_error => {
             runtime_log_warn(format!(
-                "[远程IM][QQ官方机器人] 富媒体被动回复被拒绝，降级为主动消息重试: {}",
+                "[远程IM] 富媒体被动回复被拒绝，降级为主动消息重试 原因={}",
                 err.message
             ));
             qq_official_post_message_body(credentials, access_token, scope, openid, &body, None)

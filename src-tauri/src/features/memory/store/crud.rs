@@ -442,8 +442,7 @@ fn memory_store_delete_memory(data_path: &PathBuf, memory_id: &str) -> Result<()
     tx.commit()
         .map_err(|err| format!("Commit memory delete transaction failed: {err}"))?;
     runtime_log_info(format!(
-        "[记忆存储] 完成，任务=memory_store_delete_memory，memory_id={}",
-        target_id
+        "[记忆] 存储 完成 任务=memory_store_delete_memory"
     ));
     invalidate_memory_matcher_cache();
     // 记忆已落库, 向量删除失败不影响记忆本身 (下次启动差集同步兜底)。

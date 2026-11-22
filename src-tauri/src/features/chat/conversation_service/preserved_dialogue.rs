@@ -599,9 +599,7 @@ impl ConversationServiceV2 {
 
         let preserved = accumulator.finish();
         runtime_log_debug(format!(
-            "[上下文整理] 完成，任务=读取block保留对话，conversation_id={}，block_id={}，budget_mode={}，budget_limit={}，result_tokens={}，result_utf8_bytes={}，read_message_count={}，reached_summary={}",
-            conversation_id,
-            selected_block_id.map(|block_id| block_id.to_string()).unwrap_or_default(),
+            "[聊天] 完成 任务=读取block保留对话 预算模式={} 预算上限={} 结果量={} 结果字节数={} 读取消息数={} 触达摘要={}",
             budget.label(),
             budget.limit(),
             estimated_tokens_for_text(&preserved).ceil() as usize,

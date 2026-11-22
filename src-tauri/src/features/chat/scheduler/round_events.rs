@@ -18,7 +18,7 @@ fn latest_user_text_from_events(events: &[ChatPendingEvent]) -> String {
 fn emit_history_flushed_event(
     state: &AppState,
     payload: &serde_json::Value,
-    conversation_id: &str,
+    _conversation_id: &str,
     event_ids: &[String],
 ) {
     ide_chat_broadcast_notification("chat.historyFlushed", payload.clone());
@@ -27,9 +27,9 @@ fn emit_history_flushed_event(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_error(format!(
-            "[聊天调度] history_flushed emit 失败: app_handle unavailable, conversation_id={}, event_ids={:?}",
-            conversation_id, event_ids
+        runtime_log_debug(format!(
+            "[聊天] history_flushed emit 失败: app_handle unavailable 事件编号={}",
+            event_ids.join("、")
         ));
         return;
     };
@@ -37,8 +37,9 @@ fn emit_history_flushed_event(
         Ok(_) => {}
         Err(err) => {
             runtime_log_error(format!(
-                "[聊天调度] history_flushed emit 失败: conversation_id={}, event_ids={:?}, error={}",
-                conversation_id, event_ids, err
+                "[聊天] history_flushed emit 失败 事件编号={} 原因={}",
+                event_ids.join("、"),
+                err
             ));
         }
     }
@@ -60,9 +61,8 @@ fn emit_round_started_event(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_error(format!(
-            "[聊天推送] emit round_started 失败: app_handle unavailable, conversation_id={}",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] emit round_started 失败: app_handle unavailable"
         ));
         return;
     };
@@ -80,8 +80,8 @@ fn emit_round_started_event(
     match app_handle.emit(CHAT_ROUND_STARTED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => runtime_log_error(format!(
-            "[聊天推送] emit round_started 失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] emit round_started 失败 原因={}",
+            err
         )),
     }
 }
@@ -99,9 +99,8 @@ fn emit_round_completed_event(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_error(format!(
-            "[聊天推送] emit round_completed 失败: app_handle unavailable, conversation_id={}",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] emit round_completed 失败: app_handle unavailable"
         ));
         return;
     };
@@ -121,8 +120,8 @@ fn emit_round_completed_event(
     match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => runtime_log_error(format!(
-            "[聊天推送] emit round_completed 失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] emit round_completed 失败 原因={}",
+            err
         )),
     }
 }
@@ -184,8 +183,8 @@ fn notify_local_chat_round_completed(
         Ok(conversation_meta) => conversation_meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取本地会话完成通知上下文，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=读取本地会话完成通知上下文 原因={}",
+                err
             ));
             return;
         }
@@ -195,8 +194,7 @@ fn notify_local_chat_round_completed(
     }
     if conversation_has_focused_chat_view(state, conversation_id) {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason=chat_view_focused",
-            conversation_id
+            "[聊天] 跳过 任务=本地会话完成通知 原因=chat_view_focused"
         ));
         return;
     }
@@ -205,24 +203,22 @@ fn notify_local_chat_round_completed(
     // 空下来那一轮再发，一次交互只提醒一次。
     if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(false) {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason=pending_queue",
-            conversation_id
+            "[聊天] 跳过 任务=本地会话完成通知 原因=pending_queue"
         ));
         return;
     }
     // 队员与委托都收摊了才算「整个会话真的空下来」：否则一个活会连响几次。
     if let Some(reason) = conversation_related_work_busy_reason(state, &conversation_meta) {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason={}",
-            conversation_id, reason
+            "[聊天] 跳过 任务=本地会话完成通知 原因={}",
+            reason
         ));
         return;
     }
     let notification_settings = local_chat_notification_settings(state, conversation_id);
     if !notification_settings.enabled {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话完成通知，conversation_id={}，reason=notification_disabled",
-            conversation_id
+            "[聊天] 跳过 任务=本地会话完成通知 原因=notification_disabled"
         ));
         return;
     }
@@ -231,9 +227,8 @@ fn notify_local_chat_round_completed(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[通知] 跳过，任务=发送本地会话完成通知，conversation_id={}，reason=app_handle_unavailable",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] 跳过 任务=发送本地会话完成通知 原因=app_handle_unavailable"
         ));
         return;
     };
@@ -272,8 +267,8 @@ fn notify_local_chat_round_completed(
         notification_settings.sound_enabled,
     ) {
         runtime_log_warn(format!(
-            "[通知] 失败，任务=发送本地会话完成通知，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 失败 任务=发送本地会话完成通知 原因={}",
+            err
         ));
     }
 }
@@ -425,8 +420,8 @@ fn notification_speaker_name_for_conversation_meta(
             .to_string(),
         Err(err) => {
             runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取人格名称失败后回退ID，conversation_id={}，agent_id={}，error={}",
-                conversation_meta.id, agent_id, err
+                "[聊天] 跳过 任务=读取人格名称失败后回退ID 原因={}",
+                err
             ));
             agent_id.to_string()
         }
@@ -452,7 +447,7 @@ impl Default for LocalChatNotificationSettings {
 
 fn local_chat_notification_settings(
     state: &AppState,
-    conversation_id: &str,
+    _conversation_id: &str,
 ) -> LocalChatNotificationSettings {
     match state_read_config_cached(state) {
         Ok(config) => LocalChatNotificationSettings {
@@ -466,8 +461,8 @@ fn local_chat_notification_settings(
         },
         Err(err) => {
             runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取通知设置失败后回退默认值，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=读取通知设置失败后回退默认值 原因={}",
+                err
             ));
             LocalChatNotificationSettings::default()
         }
@@ -486,8 +481,8 @@ fn persist_conversation_round_error(state: &AppState, conversation_id: &str, err
         Ok(_) => {}
         Err(err) => {
             runtime_log_warn(format!(
-                "[聊天推送] 持久化轮次失败信息失败，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 持久化轮次失败信息失败 原因={}",
+                err
             ));
             return;
         }
@@ -502,8 +497,8 @@ fn persist_conversation_round_error(state: &AppState, conversation_id: &str, err
     }
     if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id) {
         runtime_log_debug(format!(
-            "[聊天推送] 轮次失败后 overview 广播失败，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 轮次失败后 overview 广播失败 原因={}",
+            err
         ));
     }
 }
@@ -522,9 +517,8 @@ fn emit_round_failed_event(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_error(format!(
-            "[聊天推送] emit round_failed 失败: app_handle unavailable, conversation_id={}",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] emit round_failed 失败: app_handle unavailable"
         ));
         return;
     };
@@ -539,8 +533,8 @@ fn emit_round_failed_event(
     match app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => runtime_log_error(format!(
-            "[聊天推送] emit round_failed 失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] emit round_failed 失败 原因={}",
+            err
         )),
     }
 }
@@ -550,8 +544,8 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
         Ok(conversation_meta) => conversation_meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取本地会话失败通知上下文，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=读取本地会话失败通知上下文 原因={}",
+                err
             ));
             return;
         }
@@ -561,16 +555,14 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
     }
     if conversation_has_focused_chat_view(state, conversation_id) {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话失败通知，conversation_id={}，reason=chat_view_focused",
-            conversation_id
+            "[聊天] 跳过 任务=本地会话失败通知 原因=chat_view_focused"
         ));
         return;
     }
     let notification_settings = local_chat_notification_settings(state, conversation_id);
     if !notification_settings.enabled {
         runtime_log_debug(format!(
-            "[通知] 跳过，任务=本地会话失败通知，conversation_id={}，reason=notification_disabled",
-            conversation_id
+            "[聊天] 跳过 任务=本地会话失败通知 原因=notification_disabled"
         ));
         return;
     }
@@ -579,9 +571,8 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[通知] 跳过，任务=发送本地会话失败通知，conversation_id={}，reason=app_handle_unavailable",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] 跳过 任务=发送本地会话失败通知 原因=app_handle_unavailable"
         ));
         return;
     };
@@ -620,8 +611,8 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
         notification_settings.sound_enabled,
     ) {
         runtime_log_warn(format!(
-            "[通知] 失败，任务=发送本地会话失败通知，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 失败 任务=发送本地会话失败通知 原因={}",
+            err
         ));
     }
 }

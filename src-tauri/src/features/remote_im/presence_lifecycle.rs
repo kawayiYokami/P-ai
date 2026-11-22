@@ -52,10 +52,7 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
     // 压缩边界严格止步于已处理游标：游标之后是前台还没看过的新鲜消息，一条都不许压。
     let cursor = remote_im_contact_processed_cursor(state, contact_id)?;
     runtime_log_info(format!(
-        "[库房] 压缩开始，任务=入场整理，conversation_id={}，contact_id={}，trigger_message_id={}，cursor={}",
-        conversation_id,
-        contact_id,
-        trigger_message_id,
+        "[远程IM] 压缩开始 任务=入场整理 游标={}",
         cursor.as_deref().unwrap_or("")
     ));
     let mut force_memory_prompt_snapshot = false;
@@ -67,23 +64,20 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
         true,
     ) {
         Ok(RemoteImDynamicWakeCompactionOutcome::Applied) => {
-            runtime_log_info(format!(
-                "[库房] 压缩完成，任务=入场整理，conversation_id={}，contact_id={}",
-                conversation_id, contact_id
-            ));
+            runtime_log_info("[远程IM] 压缩完成 任务=入场整理".to_string());
         }
         Ok(RemoteImDynamicWakeCompactionOutcome::SkippedLowFrequency {
             block_message_count,
         }) => {
             runtime_log_info(format!(
-                "[库房] 压缩跳过，任务=低频群，conversation_id={}，contact_id={}，block_message_count={}",
-                conversation_id, contact_id, block_message_count
+                "[远程IM] 压缩跳过 任务=低频群 块消息数={}",
+                block_message_count
             ));
         }
         Err(primary_err) => {
             runtime_log_error(format!(
-                "[库房] 压缩失败，任务=入场整理，conversation_id={}，contact_id={}，error={}",
-                conversation_id, contact_id, primary_err
+                "[远程IM] 压缩失败 任务=入场整理 原因={}",
+                primary_err
             ));
             force_memory_prompt_snapshot = true;
             if let Err(fallback_err) = conversation_service_v2()
@@ -96,15 +90,12 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
                 )
             {
                 runtime_log_error(format!(
-                    "[库房] 压缩失败，任务=空摘要降级，conversation_id={}，contact_id={}，error={}",
-                    conversation_id, contact_id, fallback_err
+                    "[远程IM] 压缩失败 任务=空摘要降级 原因={}",
+                    fallback_err
                 ));
             } else {
                 // 空摘要兜底成功：上下文已重置，内存提示词快照也就不必强制刷新。
-                runtime_log_warn(format!(
-                    "[库房] 压缩降级，任务=空摘要兜底，conversation_id={}，contact_id={}",
-                    conversation_id, contact_id
-                ));
+                runtime_log_warn("[远程IM] 压缩降级 任务=空摘要兜底".to_string());
                 force_memory_prompt_snapshot = false;
             }
         }
@@ -136,16 +127,15 @@ fn remote_im_schedule_presence_timeout(
         match remote_im_reply_delegate_active_ids_for_contact(&state_clone, &contact_id) {
             Ok(active_delegate_ids) if !active_delegate_ids.is_empty() => {
                 runtime_log_info(format!(
-                    "[离场] 跳过，contact_id={}，原因=仍有活跃应答委托，active_delegate_count={}",
-                    contact_id,
+                    "[远程IM] 离场跳过 原因=仍有活跃应答委托 活跃委托={}",
                     active_delegate_ids.len()
                 ));
                 return;
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[离场] 降级，contact_id={}，原因=读取活跃应答委托失败，继续执行原离场判断，error={}",
-                    contact_id, err
+                    "[远程IM] 离场降级 原因=读取活跃应答委托失败，继续执行原离场判断 详情={}",
+                    err
                 ));
             }
             _ => {}
@@ -186,8 +176,8 @@ fn remote_im_schedule_presence_timeout(
             &contact_id,
         ) {
             runtime_log_warn(format!(
-                "[离场反思] 跳过，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 离场反思跳过 原因={}",
+                err
             ));
         }
     });
@@ -227,8 +217,8 @@ fn spawn_remote_im_departure_reflection_delegate(
     let work_ledger = build_remote_im_assistant_work_ledger(state, contact_id, &context.id)
         .unwrap_or_else(|err| {
             runtime_log_warn(format!(
-                "[助理工作账本] 降级，任务=离场反思，contact_id={}，error={}",
-                contact_id, err
+                "[远程IM] 降级 任务=离场反思 原因={}",
+                err
             ));
             "（无）".to_string()
         });
@@ -304,7 +294,6 @@ fn spawn_remote_im_departure_reflection_delegate(
             },
         );
     tauri::async_runtime::spawn(async move {
-        let delegate_id = delegate_for_task.delegate_id.clone();
         let result = futures_util::future::Abortable::new(
             run_remote_im_departure_reflection(
                 &state_clone,
@@ -330,8 +319,8 @@ fn spawn_remote_im_departure_reflection_delegate(
             }
             Ok(Err(err)) => {
                 runtime_log_error(format!(
-                    "[群聊离场反思] 失败，delegate_id={}，error={}",
-                    delegate_id, err
+                    "[远程IM] 离场反思失败 原因={}",
+                    err
                 ));
                 let _ = finalize_remote_im_departure_reflection_delegate(
                     &state_clone,
@@ -341,10 +330,7 @@ fn spawn_remote_im_departure_reflection_delegate(
                 );
             }
             Err(_) => {
-                runtime_log_info(format!(
-                    "[群聊离场反思] 打断，delegate_id={}",
-                    delegate_id
-                ));
+                runtime_log_info("[远程IM] 离场反思打断".to_string());
             }
         }
     });
@@ -454,9 +440,7 @@ async fn run_remote_im_departure_reflection(
         Some("departure_reflection_result"),
     )?;
     runtime_log_info(format!(
-        "[群聊离场反思] 完成，delegate_id={}，conversation_id={}，memory_actions={}，useful_memory_ids={}，merged_memories={}",
-        delegate.delegate_id,
-        context.id,
+        "[远程IM] 离场反思完成 记忆动作={} 有效记忆={} 合并记忆={}",
         draft.memory_actions.len(),
         draft.useful_memory_ids.len(),
         report.merged_memories
@@ -482,9 +466,8 @@ fn finalize_remote_im_departure_reflection_delegate(
         status,
     );
     runtime_log_info(format!(
-        "[群聊离场反思] {}，delegate_id={}，reason={}",
+        "[远程IM] 离场反思{} 原因={}",
         if status == DELEGATE_STATUS_COMPLETED { "完成" } else { "失败" },
-        delegate.delegate_id,
         reason
     ));
     Ok(())

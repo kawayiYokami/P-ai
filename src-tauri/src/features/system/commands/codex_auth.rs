@@ -854,7 +854,7 @@ fn codex_auth_log_info(
         format!(" {extras}")
     };
     runtime_log_info(format!(
-        "[Codex认证] task={} trigger={} provider_id={} status={} duration_ms={} timestamp={}{}",
+        "[系统] 任务={} 触发={} 供应商={} 状态={} 耗时={} 时间={}{}",
         task,
         trigger,
         provider_id.trim(),

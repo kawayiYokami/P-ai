@@ -816,8 +816,8 @@ fn unarchived_conversation_runtime_state(
         Ok(value) => Some(value),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话] 读取运行态失败，任务=unarchived_runtime_state，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 读取运行态失败 任务=unarchived_runtime_state 错误={}",
+                err
             ));
             None
         }
@@ -896,7 +896,7 @@ fn overview_reserve_server_time() -> String {
         Ok(mut guard) => overview_next_server_time_locked(&mut guard),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=生成服务端水位，error={:?}",
+                "[聊天] 失败 任务=生成服务端水位 错误={}",
                 err
             ));
             now_iso()
@@ -923,7 +923,7 @@ fn overview_remember_full_list_at(summaries: &[UnarchivedConversationSummary], s
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=记录全量基线，error={:?}",
+                "[聊天] 失败 任务=记录全量基线 错误={}",
                 err
             ));
         }
@@ -948,8 +948,8 @@ fn overview_register_item_watermark(conversation_id: &str) -> String {
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=记录单项广播，conversation_id={}，error={:?}",
-                cid, err
+                "[聊天] 失败 任务=记录单项广播 错误={}",
+                err
             ));
             now_iso()
         }
@@ -974,23 +974,22 @@ fn overview_register_item_broadcast(
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览] 失败，任务=推送单会话概览，阶段=获取app_handle，conversation_id={}，error={:?}",
-                conversation_id, err
+                "[聊天] 失败 任务=推送单会话概览 阶段=获取app_handle 错误={}",
+                err
             ));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[会话概览] 跳过，任务=推送单会话概览，conversation_id={}，原因=app_handle_missing",
-            conversation_id
+        runtime_log_debug(format!(
+            "[聊天] 跳过 任务=推送单会话概览 原因=app_handle_missing"
         ));
         return;
     };
     if let Err(err) = app_handle.emit("easy-call:conversation-overview-item-updated", &emitted_payload) {
         runtime_log_error(format!(
-            "[会话概览] 失败，任务=推送单会话概览，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 失败 任务=推送单会话概览 错误={}",
+            err
         ));
     }
 }
@@ -1013,8 +1012,8 @@ fn overview_register_missing_item(conversation_id: &str) {
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=记录单项移除，conversation_id={}，error={:?}",
-                cid, err
+                "[聊天] 失败 任务=记录单项移除 错误={}",
+                err
             ));
         }
     }
@@ -1056,7 +1055,7 @@ fn overview_register_full_broadcast(
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=记录全量广播，error={:?}",
+                "[聊天] 失败 任务=记录全量广播 错误={}",
                 err
             ));
             now_iso()
@@ -1086,7 +1085,7 @@ fn overview_watermark_changes_since(
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[会话概览水位] 失败，任务=读取差量水位，since={}，error={:?}",
+                "[聊天] 失败 任务=读取差量水位 起始={} 错误={}",
                 since, err
             ));
             (Vec::new(), Vec::new(), now_iso())
@@ -1178,7 +1177,7 @@ fn list_unarchived_conversations_changed_since_blocking(
             // 读取失败不等于删除：保留 watermark 中的这些 id，下次差量查询自然重试；
             // 误判为删除会污染前端列表，把仍存在的会话从客户端移除。
             runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=按 id 直读差量概览，count={}，error={}",
+                "[聊天] 跳过 任务=按 id 直读差量概览 数量={} 错误={}",
                 batch_ids.len(),
                 err
             ));
@@ -1203,7 +1202,7 @@ fn list_unarchived_conversations_blocking(
         return Ok(summaries);
     }
 
-    runtime_log_info("[会话] 开始，任务=确保默认未归档会话，触发条件=未归档会话列表为空".to_string());
+    runtime_log_info("[聊天] 开始 任务=确保默认未归档会话 触发条件=未归档会话列表为空".to_string());
     let create_input = CreateUnarchivedConversationInput {
         api_config_id: None,
         agent_id: Some(state_service_get_assistant_agent_id(state)?),
@@ -1220,8 +1219,7 @@ fn list_unarchived_conversations_blocking(
         &result.conversation_id,
     );
     runtime_log_debug(format!(
-        "[会话] 完成，任务=确保默认未归档会话，conversation_id={}，overview_count={}",
-        result.conversation_id,
+        "[聊天] 完成 任务=确保默认未归档会话 概览数={}",
         result.overview_payload.unarchived_conversations.len()
     ));
     Ok(result.overview_payload.unarchived_conversations)
@@ -1477,25 +1475,24 @@ fn emit_unarchived_conversation_overview_updated_payload(
     ide_chat_broadcast_notification("conversation.overviewUpdated", event_payload.clone());
     let started_at = std::time::Instant::now();
     runtime_log_debug(format!(
-        "[会话概览] 开始，任务=推送未归档会话概览，preferred_conversation_id={}，conversation_count={}，server_time={}",
-        payload.preferred_conversation_id.as_deref().unwrap_or(""),
+        "[聊天] 开始 任务=推送未归档会话概览 会话数={} 服务端时间={}",
         payload.unarchived_conversations.len(),
         server_time
     ));
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
-            runtime_log_error(format!("[会话概览] 失败，任务=推送未归档会话概览，阶段=获取app_handle，error={:?}", err));
+            runtime_log_error(format!("[聊天] 失败 任务=推送未归档会话概览 阶段=获取app_handle 错误={}", err));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn("[会话概览] 跳过，任务=推送未归档会话概览，原因=app_handle_missing".to_string());
+        runtime_log_debug("[聊天] 跳过 任务=推送未归档会话概览 原因=app_handle_missing".to_string());
         return;
     };
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT, &event_payload) {
         runtime_log_error(format!(
-            "[会话概览] 失败，任务=推送未归档会话概览，event={}，error={}，duration_ms={}",
+            "[聊天] 失败 任务=推送未归档会话概览 事件={} 错误={} 耗时={}",
             CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT,
             err,
             started_at.elapsed().as_millis()
@@ -1503,9 +1500,8 @@ fn emit_unarchived_conversation_overview_updated_payload(
         return;
     }
     runtime_log_debug(format!(
-        "[会话概览] 完成，任务=推送未归档会话概览，event={}，preferred_conversation_id={}，conversation_count={}，server_time={}，duration_ms={}",
+        "[聊天] 完成 任务=推送未归档会话概览 事件={} 会话数={} 服务端时间={} 耗时={}",
         CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT,
-        payload.preferred_conversation_id.as_deref().unwrap_or(""),
         payload.unarchived_conversations.len(),
         server_time,
         started_at.elapsed().as_millis()
@@ -1554,16 +1550,16 @@ fn emit_conversation_todos_updated_payload(
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
-            runtime_log_error(format!("[Todo] 获取 app_handle 失败：锁已损坏，error={:?}", err));
+            runtime_log_error(format!("[系统] 获取 app_handle 失败：锁已损坏 错误={}", err));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!("[Todo] 推送跳过：无法获取 app_handle"));
+        runtime_log_debug(format!("[系统] 推送跳过：无法获取 app_handle"));
         return;
     };
     if let Err(err) = app_handle.emit("easy-call:conversation-todos-updated", payload) {
-        runtime_log_error(format!("[Todo] 推送失败：错误={}", err));
+        runtime_log_error(format!("[系统] 推送失败 错误={}", err));
     }
 }
 
@@ -1574,16 +1570,16 @@ fn emit_conversation_pin_updated_payload(
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
-            runtime_log_error(format!("[会话置顶] 获取 app_handle 失败：锁已损坏，error={:?}", err));
+            runtime_log_error(format!("[聊天] 获取 app_handle 失败：锁已损坏 错误={}", err));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!("[会话置顶] 推送跳过：无法获取 app_handle"));
+        runtime_log_debug(format!("[聊天] 推送跳过：无法获取 app_handle"));
         return;
     };
     if let Err(err) = app_handle.emit("easy-call:conversation-pin-updated", payload) {
-        runtime_log_error(format!("[会话置顶] 推送失败：错误={}", err));
+        runtime_log_error(format!("[聊天] 推送失败 错误={}", err));
     }
 }
 
@@ -1597,33 +1593,30 @@ fn emit_conversation_runtime_state_updated_payload(
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话运行态] 失败，任务=推送会话运行态，阶段=获取app_handle，conversation_id={}，error={:?}",
-                payload.conversation_id, err
+                "[聊天] 失败 任务=推送会话运行态 阶段=获取app_handle 错误={}",
+                err
             ));
             None
         }
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[会话运行态] 跳过，任务=推送会话运行态，conversation_id={}，原因=app_handle_missing",
-            payload.conversation_id
+        runtime_log_debug(format!(
+            "[聊天] 跳过 任务=推送会话运行态 原因=app_handle_missing"
         ));
         return;
     };
     if let Err(err) = app_handle.emit("easy-call:conversation-runtime-state-updated", payload) {
         runtime_log_error(format!(
-            "[会话运行态] 失败，任务=推送会话运行态，conversation_id={}，state={:?}，error={}，duration_ms={}",
-            payload.conversation_id,
-            payload.runtime_state,
+            "[聊天] 失败 任务=推送会话运行态 状态={} 错误={} 耗时={}",
+            payload.runtime_state.as_str(),
             err,
             started_at.elapsed().as_millis()
         ));
         return;
     }
     runtime_log_debug(format!(
-        "[会话运行态] 完成，任务=推送会话运行态，conversation_id={}，state={:?}，duration_ms={}",
-        payload.conversation_id,
-        payload.runtime_state,
+        "[聊天] 完成 任务=推送会话运行态 状态={} 耗时={}",
+        payload.runtime_state.as_str(),
         started_at.elapsed().as_millis()
     ));
 }
@@ -1706,7 +1699,7 @@ fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) ->
     emit_unarchived_conversation_overview_updated_payload(state, &payload);
     let emit_elapsed_ms = emit_started_at.elapsed().as_millis();
     runtime_log_debug(format!(
-        "[会话概览] 状态刷新耗时：总计={}ms，构建概览={}ms，事件推送={}ms",
+        "[聊天] 状态刷新耗时 总计={}ms 构建概览={}ms 事件推送={}ms",
         total_started_at.elapsed().as_millis(),
         payload_elapsed_ms,
         emit_elapsed_ms

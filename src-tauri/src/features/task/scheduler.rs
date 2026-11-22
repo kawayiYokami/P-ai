@@ -278,7 +278,7 @@ fn task_complete_one_time_dispatch_if_needed(
     )?;
     if changed {
         runtime_log_info(format!(
-            "[任务调度] 完成，任务=一次性任务已发起调度，task_id={}",
+            "[系统] 任务调度 完成 任务=一次性任务已发起调度 任务编号={}",
             task.task_id
         ));
         task_publish_changed_event(state, "completed", &task.task_id, None);
@@ -347,9 +347,8 @@ fn task_fail_missing_bound_conversation(
     )?;
     if changed {
         runtime_log_error(format!(
-            "[任务调度] 失败，任务=绑定会话丢失，task_id={}，conversation_id={}",
-            task.task_id,
-            conversation_id
+            "[系统] 任务调度 失败 任务=绑定会话丢失 任务编号={}",
+            task.task_id
         ));
         task_publish_changed_event(state, "completed", &task.task_id, None);
     }
@@ -373,7 +372,7 @@ fn task_fail_unavailable_owner(
     )?;
     if changed {
         runtime_log_error(format!(
-            "[任务调度] 失败，任务=负责人不可用，task_id={}，reason={}",
+            "[系统] 任务调度 失败 任务=负责人不可用 任务编号={} 原因={}",
             task.task_id,
             reason.trim()
         ));
@@ -483,17 +482,15 @@ async fn task_dispatch_due_task(
         return Ok(());
     }
 
-    if let Some(requested) = task
+    if let Some(_requested) = task
         .conversation_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
         runtime_log_info(format!(
-            "[任务调度] 会话{}的任务{}，投递中，requested_conversation_id={}",
-            session.conversation_id,
-            task.task_id,
-            requested
+            "[系统] 任务调度 任务={} 投递中",
+            task.task_id
         ));
     }
     let request_id = format!("task-dispatch-{}", Uuid::new_v4());
@@ -584,8 +581,8 @@ fn task_build_dispatch_candidates(
             && !task_conversation_is_ready_for_immediate_dispatch(state, &session.conversation_id)?
         {
             runtime_log_warn(format!(
-                "[任务调度] 跳过，任务=会话忙碌等待收尾补检查，task_id={}，conversation_id={}",
-                task.task_id, session.conversation_id
+                "[系统] 任务调度 跳过 任务=会话忙碌等待收尾补检查 任务编号={}",
+                task.task_id
             ));
             continue;
         }
@@ -637,18 +634,16 @@ fn maybe_enqueue_overdue_task_after_idle(
         return Ok(false);
     };
     runtime_log_info(format!(
-        "[任务调度] 开始，任务=会话收尾补发到点任务，task_id={}，conversation_id={}",
-        candidate.task.task_id,
-        conversation_id
+        "[系统] 任务调度 开始 任务=会话收尾补发到点任务 任务编号={}",
+        candidate.task.task_id
     ));
     tauri::async_runtime::spawn({
         let state = state.clone();
         async move {
             if let Err(err) = task_dispatch_due_task(&state, &candidate.task, &candidate.session).await {
                 runtime_log_warn(format!(
-                    "[任务调度] 失败，任务=会话收尾补发到点任务，task_id={}，conversation_id={}，error={}",
+                    "[系统] 任务调度 失败 任务=会话收尾补发到点任务 任务编号={} 错误={}",
                     candidate.task.task_id,
-                    candidate.session.conversation_id,
                     err
                 ));
             }
@@ -726,7 +721,7 @@ fn start_task_scheduler(state: AppState) {
             let tick_started_at = std::time::Instant::now();
             if let Err(err) = task_scheduler_tick(&state).await {
                 runtime_log_error(format!(
-                    "[任务调度] 调度轮询失败，error={}，durationMs={}，dataPath={}",
+                    "[系统] 任务调度 调度轮询失败 错误={} 耗时={} 数据目录={}",
                     err,
                     tick_started_at.elapsed().as_millis(),
                     state.data_path.to_string_lossy()
@@ -734,7 +729,7 @@ fn start_task_scheduler(state: AppState) {
             }
             if let Err(err) = task_scheduler_wait(&state).await {
                 runtime_log_error(format!(
-                    "[任务调度] 等待下一次触发失败，error={}，durationMs={}，dataPath={}",
+                    "[系统] 任务调度 等待下一次触发失败 错误={} 耗时={} 数据目录={}",
                     err,
                     tick_started_at.elapsed().as_millis(),
                     state.data_path.to_string_lossy()

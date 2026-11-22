@@ -342,7 +342,7 @@ async fn terminal_request_user_approval(
         "PAI is waiting for your approval. Open the app to review and decide.",
     );
     if let Err(err) = send_native_notification(&app_handle, &notify_title, &notify_body, true) {
-        runtime_log_warn(format!("[审批通知] 发送失败: {err}"));
+        runtime_log_warn(format!("[工具] 发送失败: {err}"));
     }
 
     let wait_result = rx.await;
@@ -387,7 +387,7 @@ fn resolve_terminal_approval_request(
 
     let Some(pending_request) = sender else {
         runtime_log_debug(format!(
-            "[工具调试] 未找到终端审批请求: {}",
+            "[工具] 未找到终端审批请求: {}",
             trimmed
         ));
         return Ok(false);
@@ -400,7 +400,7 @@ fn resolve_terminal_approval_request(
     };
     if pending_request.sender.send(decision).is_err() {
         runtime_log_debug(format!(
-            "[工具调试] 终端审批接收端已关闭: {}",
+            "[工具] 终端审批接收端已关闭: {}",
             trimmed
         ));
         // 接收端没了说明这次执行已经结束，审批作废；其它窗口挂着的卡片同样要撤下
@@ -435,7 +435,7 @@ fn broadcast_terminal_approval_resolved(
         "reason": reason,
     });
     if let Err(err) = app_handle.emit("easy-call:terminal-approval-resolved", &payload) {
-        runtime_log_warn(format!("[审批通知] 广播已处理事件失败: {err}"));
+        runtime_log_warn(format!("[工具] 广播已处理事件失败: {err}"));
     }
     ide_chat_broadcast_notification("terminalApproval.resolved", payload);
 }

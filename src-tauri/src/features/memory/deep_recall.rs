@@ -177,8 +177,7 @@ fn deep_recall_collect_conversations(
                     Ok(paths) => paths,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[深度回忆] 跳过无法定位存储的会话，conversation_id={}，error={err}",
-                            candidate.id
+                            "[记忆] 深度回忆 跳过无法定位存储的会话 错误={err}"
                         ));
                         read_failed_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         continue;
@@ -189,8 +188,7 @@ fn deep_recall_collect_conversations(
                     Ok(outcome) => outcome,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[深度回忆] 跳过读取失败的会话，conversation_id={}，error={err}",
-                            candidate.id
+                            "[记忆] 深度回忆 跳过读取失败的会话 错误={err}"
                         ));
                         read_failed_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         continue;
@@ -254,8 +252,7 @@ fn deep_recall_collect_conversations(
         .map(|conversation| conversation.messages.len())
         .sum::<usize>();
     runtime_log_info(format!(
-        "[深度回忆] 记忆收集完成 人格={} 会话数={} 消息数={} 跳过空会话={} 跳过孤儿会话={} 跳过非本人会话={} 读取失败={} 线程={} 耗时={}ms",
-        agent_id,
+        "[记忆] 深度回忆 记忆收集完成 会话数={} 消息数={} 跳过空会话={} 跳过孤儿会话={} 跳过非本人会话={} 读取失败={} 线程={} 耗时={}ms",
         conversations.len(),
         total_messages,
         skipped_no_messages,
@@ -348,7 +345,7 @@ fn deep_recall_build_index(
         .reader()
         .map_err(|err| format!("打开深度回忆索引读取器失败: {err}"))?;
     runtime_log_info(format!(
-        "[深度回忆] 内存索引构建完成 会话数={} 消息数={} 耗时={}ms owner_key={}",
+        "[记忆] 深度回忆 内存索引构建完成 会话数={} 消息数={} 耗时={}ms 归属键={}",
         conversations.len(),
         total_messages,
         started.elapsed().as_millis(),
@@ -393,13 +390,13 @@ fn deep_recall_index_release(owner_key: &str) -> bool {
         return false;
     }
     let Ok(mut cache) = deep_recall_index_cache().lock() else {
-        runtime_log_warn("[深度回忆] 释放内存索引失败 原因=锁定缓存失败".to_string());
+        runtime_log_warn("[记忆] 深度回忆 释放内存索引失败 原因=锁定缓存失败".to_string());
         return false;
     };
     let released = cache.remove(owner_key).is_some();
     if released {
         runtime_log_info(format!(
-            "[深度回忆] 内存索引已释放 owner_key={owner_key} 剩余={}",
+            "[记忆] 深度回忆 内存索引已释放 归属键={owner_key} 剩余={}",
             cache.len()
         ));
     }
@@ -409,14 +406,14 @@ fn deep_recall_index_release(owner_key: &str) -> bool {
 /// 兜底释放全部内存索引：仅在无法确认本次委托归属时使用。
 fn deep_recall_index_clear_all() -> bool {
     let Ok(mut cache) = deep_recall_index_cache().lock() else {
-        runtime_log_warn("[深度回忆] 释放内存索引失败 原因=锁定缓存失败".to_string());
+        runtime_log_warn("[记忆] 深度回忆 释放内存索引失败 原因=锁定缓存失败".to_string());
         return false;
     };
     let released = !cache.is_empty();
     let count = cache.len();
     cache.clear();
     if released {
-        runtime_log_info(format!("[深度回忆] 内存索引已全部释放 数量={count}"));
+        runtime_log_info(format!("[记忆] 深度回忆 内存索引已全部释放 数量={count}"));
     }
     released
 }
@@ -714,9 +711,8 @@ async fn builtin_deep_recall(
     }
 
     runtime_log_info(format!(
-        "[深度回忆] 发起回忆委托 query_len={} agent_id={}",
-        query.chars().count(),
-        source_agent_id.trim()
+        "[记忆] 深度回忆 发起回忆委托 查询长度={}",
+        query.chars().count()
     ));
     let result = delegate_execute_sync(
         app_state,

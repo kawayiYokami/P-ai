@@ -137,6 +137,15 @@ enum RemoteImPresenceState {
     Present,
 }
 
+impl RemoteImPresenceState {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Away => "away",
+            Self::Present => "present",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteImWorkState {
     Idle,

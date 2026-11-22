@@ -81,7 +81,7 @@ fn mcp_try_attach_windows_process_tree_guard_for_label(
 ) -> Option<McpProcessTreeGuard> {
     let Some(pid) = transport.id() else {
         runtime_log_warn(format!(
-            "[MCP] Windows 进程树托管跳过：未取得子进程 pid，command={}",
+            "[工具] MCP Windows 进程树托管跳过：未取得子进程 pid 命令={}",
             command_label
         ));
         return None;
@@ -91,7 +91,7 @@ fn mcp_try_attach_windows_process_tree_guard_for_label(
         Ok(guard) => Some(guard),
         Err(err) => {
             runtime_log_error(format!(
-                "[MCP] Windows 进程树托管失败：pid={}，command={}，error={}",
+                "[工具] MCP Windows 进程树托管失败 进程号={} 命令={} 错误={}",
                 pid, command_label, err
             ));
             None
@@ -519,7 +519,7 @@ fn mcp_runtime_state_set(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 设置 MCP 运行状态时锁中毒 for server_id={}: {}",
+                "[工具] MCP 设置 MCP 运行状态时锁中毒 for 服务={}: {}",
                 server_id, poisoned
             ));
             poisoned.into_inner()
@@ -542,7 +542,7 @@ fn mcp_runtime_state_remove(server_id: &str) {
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 移除 MCP 运行状态时锁中毒 for server_id={}: {}",
+                "[工具] MCP 移除 MCP 运行状态时锁中毒 for 服务={}: {}",
                 server_id, poisoned
             ));
             poisoned.into_inner()
@@ -569,7 +569,7 @@ fn mcp_server_instructions_set(server_id: &str, instructions: &str) {
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 写入握手说明时锁中毒 for server_id={normalized_server_id}: {poisoned}"
+                "[工具] MCP 写入握手说明时锁中毒 for 服务={normalized_server_id}: {poisoned}"
             ));
             poisoned.into_inner()
         }
@@ -585,7 +585,7 @@ fn mcp_server_instructions_get(server_id: &str) -> Option<String> {
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 读取握手说明时锁中毒 for server_id={}: {}",
+                "[工具] MCP 读取握手说明时锁中毒 for 服务={}: {}",
                 server_id.trim(),
                 poisoned
             ));
@@ -600,7 +600,7 @@ fn mcp_server_instructions_remove(server_id: &str) {
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 移除握手说明时锁中毒 for server_id={}: {}",
+                "[工具] MCP 移除握手说明时锁中毒 for 服务={}: {}",
                 server_id.trim(),
                 poisoned
             ));
@@ -618,7 +618,7 @@ where
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_info(format!(
-                "[MCP] 更新 MCP 运行状态时锁中毒 for server_id={}: {}",
+                "[工具] MCP 更新 MCP 运行状态时锁中毒 for 服务={}: {}",
                 server_id, poisoned
             ));
             poisoned.into_inner()

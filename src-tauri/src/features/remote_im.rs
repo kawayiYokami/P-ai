@@ -635,16 +635,16 @@ fn remote_im_channel_behavior_settings_for_contact(
             Some(channel) => remote_im_channel_behavior_settings_from_channel(channel),
             None => {
                 runtime_log_warn(format!(
-                    "[远程IM] 渠道行为配置缺失，已使用默认值继续处理，channel_id={}，contact_id={}",
-                    contact.channel_id, contact.id
+                    "[远程IM] 渠道行为配置缺失，已使用默认值继续处理 渠道={}",
+                    contact.channel_id
                 ));
                 RemoteImChannelBehaviorSettings::default()
             }
         },
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 渠道行为配置读取失败，已使用默认值继续处理，channel_id={}，contact_id={}，error={}",
-                contact.channel_id, contact.id, err
+                "[远程IM] 渠道行为配置读取失败，已使用默认值继续处理 渠道={} 错误={}",
+                contact.channel_id, err
             ));
             RemoteImChannelBehaviorSettings::default()
         }
@@ -877,7 +877,7 @@ fn remote_im_prepare_enqueue_runtime_state(
     if let Some(reason) = blocked_reason {
         drop(runtime_states);
         runtime_log_info(format!(
-            "[闭嘴] 联系人={}，原因={}",
+            "[远程IM] 闭嘴 联系人={} 原因={}",
             remote_im_contact_log_label(contact),
             reason
         ));
@@ -885,7 +885,7 @@ fn remote_im_prepare_enqueue_runtime_state(
             contact,
             "info",
             format!(
-                "[闭嘴] contact={}, 原因={}",
+                "[远程IM] 闭嘴 联系人={}, 原因={}",
                 remote_im_contact_log_label(contact),
                 reason
             ),
@@ -926,8 +926,8 @@ fn remote_im_prepare_enqueue_runtime_state(
             behavior.patience_seconds,
         ) {
             runtime_log_warn(format!(
-                "[在场] 计时刷新失败，contact_id={}，error={}",
-                contact.id, err
+                "[远程IM] 在场 计时刷新失败 错误={}",
+                err
             ));
         }
     }

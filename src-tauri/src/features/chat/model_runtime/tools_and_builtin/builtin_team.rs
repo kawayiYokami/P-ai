@@ -292,7 +292,7 @@ impl TeamPersonaNames {
             ),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[队伍] 跳过，任务=读取人格名，原因=快照读取失败，error={err}"
+                    "[工具] 跳过 任务=读取人格名 原因=快照读取失败 错误={err}"
                 ));
                 Self(Vec::new())
             }
@@ -673,7 +673,7 @@ fn team_notify_leader_member_failed(state: &AppState, conversation_id: &str, err
         Ok(meta) => meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=队员出错通知，conversation_id={conversation_id}，原因=会话元数据读取失败，error={err}"
+                "[工具] 跳过 任务=队员出错通知 原因=会话元数据读取失败 错误={err}"
             ));
             return;
         }
@@ -703,10 +703,12 @@ fn team_notify_leader_member_failed(state: &AppState, conversation_id: &str, err
     );
     match team_enqueue_message(state, &leader_conversation_id, message, "queue") {
         Ok(()) => runtime_log_info(format!(
-            "[队伍] 完成，任务=队员出错通知，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}"
+            "[工具] 完成 任务=队员出错通知 角色={role} 会话={}",
+            meta.title
         )),
         Err(err) => runtime_log_warn(format!(
-            "[队伍] 失败，任务=队员出错通知，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}，error={err}"
+            "[工具] 失败 任务=队员出错通知 角色={role} 会话={} 原因={err}",
+            meta.title
         )),
     }
 }
@@ -740,10 +742,10 @@ fn team_mark_member_pending_report(
     });
     match result {
         Ok(_) => runtime_log_info(format!(
-            "[队伍] 完成，任务=标记待汇报，conversation_id={member_conversation_id}，anchor={anchor}"
+            "[工具] 完成 任务=标记待汇报 锚点={anchor}"
         )),
         Err(err) => runtime_log_warn(format!(
-            "[队伍] 失败，任务=标记待汇报，conversation_id={member_conversation_id}，error={err}"
+            "[工具] 失败 任务=标记待汇报 原因={err}"
         )),
     }
 }
@@ -764,7 +766,7 @@ fn team_clear_member_pending_report(state: &AppState, member_conversation_id: &s
     });
     if let Err(err) = result {
         runtime_log_warn(format!(
-            "[队伍] 失败，任务=清除待汇报标记，conversation_id={member_conversation_id}，error={err}"
+            "[工具] 失败 任务=清除待汇报标记 原因={err}"
         ));
     }
 }
@@ -787,7 +789,7 @@ fn team_clear_member_pending_report_on_user_interrupt(state: &AppState, conversa
         Ok(meta) => meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=用户打断后清待汇报标记，conversation_id={conversation_id}，原因=会话元数据读取失败，error={err}"
+                "[工具] 跳过 任务=用户打断后清待汇报标记 原因=会话元数据读取失败 错误={err}"
             ));
             return;
         }
@@ -800,7 +802,8 @@ fn team_clear_member_pending_report_on_user_interrupt(state: &AppState, conversa
     }
     team_clear_member_pending_report(state, conversation_id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=用户打断后清待汇报标记，conversation_id={conversation_id}"
+        "[工具] 完成 任务=用户打断后清待汇报标记 会话={}",
+        meta.title
     ));
 }
 
@@ -853,7 +856,7 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
         Ok(meta) => meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=会话元数据读取失败，error={err}"
+                "[工具] 跳过 任务=停止兜底汇报 原因=会话元数据读取失败 错误={err}"
             ));
             return;
         }
@@ -867,7 +870,8 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
     if !round_ok {
         team_clear_member_pending_report(state, conversation_id);
         runtime_log_info(format!(
-            "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=本轮失败，已有失败通知"
+            "[工具] 跳过 任务=停止兜底汇报 会话={} 原因=本轮失败，已有失败通知",
+            meta.title
         ));
         return;
     }
@@ -896,13 +900,15 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
             // 锚点那封信还没落进历史（这一轮根本没跑起来）时退回最近一页，
             // 仍然只读有界的一小段，不整读会话。
             runtime_log_warn(format!(
-                "[队伍] 降级，任务=停止兜底汇报，conversation_id={conversation_id}，原因=锚点消息未落历史，改读最近一页，error={err}"
+                "[工具] 降级 任务=停止兜底汇报 会话={} 原因=锚点消息未落历史，改读最近一页 错误={err}",
+                meta.title
             ));
             match read_after_anchor(None) {
                 Ok((messages, _)) => messages,
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[队伍] 跳过，任务=停止兜底汇报，conversation_id={conversation_id}，原因=消息读取失败，error={err}"
+                        "[工具] 跳过 任务=停止兜底汇报 会话={} 原因=消息读取失败 错误={err}",
+                        meta.title
                     ));
                     return;
                 }
@@ -964,10 +970,12 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
     let outcome = team_enqueue_message(state, &leader_conversation_id, message, "queue");
     match outcome {
         Ok(()) => runtime_log_info(format!(
-            "[队伍] 完成，任务=停止兜底汇报，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}"
+            "[工具] 完成 任务=停止兜底汇报 角色={role} 会话={}",
+            meta.title
         )),
         Err(err) => runtime_log_warn(format!(
-            "[队伍] 失败，任务=停止兜底汇报，role={role}，conversation_id={conversation_id}，leader_conversation_id={leader_conversation_id}，error={err}"
+            "[工具] 失败 任务=停止兜底汇报 角色={role} 会话={} 原因={err}",
+            meta.title
         )),
     }
     // 转发一旦落定就清标记：同一件事不重复投，也不给下一次停下留残账。
@@ -987,7 +995,7 @@ fn team_member_state(state: &AppState, conversation_id: &str) -> (String, Option
         Ok(MainSessionState::Idle) => None,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=读取队员运行态，conversation_id={conversation_id}，error={err}"
+                "[工具] 跳过 任务=读取队员运行态 原因={err}"
             ));
             None
         }
@@ -999,7 +1007,7 @@ fn team_member_state(state: &AppState, conversation_id: &str) -> (String, Option
         Ok(true) => return ("busy".to_string(), Some("有排队消息待处理".to_string())),
         Ok(false) => {}
         Err(err) => runtime_log_warn(format!(
-            "[队伍] 跳过，任务=读取队员待处理队列，conversation_id={conversation_id}，error={err}"
+            "[工具] 跳过 任务=读取队员待处理队列 原因={err}"
         )),
     }
     match conversation_list_activity_mark(state, conversation_id) {
@@ -1091,14 +1099,14 @@ fn team_close_missing_member_entries(
                 }
             }
             runtime_log_info(format!(
-                "[队伍] 完成，任务=收口失效队员，leader_conversation_id={}，roles={:?}，status=dismissed",
-                leader_conversation_id,
-                missing.iter().map(|(_, role)| role).collect::<Vec<_>>()
+                "[工具] 完成 任务=收口失效队员 主导会话={} 角色={} 状态=dismissed",
+                leader.title,
+                missing.iter().map(|(_, role)| role.as_str()).collect::<Vec<_>>().join("、")
             ));
         }
         Err(err) => runtime_log_warn(format!(
-            "[队伍] 跳过，任务=收口失效队员，leader_conversation_id={}，error={}",
-            leader_conversation_id, err
+            "[工具] 跳过 任务=收口失效队员 主导会话={} 原因={}",
+            leader.title, err
         )),
     }
     missing.into_iter().map(|(_, role)| role).collect()
@@ -1235,8 +1243,7 @@ fn builtin_team_report(
     // 队员已经自己汇报过：清掉待汇报标记，同一件事不再由兜底再投一遍。
     team_clear_member_pending_report(state, &meta.id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队员汇报，conversation_id={}，role={role}",
-        membership.leader_conversation_id
+        "[工具] 完成 任务=队员汇报 角色={role}"
     ));
     Ok(serde_json::json!({
         "leaderConversationId": membership.leader_conversation_id,
@@ -1303,7 +1310,7 @@ async fn builtin_team_share_model(
         "next_dispatch"
     };
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队长推送模型，role={role}，conversation_id={member_conversation_id}，previous={}，model={target_model}，timing={effective_timing}",
+        "[工具] 完成 任务=队长推送模型 角色={role} 原值={} 模型={target_model} 时机={effective_timing}",
         previous_model.as_deref().unwrap_or("")
     ));
     Ok(serde_json::json!({
@@ -1373,7 +1380,7 @@ fn builtin_team_send(
     // 这次指示之后队员若安静停下，产出要自动投回来：标记与锚点都落在这封信上。
     team_mark_member_pending_report(state, &member_conversation_id, &message_id);
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队长派话，conversation_id={member_conversation_id}，role={role}，issue={issue_number}"
+        "[工具] 完成 任务=队长派话 角色={role} 议题={issue_number}"
     ));
     Ok(serde_json::json!({
         "role": role,
@@ -1475,8 +1482,8 @@ fn builtin_team_read(
         ));
     }
     runtime_log_info(format!(
-        "[队伍] 完成，任务=队长读队员消息，leader_conversation_id={}，role={role}，limit={limit}，returned={}，body={body_count}",
-        leader.id,
+        "[工具] 完成 任务=队长读队员消息 主导会话={} 角色={role} 上限={limit} 返回={} 正文={body_count}",
+        leader.title,
         messages.len()
     ));
     Ok(serde_json::json!({
@@ -1667,7 +1674,7 @@ async fn team_create_member(
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=解析队员会话模型，agent_id={agent_id}，error={err}"
+                "[工具] 跳过 任务=解析队员会话模型 原因={err}"
             ));
         }
     }
@@ -1707,7 +1714,8 @@ async fn team_create_member(
         &member_conversation_id,
     );
     runtime_log_info(format!(
-        "[队伍] 完成，任务=招募队员，leader_conversation_id={leader_conversation_id}，role={role}，conversation_id={member_conversation_id}"
+        "[工具] 完成 任务=招募队员 主导会话={} 角色={role}",
+        leader.title
     ));
     Ok(TeamCreatedMember {
         role,
@@ -1761,7 +1769,7 @@ async fn team_create_pending_members(
         Ok(meta) => meta,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=读取会话失败，error={err}"
+                "[工具] 跳过 任务=预创建队员 原因=读取会话失败 错误={err}"
             ));
             return Ok(Vec::new());
         }
@@ -1773,7 +1781,8 @@ async fn team_create_pending_members(
     // 自然跳过；如需恢复预选功能，见 git 历史。
     if meta.team.pending_member_agents.is_empty() {
         runtime_log_debug(format!(
-            "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=没有预选队员"
+            "[工具] 跳过 任务=预创建队员 会话={} 原因=没有预选队员",
+            meta.title
         ));
         return Ok(Vec::new());
     }
@@ -1784,7 +1793,8 @@ async fn team_create_pending_members(
         Ok(snapshot) => snapshot,
         Err(err) => {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=读取人格失败，error={err}"
+                "[工具] 跳过 任务=预创建队员 会话={} 原因=读取人格失败 错误={err}",
+                meta.title
             ));
             return Ok(Vec::new());
         }
@@ -1803,14 +1813,16 @@ async fn team_create_pending_members(
             .find(|item| item.id.trim() == agent_id.as_str())
         else {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=人格不存在，agent_id={agent_id}"
+                "[工具] 跳过 任务=预创建队员 会话={} 原因=人格不存在",
+                meta.title
             ));
             continue;
         };
         let name = agent.name.trim().to_string();
         if name.is_empty() {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=人格名为空，agent_id={agent_id}"
+                "[工具] 跳过 任务=预创建队员 会话={} 原因=人格名为空",
+                meta.title
             ));
             continue;
         }
@@ -1820,31 +1832,36 @@ async fn team_create_pending_members(
             Ok(current) => current,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=读取会话失败，error={err}"
+                    "[工具] 跳过 任务=预创建队员 会话={} 原因=读取会话失败 错误={err}",
+                    meta.title
                 ));
                 continue;
             }
         };
         if let Err(err) = team_ensure_role_available(state, &current, &agent_id, &name) {
             runtime_log_warn(format!(
-                "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=角色已被占用，agent_id={agent_id}，error={err}"
+                "[工具] 跳过 任务=预创建队员 会话={} 原因=角色已被占用 人格={name} 错误={err}",
+                current.title
             ));
             continue;
         }
         match team_create_member(state, &current, &name, "", &agent_id).await {
             Ok(member) => created.push(member.conversation_id),
             Err(err) => runtime_log_warn(format!(
-                "[队伍] 失败，任务=预创建队员，会话ID={conversation_id}，agent_id={agent_id}，error={err}"
+                "[工具] 失败 任务=预创建队员 会话={} 人格={name} 原因={err}",
+                current.title
             )),
         }
     }
     if created.is_empty() {
         runtime_log_warn(format!(
-            "[队伍] 跳过，任务=预创建队员，会话ID={conversation_id}，原因=没有建出任何队员，预选数={pending_count}"
+            "[工具] 跳过 任务=预创建队员 会话={} 原因=没有建出任何队员 预选数={pending_count}",
+            meta.title
         ));
     } else {
         runtime_log_info(format!(
-            "[队伍] 完成，任务=预创建队员，会话ID={conversation_id}，创建数={}，预选数={pending_count}",
+            "[工具] 完成 任务=预创建队员 会话={} 创建数={} 预选数={pending_count}",
+            meta.title,
             created.len()
         ));
     }

@@ -83,15 +83,15 @@ pub(super) fn migration_v3_to_v4(
             Err(err) => {
                 skipped_count += 1;
                 runtime_log_warn(format!(
-                    "[聊天存储迁移] 跳过，任务=V3到V4会话迁移，conversation_id={}，异常={}",
-                    conversation_id, err
+                    "[存储] 跳过 任务=V3到V4会话迁移 异常={}",
+                    err
                 ));
             }
         }
     }
     if skipped_count > 0 {
         runtime_log_warn(format!(
-            "[聊天存储迁移] 完成，任务=V3到V4逐会话迁移，跳过会话数={}，source=保留原始文件供人工处理或显式重试",
+            "[存储] 完成 任务=V3到V4逐会话迁移 跳过会话数={} 来源=保留原始文件供人工处理或显式重试",
             skipped_count
         ));
     }

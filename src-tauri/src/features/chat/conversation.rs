@@ -113,7 +113,7 @@ fn main_conversation_id_downgraded(state: &AppState) -> Option<String> {
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[会话选择] 读取主会话 ID 失败，按无主会话指针降级继续：error={err}"
+                "[聊天] 读取主会话 ID 失败，按无主会话指针降级继续 原因={err}"
             ));
             None
         }
@@ -127,7 +127,7 @@ fn assistant_agent_id_downgraded(state: &AppState) -> String {
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[会话选择] 读取默认人格 ID 失败，按无默认人格降级继续：error={err}"
+                "[聊天] 读取默认人格 ID 失败，按无默认人格降级继续 原因={err}"
             ));
             String::new()
         }
@@ -141,7 +141,7 @@ fn pinned_conversation_ids_downgraded(state: &AppState) -> Vec<String> {
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[会话列表] 读取置顶会话列表失败，按无置顶降级继续：error={err}"
+                "[聊天] 读取置顶会话列表失败，按无置顶降级继续 原因={err}"
             ));
             Vec::new()
         }
@@ -169,7 +169,7 @@ fn repair_main_conversation_marker_if_needed(state: &AppState) -> Result<bool, S
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[会话选择] 读取主会话 ID 失败，跳过主会话指针修复：error={err}"
+                "[聊天] 读取主会话 ID 失败，跳过主会话指针修复 原因={err}"
             ));
             Ok(false)
         }
@@ -241,14 +241,14 @@ fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
         }
     }
     if changed {
-        let keep_id = data
+        let keep_title = data
             .conversations
             .get(keep_idx)
-            .map(|item| item.id.clone())
+            .map(|item| item.title.clone())
             .unwrap_or_default();
         runtime_log_info(format!(
-            "[会话] 归一化未归档会话激活标记: active_conversation_id={}",
-            keep_id
+            "[聊天] 归一化未归档会话激活标记 激活会话={}",
+            keep_title
         ));
     }
     changed
@@ -1555,8 +1555,8 @@ fn archive_conversation_now(
     conv.updated_at = now;
     let archive_id = conv.id.clone();
     runtime_log_info(format!(
-        "[会话] 已归档: conversation_id={}, previous_status={}, reason=\"{}\"",
-        conv.id,
+        "[聊天] 会话已归档 会话={} 原状态={} 原因={}",
+        conv.title,
         previous_status,
         reason
     ));
@@ -1606,7 +1606,7 @@ fn prepared_image_payload_for_llm_request(
         }),
         Err(err) => {
             runtime_log_warn(format!(
-                "[图片规范化] 图片二进制不可用，已跳过该附件并继续文本请求，原因={}，mime={}，base64_len={}，path={}",
+                "[存储] 图片二进制不可用，已跳过该附件并继续文本请求 原因={} 格式={} 编码长度={} 文件={}",
                 err,
                 mime,
                 bytes_base64.len(),
@@ -1633,7 +1633,7 @@ fn build_user_parts(
     }
 
     for warning in warnings {
-        runtime_log_warn(format!("[附件入站] 降级继续：{warning}"));
+        runtime_log_warn(format!("[存储] 降级继续：{warning}"));
     }
 
     if parts.is_empty() {
@@ -1720,7 +1720,7 @@ fn build_prepared_binary_payloads_from_message_parts(
                                 }
                             }
                             Err(err) => runtime_log_warn(format!(
-                                "[附件投影] 当前消息图片读取失败，跳过二进制但保留路径提示，path={}，error={}",
+                                "[存储] 当前消息图片读取失败，跳过二进制但保留路径提示 文件={} 原因={}",
                                 path, err
                             )),
                         }
@@ -1738,7 +1738,7 @@ fn build_prepared_binary_payloads_from_message_parts(
                                 prepared_dimensions: None,
                             }),
                             Err(err) => runtime_log_warn(format!(
-                                "[附件投影] 当前消息音频读取失败，跳过二进制但保留路径提示，path={}，error={}",
+                                "[存储] 当前消息音频读取失败，跳过二进制但保留路径提示 文件={} 原因={}",
                                 path, err
                             )),
                         }
@@ -1771,7 +1771,7 @@ fn build_effective_prompt_media_from_prepared(
                         chunks.push(text.to_string());
                     } else {
                         runtime_log_warn(
-                            "[附件投影] 当前模型未启用文本输入，已跳过 ordered parts 文本"
+                            "[存储] 当前模型未启用文本输入，已跳过 ordered parts 文本"
                                 .to_string(),
                         );
                     }
@@ -1813,7 +1813,7 @@ fn build_effective_prompt_media_from_prepared(
         for (index, requested) in requested_images.iter().enumerate() {
             let Some(mut prepared) = prepared_images.get(index).cloned() else {
                 runtime_log_warn(format!(
-                    "[附件投影] 当前图片无法物化，保留文本与路径提示继续，index={}",
+                    "[存储] 当前图片无法物化，保留文本与路径提示继续 序号={}",
                     index
                 ));
                 continue;
@@ -1837,7 +1837,7 @@ fn build_effective_prompt_media_from_prepared(
         for (index, requested) in requested_audios.iter().enumerate() {
             let Some(mut prepared) = prepared_audios.get(index).cloned() else {
                 runtime_log_warn(format!(
-                    "[附件投影] 当前音频无法物化，保留文本与路径提示继续，index={}",
+                    "[存储] 当前音频无法物化，保留文本与路径提示继续 序号={}",
                     index
                 ));
                 continue;
@@ -2279,8 +2279,8 @@ fn render_prompt_user_text_only(message: &ChatMessage) -> String {
             continue;
         }
         runtime_log_warn(format!(
-            "[附件投影] 降级继续，message_id={}，part_index={}，warning={}",
-            warning.message_id, warning.part_index, warning.detail
+            "[存储] 降级继续 分段序号={} 警告={}",
+            warning.part_index, warning.detail
         ));
     }
     render_prompt_message_abstract_user_text(&outcome.message)
@@ -2756,8 +2756,8 @@ fn resolve_media_from_message(
             continue;
         }
         runtime_log_warn(format!(
-            "{} 附件投影降级继续，message_id={}，part_index={}，warning={}",
-            log_prefix, warning.message_id, warning.part_index, warning.detail
+            "[聊天] 附件投影降级继续 场景={} 分段序号={} 警告={}",
+            log_prefix, warning.part_index, warning.detail
         ));
     }
     let materialized = materialize_prompt_message_attachments(&projected.message);
@@ -2817,7 +2817,7 @@ fn resolve_media_from_message(
                         Ok(value) => value,
                         Err(err) => {
                             runtime_log_error(format!(
-                                "{} 解析图片附件失败，mime={}，data_path={}，bytes_base64_len={}，error={}",
+                                "[聊天] 解析图片附件失败 场景={} 格式={} 文件={} 编码长度={} 错误={}",
                                 log_prefix,
                                 mime,
                                 path.to_string_lossy(),
@@ -2854,7 +2854,7 @@ fn resolve_media_from_message(
                         Ok(value) => value,
                         Err(err) => {
                             runtime_log_error(format!(
-                                "{} 解析音频附件失败，mime={}，data_path={}，bytes_base64_len={}，error={}",
+                                "[聊天] 解析音频附件失败 场景={} 格式={} 文件={} 编码长度={} 错误={}",
                                 log_prefix,
                                 mime,
                                 path.to_string_lossy(),
@@ -3033,7 +3033,7 @@ fn collect_prompt_media_parts(
     message: &ChatMessage,
     data_path: Option<&PathBuf>,
 ) -> (Vec<PreparedBinaryPayload>, Vec<PreparedBinaryPayload>) {
-    resolve_media_from_message(message, data_path, "[提示词] 历史消息")
+    resolve_media_from_message(message, data_path, "历史消息")
 }
 
 fn build_memory_rag_rule_block() -> String {
@@ -3534,7 +3534,7 @@ fn build_conversation_prompt_payload(
             }
         };
         let (resolved_images, resolved_audios) =
-            resolve_media_from_message(&msg, data_path, "[提示词] 最新消息");
+            resolve_media_from_message(&msg, data_path, "最新消息");
         let include_remote_identity = remote_im_contact_key_from_message(&msg)
             .map(|key| seen_remote_contacts.insert(key))
             .unwrap_or(false);
@@ -3668,8 +3668,8 @@ fn build_prompt_with_mode(
             Ok(memories) => Some(memories),
             Err(err) => {
                 runtime_log_error(format!(
-                    "[提示词] 读取召回记忆失败: agent_id={}, recall_ids={:?}, error={:?}",
-                    prompt_agent.id, recall_memory_ids, err
+                    "[聊天] 读取召回记忆失败 人格={} 召回编号={} 原因={}",
+                    prompt_agent.name, recall_memory_ids.join("、"), err
                 ));
                 None
             }

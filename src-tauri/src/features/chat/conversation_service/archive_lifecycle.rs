@@ -25,9 +25,9 @@ fn remote_im_prune_conversation_attachments_after_compaction(
     let dir = match conversation_downloads_dir_from_data_path(&state.data_path, conversation_id) {
         Ok(dir) => dir,
         Err(err) => {
-            runtime_log_warn(format!(
-                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=会话附件目录不可用，error={}",
-                conversation_id, err
+            runtime_log_info(format!(
+                "[聊天] 跳过 任务=清理附件 原因=会话附件目录不可用 错误={}",
+                err
             ));
             return;
         }
@@ -41,8 +41,8 @@ fn remote_im_prune_conversation_attachments_after_compaction(
         Ok(None) => return,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取末尾 block 失败，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=清理附件 原因=读取末尾 block 失败 错误={}",
+                err
             ));
             return;
         }
@@ -62,8 +62,8 @@ fn remote_im_prune_conversation_attachments_after_compaction(
             Ok(None) => break,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取新 block 消息失败，error={}",
-                    conversation_id, err
+                    "[聊天] 跳过 任务=清理附件 原因=读取新 block 消息失败 错误={}",
+                    err
                 ));
                 return;
             }
@@ -92,8 +92,7 @@ fn remote_im_prune_conversation_attachments_after_compaction(
     // 不能当成「全都没被引用」去删。消息都在但都没附件是正常的，继续删。
     if scanned_message_count == 0 {
         runtime_log_warn(format!(
-            "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=新 block 读不到任何消息，保留全部附件",
-            conversation_id
+            "[聊天] 跳过 任务=清理附件 原因=新 block 读不到任何消息，保留全部附件"
         ));
         return;
     }
@@ -101,8 +100,8 @@ fn remote_im_prune_conversation_attachments_after_compaction(
         Ok(entries) => entries,
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=读取会话附件目录失败，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=清理附件 原因=读取会话附件目录失败 错误={}",
+                err
             ));
             return;
         }
@@ -141,14 +140,13 @@ fn remote_im_prune_conversation_attachments_after_compaction(
         match std::fs::remove_file(&path) {
             Ok(()) => removed_count = removed_count.saturating_add(1),
             Err(err) => runtime_log_warn(format!(
-                "[远程唤醒压缩] 降级，任务=清理附件，conversation_id={}，file={}，error={}",
-                conversation_id, file_name, err
+                "[聊天] 降级 任务=清理附件 文件={} 原因={}",
+                file_name, err
             )),
         }
     }
     runtime_log_info(format!(
-        "[远程唤醒压缩] 完成，任务=清理附件，conversation_id={}，referenced={}，removed={}，skipped_recent={}，skipped_unknown_age={}",
-        conversation_id,
+        "[聊天] 完成 任务=清理附件 引用={} 移除={} 跳过近期={} 跳过时长未知={}",
         referenced_names.len(),
         removed_count,
         skipped_recent_count,
@@ -196,8 +194,8 @@ impl ConversationServiceV2 {
                 Ok(conversation_meta) => Some(conversation_meta),
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[会话索引读取] 状态=失败，任务=list_archives，conversation_id={}，error={}",
-                        item.id, err
+                        "[聊天] 状态=失败 任务=list_archives 原因={}",
+                        err
                     ));
                     None
                 }
@@ -343,7 +341,7 @@ impl ConversationServiceV2 {
         if normalized_archive_id.is_empty() {
             return Err("archiveId is required".to_string());
         }
-        let conversation_id = with_conversation_mutation(state, normalized_archive_id, "unarchive_archive", || {
+        with_conversation_mutation(state, normalized_archive_id, "unarchive_archive", || {
             let conversation_meta = self
                 .get_conversation_meta(state, normalized_archive_id)
                 .map_err(|_| "Archive not found".to_string())?;
@@ -368,8 +366,7 @@ impl ConversationServiceV2 {
             Ok(conversation.id)
         })?;
         runtime_log_info(format!(
-            "[归档] 完成，任务=取消归档，conversation_id={}",
-            conversation_id
+            "[聊天] 完成 任务=取消归档"
         ));
         Ok(())
     }
@@ -411,8 +408,8 @@ impl ConversationServiceV2 {
         let effective_agent_id = source_meta.agent_id.trim();
         let effective_agent_id = if effective_agent_id.is_empty() {
             runtime_log_warn(format!(
-                "[归档] 跳过人格校验，任务={}，conversation_id={}，原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-                trace_task, source_meta.id
+                "[聊天] 跳过人格校验 任务={} 原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
+                trace_task
             ));
             String::new()
         } else if runtime_snapshot
@@ -423,8 +420,8 @@ impl ConversationServiceV2 {
             effective_agent_id.to_string()
         } else {
             runtime_log_warn(format!(
-                "[归档] 跳过人格校验，任务={}，conversation_id={}，agent_id={}，原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
-                trace_task, source_meta.id, effective_agent_id
+                "[聊天] 跳过人格校验 任务={} 原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
+                trace_task
             ));
             effective_agent_id.to_string()
         };
@@ -468,14 +465,14 @@ impl ConversationServiceV2 {
         match cleanup_backup_records_from_messages(&state.data_path, &source_conversation.messages) {
             Ok(cleaned) if cleaned > 0 => {
                 runtime_log_info(format!(
-                    "[会话删除] apply_patch 备份清理完成: conversation={}, cleaned={}",
-                    source.id, cleaned
+                    "[聊天] apply_patch 备份清理完成 清理={}",
+                    cleaned
                 ));
             }
             Err(err) => {
                 runtime_log_error(format!(
-                    "[会话删除] apply_patch 备份清理失败: conversation={}, error={}",
-                    source.id, err
+                    "[聊天] apply_patch 备份清理失败 原因={}",
+                    err
                 ));
             }
             _ => {}
@@ -568,8 +565,8 @@ impl ConversationServiceV2 {
                 cursor
             }
             Some(cursor) => {
-                runtime_log_warn(format!(
-                    "[库房] 压缩降级，任务=压缩边界，conversation_id={conversation_id}，reason=游标消息已不存在，处理=退回触发消息，cursor={cursor}"
+                runtime_log_info(format!(
+                    "[聊天] 压缩降级 任务=压缩边界 原因=游标消息已不存在 处理=退回触发消息 游标={cursor}"
                 ));
                 trigger_message_id
             }
@@ -593,17 +590,13 @@ impl ConversationServiceV2 {
             ) {
                 Ok(Some(block_message_count)) => {
                     runtime_log_info(format!(
-                        "[远程唤醒压缩] 跳过，任务=低频群入场，conversation_id={}，trigger_message_id={}，current_block_message_count={}，minimum_block_message_count={}",
-                        conversation_id,
-                        trigger_message_id,
+                        "[聊天] 跳过 任务=低频群入场 当前块消息数={} 最小块消息数={}",
                         block_message_count,
                         REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT
                     ));
                     if remote_im_wake_compaction_should_skip_for_low_frequency(block_message_count) {
                         runtime_log_info(format!(
-                            "[远程唤醒压缩] 跳过，任务=低频群入场，conversation_id={}，trigger_message_id={}，block_message_count={}，minimum_block_message_count={}",
-                            conversation_id,
-                            trigger_message_id,
+                            "[聊天] 跳过 任务=低频群入场 块消息数={} 最小块消息数={}",
                             block_message_count,
                             REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT
                         ));
@@ -613,12 +606,11 @@ impl ConversationServiceV2 {
                     }
                 }
                 Ok(None) => runtime_log_warn(format!(
-                    "[远程唤醒压缩] 降级，任务=入场 block 计数，conversation_id={}，trigger_message_id={}，reason=消息存储未就绪，继续压缩路径",
-                    conversation_id, trigger_message_id
+                    "[聊天] 降级 任务=入场 block 计数 原因=消息存储未就绪，继续压缩路径"
                 )),
                 Err(err) => runtime_log_warn(format!(
-                    "[远程唤醒压缩] 降级，任务=入场 block 计数，conversation_id={}，trigger_message_id={}，error={}，继续压缩路径",
-                    conversation_id, trigger_message_id, err
+                    "[聊天] 降级 任务=入场 block 计数 原因={}，继续压缩路径",
+                    err
                 )),
             }
         }
@@ -788,10 +780,7 @@ impl ConversationServiceV2 {
             ));
         }
         runtime_log_info(format!(
-            "[远程唤醒压缩] 完成，任务=写入摘要，conversation_id={}，summary_message_id={}，trigger_message_id={}，include_history={}，keep_message_count={}，keep_bytes={}",
-            conversation_id,
-            summary.id,
-            trigger_message_id,
+            "[聊天] 完成 任务=写入摘要 含历史={} 保留消息数={} 保留字节={}",
             include_history,
             keep_messages.len(),
             keep_dialogue_bytes
@@ -811,8 +800,8 @@ impl ConversationServiceV2 {
                     );
                 }
                 Err(err) => runtime_log_warn(format!(
-                    "[远程唤醒压缩] 跳过，任务=清理附件，conversation_id={}，reason=消息存储路径不可用，error={}",
-                    conversation_id, err
+                    "[聊天] 跳过 任务=清理附件 原因=消息存储路径不可用 错误={}",
+                    err
                 )),
             }
         }
@@ -1091,8 +1080,7 @@ impl ConversationServiceV2 {
             })?;
         if let Some((conversation_id, previous_status, archived_at)) = archive_log {
             runtime_log_info(format!(
-                "[归档] 完成，任务=即时标记归档，conversation_id={}，previous_status={}，reason={}，archived_at={}",
-                conversation_id,
+                "[聊天] 完成 任务=即时标记归档 原状态={} 原因={} 归档时间={}",
                 previous_status,
                 archive_reason,
                 archived_at
@@ -1101,14 +1089,14 @@ impl ConversationServiceV2 {
             match clear_operate_screenshots_temp(&state.data_path, &conversation_id) {
                 Ok((file_count, dir_count)) => {
                     runtime_log_info(format!(
-                        "[operate截图缓存] 完成，任务=clear_temp_on_archive，conversation_id={}，截图文件数={}，子目录数={}",
-                        conversation_id, file_count, dir_count
+                        "[工具] 完成 任务=clear_temp_on_archive 截图文件数={} 子目录数={}",
+                        file_count, dir_count
                     ));
                 }
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[operate截图缓存] 失败，任务=clear_temp_on_archive，conversation_id={}，error={}",
-                        conversation_id, err
+                        "[工具] 失败 任务=clear_temp_on_archive 原因={}",
+                        err
                     ));
                 }
             }

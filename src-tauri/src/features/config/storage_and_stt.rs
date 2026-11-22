@@ -56,7 +56,7 @@ fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
     let missing_enable_audio = config_missing_enable_audio_field(&content);
     let mut parsed = toml::from_str::<AppConfig>(&content).map_err(|err| {
         runtime_log_error(format!(
-            "[配置] 解析配置失败 ({}): {err}",
+            "[系统] 配置 解析配置失败 ({}): {err}",
             resolved_path.display()
         ));
         format!("Parse config failed ({}): {err}", resolved_path.display())
@@ -72,7 +72,7 @@ fn read_config(path: &PathBuf) -> Result<AppConfig, String> {
     if let Some(target_path) = persist_target {
         if let Err(err) = write_config(target_path, &parsed) {
             runtime_log_error(format!(
-                "[配置] 读取后补全 enableAudio 失败：path={} err={}",
+                "[系统] 配置 读取后补全 enableAudio 失败 文件={} 错误={}",
                 target_path.display(),
                 err
             ));
@@ -1274,7 +1274,7 @@ fn externalize_message_parts_to_media_refs(
                     name.as_deref(),
                 );
                 if let Some(warning) = warning {
-                    runtime_log_warn(format!("[附件迁移] 降级继续：{warning}"));
+                    runtime_log_warn(format!("[存储] 附件迁移 降级继续：{warning}"));
                 }
                 Some(attachment)
             }

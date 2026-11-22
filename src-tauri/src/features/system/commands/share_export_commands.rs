@@ -47,7 +47,7 @@ async fn write_utf8_text_file_to_path(input: WriteUtf8TextFileInput) -> Result<(
         std::fs::write(&path, text.as_bytes())
             .map_err(|err| format!("写入文本导出文件失败 path={}: {err}", path.display()))?;
         runtime_log_info(format!(
-            "[分享导出] 文本文件写入完成 path={} bytes={} elapsed_ms={}",
+            "[系统] 文本文件写入完成 文件={} 字节={} 耗时={}",
             path.display(),
             byte_len,
             started_at.elapsed().as_millis()
@@ -66,7 +66,7 @@ async fn write_base64_file_to_path(input: WriteBase64FileInput) -> Result<(), St
         .decode(input.bytes_base64.trim())
         .map_err(|err| format!("解码导出文件内容失败 path={}: {err}", path_display))?;
     runtime_log_info(format!(
-        "[分享导出] 开始写入二进制文件 path={} bytes={}",
+        "[系统] 开始写入二进制文件 文件={} 字节={}",
         path_display,
         bytes.len()
     ));
@@ -77,7 +77,7 @@ async fn write_base64_file_to_path(input: WriteBase64FileInput) -> Result<(), St
         std::fs::write(&write_path, bytes)
             .map_err(|err| format!("写入二进制导出文件失败 path={}: {err}", write_path.display()))?;
         runtime_log_info(format!(
-            "[分享导出] 二进制文件写入完成 path={} elapsed_ms={}",
+            "[系统] 二进制文件写入完成 文件={} 耗时={}",
             write_path.display(),
             started_at.elapsed().as_millis()
         ));

@@ -52,8 +52,8 @@ fn remote_im_request_24h_maintenance(state: AppState) {
         let worker_state = state.clone();
         let join = tokio::task::spawn_blocking(move || remote_im_run_24h_maintenance(&worker_state)).await;
         match join {
-            Ok(Err(err)) => runtime_log_warn(format!("[远程联系人维护] 失败，任务=24小时维护，error={err}")),
-            Err(err) => runtime_log_warn(format!("[远程联系人维护] 失败，任务=24小时维护，error=join_error，详情={err}")),
+            Ok(Err(err)) => runtime_log_warn(format!("[远程IM] 失败 任务=24小时维护 原因={err}")),
+            Err(err) => runtime_log_warn(format!("[远程IM] 失败 任务=24小时维护 原因=任务组执行失败 详情={err}")),
             Ok(Ok(())) => {}
         }
         if let Ok(mut keys) = remote_im_maintenance_running_keys().lock() {
@@ -122,9 +122,9 @@ fn remote_im_run_24h_maintenance(state: &AppState) -> Result<(), String> {
         }
     }
     if failures.is_empty() {
-        runtime_log_info(format!("[远程联系人维护] 完成，任务=24小时维护，清理杂务条数={}，清理委托数={}", fast_removed, delegate_removed));
+        runtime_log_info(format!("[远程IM] 完成 任务=24小时维护 清理杂务={} 清理委托={}", fast_removed, delegate_removed));
     } else {
-        runtime_log_warn(format!("[远程联系人维护] 完成，任务=24小时维护，清理杂务条数={}，清理委托数={}，失败数={}，详情={}", fast_removed, delegate_removed, failures.len(), failures.join(" | ")));
+        runtime_log_warn(format!("[远程IM] 完成 任务=24小时维护 清理杂务={} 清理委托={} 失败={} 详情={}", fast_removed, delegate_removed, failures.len(), failures.join(" | ")));
     }
     Ok(())
 }

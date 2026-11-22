@@ -225,7 +225,7 @@ fn remote_im_apply_group_energy_for_messages(
         contact,
         "info",
         format!(
-            "[能量] {:.2} → {:.2}（群友用词 {:+.2}）",
+            "[远程IM] 能量 {:.2} → {:.2}（群友用词 {:+.2}）",
             before,
             (before + delta).clamp(-pacing.maximum_energy, pacing.maximum_energy),
             delta
@@ -288,7 +288,7 @@ fn remote_im_apply_group_reply_energy_cost(
         contact,
         "info",
         format!(
-            "[能量] {:.2} → {:.2}（外发 {} 字 -{:.2}）",
+            "[远程IM] 能量 {:.2} → {:.2}（外发 {} 字 -{:.2}）",
             before, after, char_count as usize, cost
         ),
     );

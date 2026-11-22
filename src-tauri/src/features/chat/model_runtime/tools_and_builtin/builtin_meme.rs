@@ -178,7 +178,7 @@ fn meme_available_assets(
             Ok(value) => value,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[表情贴纸] 跳过无法识别真实格式的素材: path={}, err={err}",
+                    "[聊天] 跳过无法识别真实格式的素材 文件={} 原因={err}",
                     path.display()
                 ));
                 continue;
@@ -198,7 +198,7 @@ fn meme_available_assets(
     for candidate in candidates {
         if let Some(existing) = grouped.get(&candidate.name) {
             runtime_log_warn(format!(
-                "[表情贴纸] 同名表情文件重复，已跳过: kept={}, skipped={}",
+                "[聊天] 同名表情文件重复，已跳过 保留数={} 跳过数={}",
                 existing.relative_path, candidate.relative_path
             ));
             continue;
@@ -560,7 +560,7 @@ fn meme_load_dhash_index(
             Ok(index) => index,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[表情贴纸] 读取 dHash 索引失败，已按空索引处理: path={}, err={err}",
+                    "[聊天] 读取 dHash 索引失败，已按空索引处理 文件={} 原因={err}",
                     index_path.display()
                 ));
                 std::collections::BTreeMap::new()
@@ -568,7 +568,7 @@ fn meme_load_dhash_index(
         },
         Err(err) => {
             runtime_log_warn(format!(
-                "[表情贴纸] 读取 dHash 索引文件失败，已按空索引处理: path={}, err={err}",
+                "[聊天] 读取 dHash 索引文件失败，已按空索引处理 文件={} 原因={err}",
                 index_path.display()
             ));
             std::collections::BTreeMap::new()
@@ -631,7 +631,7 @@ fn meme_sync_dhash_index(
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[表情贴纸] 重建 dHash 索引时跳过损坏素材: relative_path={}, err={err}",
+                    "[聊天] 重建 dHash 索引时跳过损坏素材 相对路径={} 原因={err}",
                     relative_path
                 ));
             }
@@ -640,7 +640,7 @@ fn meme_sync_dhash_index(
 
     if changed {
         if let Err(err) = meme_persist_dhash_index(state, agent_id, &index) {
-            runtime_log_warn(format!("[表情贴纸] 持久化 dHash 索引失败: {err}"));
+            runtime_log_warn(format!("[聊天] 持久化 dHash 索引失败: {err}"));
         }
     }
     index
@@ -659,7 +659,7 @@ fn meme_find_duplicate_in_assets(
     for (relative_path, existing_hash) in dhash_index {
         let Some(distance) = meme_hamming_distance(source_hash, existing_hash) else {
             runtime_log_warn(format!(
-                "[表情贴纸] dHash 索引项非法，已跳过: relative_path={}",
+                "[聊天] dHash 索引项非法，已跳过 相对路径={}",
                 relative_path
             ));
             continue;
@@ -876,11 +876,11 @@ fn meme_delete_asset(state: &AppState, agent_id: &str, name: &str) -> Result<(),
     let mut dhash_index = meme_load_dhash_index(state, agent_id);
     dhash_index.remove(&candidate.relative_path);
     if let Err(err) = meme_persist_dhash_index(state, agent_id, &dhash_index) {
-        runtime_log_warn(format!("[表情贴纸] 删除后持久化 dHash 索引失败: {err}"));
+        runtime_log_warn(format!("[聊天] 删除后持久化 dHash 索引失败: {err}"));
     }
     runtime_log_info(format!(
-        "[表情贴纸] 删除表情完成: agent_id={}, name={}",
-        agent_id, name
+        "[聊天] 删除表情完成 工具={}",
+        name
     ));
     Ok(())
 }
@@ -922,11 +922,11 @@ fn meme_rename_asset(state: &AppState, agent_id: &str, from: &str, to: &str) -> 
         dhash_index.insert(workspace_relative_path(state, &target_path), hash);
     }
     if let Err(err) = meme_persist_dhash_index(state, agent_id, &dhash_index) {
-        runtime_log_warn(format!("[表情贴纸] 重命名后持久化 dHash 索引失败: {err}"));
+        runtime_log_warn(format!("[聊天] 重命名后持久化 dHash 索引失败: {err}"));
     }
     runtime_log_info(format!(
-        "[表情贴纸] 重命名表情完成: agent_id={}, from={}, to={}",
-        agent_id, from, to
+        "[聊天] 重命名表情完成 原名={} 新名={}",
+        from, to
     ));
     Ok(())
 }
@@ -1069,7 +1069,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
                 meme_find_duplicate_in_assets(&source_hash, &grouped, &dhash_index)
             {
                 runtime_log_info(format!(
-                    "[表情贴纸] 重复素材 跳过: source={}, matched={}, distance={}",
+                    "[聊天] 重复素材 跳过 来源={} 匹配项={} 距离={}",
                     source_path.display(),
                     duplicate.relative_path,
                     duplicate.distance
@@ -1091,7 +1091,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
             // 一名一图：同名已存在时显式拒绝，避免静默覆盖用户已有表情。
             if let Some(existing) = grouped.get(&emotion) {
                 runtime_log_info(format!(
-                    "[表情贴纸] 同名表情已存在，拒绝覆盖: name={}, existing={}",
+                    "[聊天] 同名表情已存在，拒绝覆盖 工具={} 已存在文件={}",
                     emotion, existing.relative_path
                 ));
                 return Ok(serde_json::json!({
@@ -1114,7 +1114,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
                 .unwrap_or(true)
             {
                 runtime_log_info(format!(
-                    "[表情贴纸] 自动修正图片真实格式 完成: source={}, original_ext={}, detected_ext={}, detector={}",
+                    "[聊天] 自动修正图片真实格式 完成 来源={} 原扩展名={} 实际扩展名={} 识别器={}",
                     source_path.display(),
                     original_ext.as_deref().unwrap_or("（无扩展名）"),
                     detected.ext,
@@ -1159,7 +1159,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
             })?;
             let preserved = normalized.ext == "gif";
             runtime_log_info(format!(
-                "[表情贴纸] {} 完成: source={}, target={}, original_mime={}, target_mime={}, width={}, height={}, frame_count={}, output_size={}",
+                "[聊天] {} 完成 来源={} 目标={} 原类型={} 目标类型={} 宽={} 高={} 帧数={} 输出大小={}",
                 if preserved { "原样保留入库" } else { "归一化入库" },
                 source_path.display(),
                 target_path.display(),
@@ -1174,7 +1174,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
             dhash_index.insert(relative_path.clone(), source_hash);
             if let Err(err) = meme_persist_dhash_index(&self.app_state, &self.agent_id, &dhash_index) {
                 runtime_log_warn(format!(
-                    "[表情贴纸] 新素材入库后持久化 dHash 索引失败: relative_path={}, err={err}",
+                    "[聊天] 新素材入库后持久化 dHash 索引失败 相对路径={} 原因={err}",
                     relative_path
                 ));
             }

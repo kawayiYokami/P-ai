@@ -636,7 +636,7 @@ fn collect_raw_elements(
             Ok(e) => e,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[控件树] 取窗口根元素失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}（超时 or 窗口未响应）"
+                    "[系统] 取窗口根元素失败 任务=collect_raw_elements 窗口=0x{hwnd:x} 结果码={err}（超时 or 窗口未响应）"
                 ));
                 return elements;
             }
@@ -645,7 +645,7 @@ fn collect_raw_elements(
             Ok(c) => c,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[控件树] 创建遍历条件失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}"
+                    "[系统] 创建遍历条件失败 任务=collect_raw_elements 窗口=0x{hwnd:x} 结果码={err}"
                 ));
                 return elements;
             }
@@ -654,7 +654,7 @@ fn collect_raw_elements(
             Ok(a) => a,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[控件树] 遍历元素失败，任务=collect_raw_elements，window_id=0x{hwnd:x}，HRESULT={err:?}（重负载窗口可能触发事务超时）"
+                    "[系统] 遍历元素失败 任务=collect_raw_elements 窗口=0x{hwnd:x} 结果码={err}（重负载窗口可能触发事务超时）"
                 ));
                 return elements;
             }
@@ -787,12 +787,12 @@ fn create_uia_with_timeouts() -> Result<IUIAutomation, String> {
         unsafe {
             if automation2.SetConnectionTimeout(UIA_CONNECTION_TIMEOUT_MS).is_err() {
                 runtime_log_warn(format!(
-                    "[控件树] 设置 UIA 连接超时失败，继续执行，任务=create_uia_with_timeouts，timeout_ms={UIA_CONNECTION_TIMEOUT_MS}"
+                    "[系统] 设置 UIA 连接超时失败，继续执行 任务=create_uia_with_timeouts 超时={UIA_CONNECTION_TIMEOUT_MS}"
                 ));
             }
             if automation2.SetTransactionTimeout(UIA_TRANSACTION_TIMEOUT_MS).is_err() {
                 runtime_log_warn(format!(
-                    "[控件树] 设置 UIA 事务超时失败，继续执行，任务=create_uia_with_timeouts，timeout_ms={UIA_TRANSACTION_TIMEOUT_MS}"
+                    "[系统] 设置 UIA 事务超时失败，继续执行 任务=create_uia_with_timeouts 超时={UIA_TRANSACTION_TIMEOUT_MS}"
                 ));
             }
         }
@@ -804,7 +804,7 @@ fn create_uia_with_timeouts() -> Result<IUIAutomation, String> {
             Err(err) => {
                 // 拿不到基接口说明这个 COM 对象不可用；既然已有可用的旧路径，退回比整条 UIA 失效更好。
                 runtime_log_warn(format!(
-                    "[控件树] IUIAutomation2 转 IUIAutomation 失败，退回 CUIAutomation，任务=create_uia_with_timeouts，原因={err}"
+                    "[系统] IUIAutomation2 转 IUIAutomation 失败，退回 CUIAutomation 任务=create_uia_with_timeouts 原因={err}"
                 ));
                 return create_legacy_uia_automation();
             }
@@ -812,7 +812,7 @@ fn create_uia_with_timeouts() -> Result<IUIAutomation, String> {
     }
 
     runtime_log_info(format!(
-        "[控件树] CUIAutomation8 不可用，退回无超时的 CUIAutomation，任务=create_uia_with_timeouts，HRESULT={hr}"
+        "[系统] CUIAutomation8 不可用，退回无超时的 CUIAutomation 任务=create_uia_with_timeouts 结果码={hr}"
     ));
     create_legacy_uia_automation()
 }

@@ -104,7 +104,7 @@ pub(crate) fn load_skill_enabled_map_at_root(
         };
         let Ok(policy) = serde_json::from_slice::<SkillPolicyFile>(&raw) else {
             runtime_log_warn(format!(
-                "[技能启用] 跳过无法解析的状态文件：{}",
+                "[工具] 技能启用 跳过无法解析的状态文件：{}",
                 path.display()
             ));
             continue;

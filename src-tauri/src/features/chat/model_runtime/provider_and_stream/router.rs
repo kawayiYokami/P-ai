@@ -123,7 +123,7 @@ fn apply_cached_system_message_user_fallback_to_prepared(
         && move_system_preamble_to_user_prompt(prepared)
     {
         runtime_log_warn(format!(
-            "[聊天] base_url={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
+            "[聊天] 地址={} 已在本次运行内启用 system->user 降级，当前回合直接改写提示词",
             base_url
         ));
     }
@@ -152,7 +152,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
         provider_mark_system_message_user_fallback(app_state, &api_config.base_url)
     {
         runtime_log_warn(format!(
-            "[聊天] 标记本次运行内 system->user 降级失败: base_url={}, err={}",
+            "[聊天] 标记本次运行内 system->user 降级失败 地址={} 原因={}",
             api_config.base_url, mark_err
         ));
     }
@@ -161,7 +161,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
         return Err(err);
     }
     runtime_log_warn(format!(
-        "[聊天] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试: base_url={}, model={}, err={}",
+        "[聊天] 检测到上游不支持 system message，已在本次运行内切换 system->user 降级重试 地址={} 模型={} 原因={}",
         api_config.base_url, model_name, err
     ));
     if allow_tools {
@@ -650,7 +650,7 @@ async fn call_model_dispatch(
         if prefer_non_stream {
             if selected_api.enable_tools {
                 runtime_log_info(format!(
-                    "[聊天] base_url={} 已在本次运行内禁用流式，当前回合改用非流式请求并尽量保留工具调用",
+                    "[聊天] 地址={} 已在本次运行内禁用流式，当前回合改用非流式请求并尽量保留工具调用",
                     api_config.base_url
                 ));
             }
@@ -712,7 +712,7 @@ async fn call_model_dispatch(
                             model_name,
                         ) {
                             runtime_log_warn(format!(
-                                "[聊天] 清理流式降级缓存失败: base_url={}, model={}, err={}",
+                                "[聊天] 清理流式降级缓存失败 地址={} 模型={} 原因={}",
                                 api_config.base_url, model_name, clear_err
                             ));
                         }
@@ -758,17 +758,17 @@ async fn call_model_dispatch(
                         )
                     {
                         runtime_log_warn(format!(
-                            "[聊天] 标记本次运行内非流式 base_url 失败: base_url={}, err={}",
+                            "[聊天] 标记本次运行内非流式 base_url 失败 地址={} 原因={}",
                             api_config.base_url, mark_err
                         ));
                     }
                     runtime_log_warn(format!(
-                        "[聊天] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
+                        "[聊天] 流式失败，已在本次运行内切换非流式重试 地址={} 模型={} 原因={}",
                         api_config.base_url, model_name, err
                     ));
                     if selected_api.enable_tools {
                         runtime_log_warn(format!(
-                            "[聊天] 当前 API 已启用工具，非流式兜底将继续尝试工具调用: base_url={}",
+                            "[聊天] 当前 API 已启用工具，非流式兜底将继续尝试工具调用 地址={}",
                             api_config.base_url
                         ));
                     }
@@ -796,7 +796,7 @@ async fn call_model_dispatch(
                         && is_image_unsupported_error(&err) =>
                 {
                     runtime_log_info(format!(
-                        "[聊天] 模型不支持图片输入，回退到纯文本请求: err={}",
+                        "[聊天] 模型不支持图片输入，回退到纯文本请求 原因={}",
                         err
                     ));
                     let mut fallback = prepared;

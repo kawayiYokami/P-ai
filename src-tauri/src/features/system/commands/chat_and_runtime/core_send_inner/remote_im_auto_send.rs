@@ -359,13 +359,10 @@ fn remote_im_record_reply_rewrite_fast_request(
     );
     match delegate_runtime_thread_append_fast_request(state, delegate_id, turn) {
         Ok(true) => {}
-        Ok(false) => runtime_log_warn(format!(
-            "[群聊长度门] 杂务记录跳过，delegate_id={}，reason=应答委托会话不存在",
-            delegate_id
-        )),
+        Ok(false) => runtime_log_info("[委托] 杂务记录跳过 原因=应答委托会话不存在".to_string()),
         Err(err) => runtime_log_warn(format!(
-            "[群聊长度门] 杂务记录失败，delegate_id={}，error={}",
-            delegate_id, err
+            "[委托] 杂务记录失败 错误={}",
+            err
         )),
     }
 }
@@ -416,10 +413,7 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
         return draft;
     }
     if !remote_im_reply_delegate_is_active(state, delegate_id) {
-        runtime_log_error(format!(
-            "[群聊长度门] 跳过，任务=应答委托杂务改写，delegate_id={}，reason=应答委托已结束",
-            delegate_id
-        ));
+        runtime_log_warn("[委托] 跳过 任务=应答委托杂务改写 原因=应答委托已结束".to_string());
         return draft;
     }
     let prepared = remote_im_group_reply_rewrite_prompt(&draft, max_units);
@@ -429,8 +423,8 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
         // 未配置＝禁用快速请求：直接用原草稿，不记失败、不消耗额度。
         Ok(None) => {
             runtime_log_info(format!(
-                "[群聊长度门] 跳过，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，reason=未配置快速模型",
-                delegate_id, original_units, max_units
+                "[委托] 跳过 任务=应答委托杂务改写 原字数={} 上限字数={} 原因=未配置快速模型",
+                original_units, max_units
             ));
             return draft;
         }
@@ -446,8 +440,8 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
                 None,
             );
             runtime_log_warn(format!(
-                "[群聊长度门] 失败，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，error={}",
-                delegate_id, original_units, max_units, err
+                "[委托] 失败 任务=应答委托杂务改写 原字数={} 上限字数={} 错误={}",
+                original_units, max_units, err
             ));
             return draft;
         }
@@ -489,8 +483,8 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
                     Some(duration_ms),
                 );
                 runtime_log_info(format!(
-                    "[群聊长度门] 完成，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，final_units={}，elapsed_ms={}",
-                    delegate_id, original_units, max_units, final_units, duration_ms
+                    "[委托] 完成 任务=应答委托杂务改写 原字数={} 上限字数={} 最终字数={} 耗时={}",
+                    original_units, max_units, final_units, duration_ms
                 ));
                 candidate
             } else {
@@ -513,8 +507,8 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
                     Some(duration_ms),
                 );
                 runtime_log_warn(format!(
-                    "[群聊长度门] 失败，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，error={}",
-                    delegate_id, original_units, max_units, error
+                    "[委托] 失败 任务=应答委托杂务改写 原字数={} 上限字数={} 错误={}",
+                    original_units, max_units, error
                 ));
                 draft
             }
@@ -532,8 +526,8 @@ async fn remote_im_reply_delegate_finalize_group_reply_draft(
                 Some(duration_ms),
             );
             runtime_log_warn(format!(
-                "[群聊长度门] 失败，任务=应答委托杂务改写，delegate_id={}，original_units={}，max_units={}，error={}",
-                delegate_id, original_units, max_units, err
+                "[委托] 失败 任务=应答委托杂务改写 原字数={} 上限字数={} 错误={}",
+                original_units, max_units, err
             ));
             draft
         }
@@ -593,8 +587,8 @@ async fn remote_im_auto_send_assistant_reply_to_source(
         // 扣能失败也不阻止外发。
         if let Err(err) = remote_im_apply_group_reply_energy_cost(state, &contact, &outbound_text) {
             runtime_log_warn(format!(
-                "[群聊能量] 扣能失败，外发照常进行：contact_id={}，error={}",
-                contact.id, err
+                "[远程IM] 扣能失败，外发照常进行 错误={}",
+                err
             ));
         }
     }
@@ -648,8 +642,8 @@ async fn remote_im_auto_send_assistant_reply_to_source(
         Err(send_error) => {
             // 外发失败不分类：不重试、不降级、不换通道、不写状态，只记一行日志，调度继续。
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 外发失败，只记日志不重试：渠道={}，联系人={}，异常={}",
-                source.channel_id, source.remote_contact_id, send_error
+                "[远程IM] 自动发送 外发失败，只记日志不重试 渠道={} 异常={}",
+                source.channel_id, send_error
             ));
             return Err(send_error);
         }
@@ -658,8 +652,8 @@ async fn remote_im_auto_send_assistant_reply_to_source(
         // 成功只记时间戳，供回复冷却使用；扣能量已经在外发前完成。
         if let Err(err) = remote_im_mark_group_reply_success(state, &contact) {
             runtime_log_warn(format!(
-                "[群聊能量] 成功时间戳落盘失败：contact_id={}，error={}",
-                contact.id, err
+                "[远程IM] 成功时间戳落盘失败 错误={}",
+                err
             ));
         }
     }
@@ -709,7 +703,7 @@ async fn remote_im_auto_send_and_record_decision(
                 None,
             ) {
                 runtime_log_warn(format!(
-                    "[远程IM][自动发送] 发送已成功但决策回写失败，禁止重复发送，error={err}"
+                    "[远程IM] 自动发送 发送已成功但决策回写失败，禁止重复发送 错误={err}"
                 ));
             }
             Ok(RemoteImAutoSendExecutionOutcome::Sent { action })
@@ -717,8 +711,7 @@ async fn remote_im_auto_send_and_record_decision(
         Ok(None) => Ok(RemoteImAutoSendExecutionOutcome::SkippedEmptyReply),
         Err(err) if remote_im_auto_send_error_is_muted_gate(&err) => {
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 跳过，任务=外发，reason=闭嘴拦截，conversation_id={}，error={err}",
-                conversation_id
+                "[远程IM] 自动发送 跳过 任务=外发 原因=闭嘴拦截 错误={err}"
             ));
             if let Err(update_err) = update_remote_im_reply_decision_for_message(
                 state,
@@ -728,7 +721,7 @@ async fn remote_im_auto_send_and_record_decision(
                 Some(err.as_str()),
             ) {
                 runtime_log_warn(format!(
-                    "[远程IM][自动发送] 闭嘴拦截状态回写失败，error={update_err}"
+                    "[远程IM] 自动发送 闭嘴拦截状态回写失败 错误={update_err}"
                 ));
             }
             Ok(RemoteImAutoSendExecutionOutcome::SkippedMuted)
@@ -736,10 +729,8 @@ async fn remote_im_auto_send_and_record_decision(
         Err(err) => {
             // 外发失败必须留痕：不发出去的原因就在这里，吞掉就只剩「什么都没发生」。
             runtime_log_warn(format!(
-                "[远程IM][自动发送] 失败，任务=外发，contact_id={}，channel_id={}，conversation_id={}，reason={err}",
-                activation_source.remote_contact_id,
-                activation_source.channel_id,
-                conversation_id
+                "[远程IM] 自动发送 失败 任务=外发 渠道={} 原因={err}",
+                activation_source.channel_id
             ));
             if let Err(update_err) = update_remote_im_reply_decision_for_message(
                 state,
@@ -825,8 +816,8 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
         let (channel_label, contact_label) = remote_im_auto_send_log_labels(&state, &activation_source);
         let reply_preview = remote_im_preview_text(&assistant_text, 100);
         runtime_log_info(format!(
-            "[远程IM][自动发送] 开始：渠道={}，联系人={}，内容={}",
-            channel_label, contact_label, reply_preview
+            "[远程IM] 自动发送 开始 渠道={} 联系人={contact_label} 内容={}",
+            channel_label, reply_preview
         ));
         match remote_im_auto_send_and_record_decision(
             &state,
@@ -876,8 +867,8 @@ fn spawn_remote_im_auto_send_contact_assistant_reply(
                     &now_iso(),
                 );
                 runtime_log_warn(format!(
-                    "[外发] 失败：渠道={}，联系人={}，内容={}，异常={}",
-                    channel_label, contact_label, reply_preview, err
+                    "[远程IM] 失败 渠道={} 联系人={contact_label} 内容={} 异常={}",
+                    channel_label, reply_preview, err
                 ));
             }
         }
@@ -906,15 +897,15 @@ fn spawn_remote_im_auto_send_intermediate_text(
             // 发送成功由外发函数自己写「[外发] 完成」，这里不重复记一行。
             Ok(Some(_)) => {}
             Ok(None) => {
-                runtime_log_warn(format!(
-                    "[远程IM][中间外发] 跳过：渠道={}，联系人={}，原因=空回复",
-                    channel_label, contact_label
+                runtime_log_info(format!(
+                    "[远程IM] 中间外发 跳过 渠道={} 联系人={contact_label} 原因=空回复",
+                    channel_label
                 ));
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM][中间外发] 失败：渠道={}，联系人={}，内容={}，异常={}",
-                    channel_label, contact_label, reply_preview, err
+                    "[远程IM] 中间外发 失败 渠道={} 联系人={contact_label} 内容={} 异常={}",
+                    channel_label, reply_preview, err
                 ));
             }
         }
@@ -945,14 +936,7 @@ fn append_remote_im_delegate_tool_events_to_history(
         }
         if role.eq_ignore_ascii_case("tool") {
             let Some(assistant_event) = pending_assistant_event.as_ref() else {
-                runtime_log_debug(format!(
-                    "[远程应答委托] 跳过无配对 assistant 的工具事件，conversation_id={}，tool_call_id={}",
-                    conversation_id,
-                    event
-                        .get("tool_call_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                ));
+                runtime_log_debug("[委托] 跳过无配对 assistant 的工具事件".to_string());
                 continue;
             };
             conversation_service_v2().append_tool_event_to_assistant_message(

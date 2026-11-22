@@ -119,7 +119,7 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
             WindowsAction::ListWindows { line } => {
                 let windows = platform::list_all_windows();
                 runtime_log_info(format!(
-                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ListWindows，count={}",
+                    "[系统] 步骤完成 任务=run_windows_tool 行={} 类型=ListWindows 数量={}",
                     line,
                     windows.len()
                 ));
@@ -133,7 +133,7 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
             WindowsAction::ActivateWindow { line, window_id } => {
                 let (title, activated) = platform::activate_window(window_id);
                 runtime_log_info(format!(
-                    "[窗口工具] 步骤完成，任务=run_windows_tool，line={}，kind=ActivateWindow，title={title:?}，activated={activated}",
+                    "[系统] 步骤完成 任务=run_windows_tool 行={} 类型=ActivateWindow 标题={title} 已激活={activated}",
                     line
                 ));
                 steps.push(WindowsStepResult {

@@ -139,7 +139,7 @@ fn message_store_migration_lock() -> &'static std::sync::Mutex<()> {
 fn lock_message_store_migration() -> std::sync::MutexGuard<'static, ()> {
     message_store_migration_lock().lock().unwrap_or_else(|poison| {
         runtime_log_info(format!(
-            "[消息存储迁移] 迁移锁已污染，继续串行执行恢复，error={:?}",
+            "[存储] 迁移锁已污染，继续串行执行恢复 错误={}",
             poison
         ));
         poison.into_inner()
@@ -568,8 +568,8 @@ fn record_discarded_message_store_migration_item(
         status.discarded_count += 1;
     });
     runtime_log_warn(format!(
-        "[消息存储迁移] 放弃，任务=V1到V2会话迁移，conversation_id={}，title={}，reason={}",
-        item.conversation_id, item.title, reason
+        "[存储] 放弃 任务=V1到V2会话迁移 标题={} 原因={}",
+        item.title, reason
     ));
 }
 
@@ -666,7 +666,7 @@ fn spawn_message_store_migration_task(state: AppState) {
         Err(poison) => claim_running(&mut poison.into_inner()),
     };
     if !claimed {
-        runtime_log_info(format!("[消息存储迁移] 迁移已在进行中，忽略重复触发"));
+        runtime_log_info(format!("[存储] 迁移已在进行中，忽略重复触发"));
         return;
     }
     tauri::async_runtime::spawn(async move {

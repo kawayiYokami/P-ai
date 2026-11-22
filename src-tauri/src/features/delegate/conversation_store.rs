@@ -150,8 +150,7 @@ fn delegate_conversation_store_write(
     validate_delegate_conversation_for_write(conversation)?;
     if conversation.messages.is_empty() {
         runtime_log_info(format!(
-            "[委托会话] 跳过，任务=写入空委托会话，conversation_id={}",
-            conversation.id
+            "[委托] 会话 跳过 任务=写入空委托会话"
         ));
         return Ok(());
     }

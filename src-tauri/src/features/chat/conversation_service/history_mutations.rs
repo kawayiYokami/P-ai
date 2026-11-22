@@ -114,14 +114,14 @@ impl ConversationServiceV2 {
             match cleanup_backup_records_from_messages(&state.data_path, &cleanup_conversation.messages) {
                 Ok(cleaned) if cleaned > 0 => {
                     runtime_log_info(format!(
-                        "[会话删除] apply_patch 备份清理完成: conversation={}, cleaned={}",
-                        normalized_conversation_id, cleaned
+                        "[聊天] apply_patch 备份清理完成 清理={}",
+                        cleaned
                     ));
                 }
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[会话删除] apply_patch 备份清理失败: conversation={}, error={}",
-                        normalized_conversation_id, err
+                        "[聊天] apply_patch 备份清理失败 原因={}",
+                        err
                     ));
                 }
                 _ => {}
@@ -134,8 +134,8 @@ impl ConversationServiceV2 {
             }
             if let Err(err) = state_schedule_conversation_delete(state, &child_conversation_id) {
                 runtime_log_warn(format!(
-                    "[会话删除] 跳过，任务=级联删除追问会话，parent_conversation_id={}，conversation_id={}，error={}",
-                    normalized_conversation_id, child_conversation_id, err
+                    "[聊天] 跳过 任务=级联删除追问会话 原因={}",
+                    err
                 ));
             }
             clear_conversation_list_activity_mark(state, &child_conversation_id);
@@ -152,8 +152,8 @@ impl ConversationServiceV2 {
                 },
             ) {
                 runtime_log_warn(format!(
-                    "[会话删除] 跳过，任务=移除父会话子关系，conversation_id={}，parent_conversation_id={}，error={}",
-                    normalized_conversation_id, parent_conversation_id, err
+                    "[聊天] 跳过 任务=移除父会话子关系 原因={}",
+                    err
                 ));
             }
         }
@@ -200,9 +200,9 @@ impl ConversationServiceV2 {
                         MainSessionState::AssistantStreaming => "助理流式输出",
                         MainSessionState::OrganizingContext => "整理上下文",
                     };
-                    runtime_log_error(format!(
-                        "[会话撤回] 失败，任务=rewind_conversation_from_message，conversation_id={}，原因=会话运行中，runtime_state={}",
-                        conversation_id, runtime_state_text
+                    runtime_log_warn(format!(
+                        "[聊天] 失败 任务=rewind_conversation_from_message 原因=会话运行中 运行态={}",
+                        runtime_state_text
                     ));
                     return Err("当前会话正在运行或整理上下文，完成后再撤回。".to_string());
                 }
@@ -363,9 +363,7 @@ impl ConversationServiceV2 {
             .filter(|record_id| apply_patch_record_path(&state.data_path, record_id).exists())
             .count();
         runtime_log_debug(format!(
-            "[会话撤回] 预览诊断，任务=preview_rewind_conversation，conversation_id={}，message_id={}，removed_messages={}，backup_record_ids={}，existing_backup_count={}，missing_backup_count={}",
-            conversation_id,
-            message_id,
+            "[聊天] 预览诊断 任务=preview_rewind_conversation 移除消息数={} 备份记录编号={} 已有备份数={} 缺失备份数={}",
             rewind_slice.removed_messages.len(),
             backup_record_ids.len(),
             existing_backup_count,
@@ -599,16 +597,13 @@ fn emit_rewind_completed_event(
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[会话撤回] 广播 rewind_completed 跳过: app_handle unavailable, conversation_id={}",
-            conversation_id
-        ));
+        runtime_log_debug("[聊天] 广播 rewind_completed 跳过: app_handle unavailable".to_string());
         return;
     };
     if let Err(err) = app_handle.emit(CHAT_REWIND_COMPLETED_EVENT, payload) {
         runtime_log_error(format!(
-            "[会话撤回] 广播 rewind_completed 失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] 广播 rewind_completed 失败 原因={}",
+            err
         ));
     }
 }

@@ -25,8 +25,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     };
     if context.remote_im_reply_delegate_id.is_some() {
         runtime_log_warn(format!(
-            "[远程应答委托] 跳过，任务=工具续调前自动整理，conversation_id={}，reason=frozen_delegate_snapshot",
-            context.conversation_id
+            "[聊天] 跳过 任务=工具续调前自动整理 原因=frozen_delegate_snapshot"
         ));
         return Ok(false);
     }
@@ -43,8 +42,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     )?
     else {
         runtime_log_warn(format!(
-            "[聊天] 工具续调前上下文整理检查 跳过 conversation_id={} 原因=会话不存在或已归档",
-            context.conversation_id
+            "[聊天] 工具续调前上下文整理检查 跳过 原因=会话不存在或已归档"
         ));
         return Ok(false);
     };
@@ -67,8 +65,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         context.round_after_context_compaction,
     );
     runtime_log_info(format!(
-        "[聊天] 工具续调前上下文整理检查 conversation_id={} should_archive={} forced={} usage_ratio={:.4} source={} reason={} effective_prompt_tokens={} context_window_tokens={} estimated={}",
-        context.conversation_id,
+        "[聊天] 工具续调前上下文整理检查 是否归档={} 强制={} 使用率={:.4} 来源={} 原因={} 有效输入={} 窗口={} 估算={}",
         decision.should_archive,
         decision.forced,
         decision.usage_ratio,
@@ -135,13 +132,12 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         .filter(|value| !value.is_empty())
     {
         runtime_log_warn(format!(
-            "[聊天] 工具续调前上下文整理 完成 conversation_id={} warning={}",
-            context.conversation_id, warning
+            "[聊天] 工具续调前上下文整理 完成 警告={}",
+            warning
         ));
     } else {
         runtime_log_info(format!(
-            "[聊天] 工具续调前上下文整理 完成 conversation_id={} usage_ratio_before={:.4} source={} reason={} forced={} effective_prompt_tokens={} estimated_prompt_tokens={}",
-            context.conversation_id,
+            "[聊天] 工具续调前上下文整理 完成 使用率={:.4} 来源={} 原因={} 强制={} 有效输入={} 估算输入={}",
             usage.usage_ratio,
             decision_source,
             decision.reason,
@@ -185,23 +181,17 @@ fn persist_tool_loop_compaction_checkpoint(
             context.assistant_message_id.as_deref(),
         )?;
         runtime_log_info(format!(
-            "[上下文整理] 完成，任务=interrupt_checkpoint，conversation_id={}，reason={}，persisted={}，assistant_message_id={}，tool_event_count={}",
-            context.conversation_id,
+            "[聊天] 完成 任务=interrupt_checkpoint 原因={} 已持久化={} 工具事件数={}",
             reason,
             persist_result.persisted,
-            persist_result
-                .assistant_message
-                .as_ref()
-                .map(|message| message.id.as_str())
-                .unwrap_or(""),
             history_for_checkpoint.len()
         ));
         clear_inflight_completed_tool_history(state, chat_session_key)?;
         persist_result
     } else {
         runtime_log_warn(format!(
-            "[上下文整理] 跳过，任务=interrupt_checkpoint，conversation_id={}，reason={}，原因=无可落盘内容",
-            context.conversation_id, reason
+            "[聊天] 跳过 任务=打断检查点 原因={} 处置=无可落盘内容",
+            reason
         ));
         StopChatPersistResult {
             persisted: false,
@@ -222,8 +212,8 @@ fn persist_tool_loop_compaction_checkpoint(
         .collect::<Vec<_>>();
     if let Err(err) = clear_conversation_stream_runtime_cache(state, &context.conversation_id) {
         runtime_log_warn(format!(
-            "[聊天流式缓存] 压缩前清理失败 conversation_id={} reason={} error={}",
-            context.conversation_id, reason, err
+            "[聊天] 压缩前清理失败 原因={} 错误={}",
+            reason, err
         ));
     }
     let refreshed_source = tool_loop_active_conversation_snapshot(state, &context.conversation_id)?

@@ -243,7 +243,7 @@ fn attachment_preview_data_url(path: &std::path::Path, mime: &str) -> Option<Str
                 Some(data_url)
             } else {
                 runtime_log_debug(format!(
-                    "[附件传输] 跳过过大的图片预览：path={}，preview_bytes={}，max_bytes={}",
+                    "[聊天] 跳过过大的图片预览 文件={} 预览字节={} 上限字节={}",
                     path.to_string_lossy(),
                     data_url.len(),
                     ATTACHMENT_PREVIEW_MAX_BYTES
@@ -253,7 +253,7 @@ fn attachment_preview_data_url(path: &std::path::Path, mime: &str) -> Option<Str
         }
         Ok(render) => {
             runtime_log_debug(format!(
-                "[附件传输] 跳过过大的图片预览：path={}，preview_bytes={}，max_bytes={}",
+                "[聊天] 跳过过大的图片预览 文件={} 预览字节={} 上限字节={}",
                 path.to_string_lossy(),
                 render.bytes.len(),
                 ATTACHMENT_PREVIEW_MAX_BYTES
@@ -262,7 +262,7 @@ fn attachment_preview_data_url(path: &std::path::Path, mime: &str) -> Option<Str
         }
         Err(err) => {
             runtime_log_debug(format!(
-                "[附件传输] 跳过无法生成的图片预览：path={}，error={}",
+                "[聊天] 跳过无法生成的图片预览 文件={} 错误={}",
                 path.to_string_lossy(),
                 err
             ));
@@ -390,7 +390,7 @@ fn attachment_transfer_schedule_expiration(transfer_id: String) {
             attachment_transfer_remove_entry(&transfer_id, &entry);
             attachment_transfer_remove_staging(staging_path).await;
             runtime_log_warn(format!(
-                "[附件传输] 清理超时会话：transfer_id={}，状态=完成",
+                "[聊天] 清理超时会话 传输={} 状态=完成",
                 transfer_id
             ));
             break;
@@ -715,7 +715,7 @@ async fn attachment_transfer_abort_owner(owner: &str) {
         drop(session);
         attachment_transfer_remove_staging(staging_path).await;
         runtime_log_warn(format!(
-            "[附件传输] 连接断开后清理会话：transfer_id={}，状态=完成",
+            "[聊天] 连接断开后清理会话 传输={} 状态=完成",
             transfer_id
         ));
     }

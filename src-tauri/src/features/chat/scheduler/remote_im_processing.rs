@@ -144,9 +144,8 @@ async fn process_persisted_remote_im_events_individually_now(
         };
         let source = remote_im_activation_source_from_sender(sender);
         let Some(contact) = remote_im_resolve_secretary_contact(state, std::slice::from_ref(&source))? else {
-            runtime_log_warn(format!(
-                "[远程联系人秘书] 跳过，任务=按事件解析联系人，conversation_id={}，event_id={}",
-                conversation_id, event.id
+            runtime_log_info(format!(
+                "[聊天] 跳过 任务=按事件解析联系人"
             ));
             continue;
         };
@@ -154,8 +153,8 @@ async fn process_persisted_remote_im_events_individually_now(
             Ok(value) => value,
             Err(err) => {
                 runtime_log_error(format!(
-                    "[远程联系人秘书] 失败，任务=解析助理上下文，conversation_id={}，contact_id={}，event_id={}，error={}",
-                    conversation_id, contact.id, event.id, err
+                    "[聊天] 失败 任务=解析助理上下文 原因={}",
+                    err
                 ));
                 continue;
             }
@@ -173,8 +172,7 @@ async fn process_persisted_remote_im_events_individually_now(
             .collect::<Vec<_>>();
         let Some(first_event_message_index) = event_message_indexes.first().copied() else {
             runtime_log_error(format!(
-                "[远程联系人秘书] 失败，任务=定位已落库事件消息，conversation_id={}，contact_id={}，event_id={}",
-                conversation_id, contact.id, event.id
+                "[聊天] 失败 任务=定位已落库事件消息"
             ));
             continue;
         };
@@ -188,9 +186,8 @@ async fn process_persisted_remote_im_events_individually_now(
             .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
             .cloned()
         else {
-            runtime_log_warn(format!(
-                "[远程联系人秘书] 跳过，任务=事件没有用户消息，conversation_id={}，contact_id={}，event_id={}",
-                conversation_id, contact.id, event.id
+            runtime_log_info(format!(
+                "[聊天] 跳过 任务=事件没有用户消息"
             ));
             continue;
         };
@@ -214,8 +211,8 @@ async fn process_persisted_remote_im_events_individually_now(
         let work_ledger = build_remote_im_assistant_work_ledger(state, &contact.id, conversation_id)
             .unwrap_or_else(|err| {
                 runtime_log_warn(format!(
-                    "[助理工作账本] 降级，任务=秘书单事件判断，contact_id={}，error={}",
-                    contact.id, err
+                    "[聊天] 降级 任务=秘书单事件判断 联系人={} 原因={}",
+                    remote_im_contact_log_label(&contact), err
                 ));
                 "（无）".to_string()
             });
@@ -223,7 +220,7 @@ async fn process_persisted_remote_im_events_individually_now(
             remote_im_reply_delegate_active_ids_for_contact(state, &contact.id)?;
         // 环节 3：应答判断。点名直接放行，其余交给快速模型；开始与结束各一条，结论不在这里展开。
         runtime_log_info(format!(
-            "[应答判断] 开始：联系人={}，方式={}",
+            "[聊天] 开始 联系人={} 方式={}",
             remote_im_contact_log_label(&contact),
             if must_reply_override { "点名，跳过" } else { "快速模型" }
         ));
@@ -255,8 +252,8 @@ async fn process_persisted_remote_im_events_individually_now(
                 }
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[应答判断] 降级：快速模型失败，按不回处理，contact_id={}，error={}",
-                        contact.id, err
+                        "[聊天] 降级：快速模型失败，按不回处理 联系人={} 原因={}",
+                        remote_im_contact_log_label(&contact), err
                     ));
                     RemoteImSecretaryDecision {
                         should_reply: false,
@@ -269,7 +266,7 @@ async fn process_persisted_remote_im_events_individually_now(
             }
         };
         runtime_log_info(format!(
-            "[应答判断] 结束：联系人={}，应回={}，模型={}，原因={}",
+            "[聊天] 结束 联系人={} 应回={} 模型={} 原因={}",
             remote_im_contact_log_label(&contact),
             remote_im_yes_no(decision.should_reply),
             if decision.model_name.trim().is_empty() {
@@ -287,8 +284,8 @@ async fn process_persisted_remote_im_events_individually_now(
         if remote_im_contact_is_muted(state, &contact.id)? {
             clear_remote_im_debounces_for_contact(state, &contact.id)?;
             runtime_log_info(format!(
-                "[远程联系人防抖] 跳过，任务=发起应答，contact_id={}，reason=联系人处于闭嘴状态",
-                contact.id
+                "[聊天] 跳过 任务=发起应答 联系人={} 原因=联系人处于闭嘴状态",
+                remote_im_contact_log_label(&contact)
             ));
             continue;
         }
@@ -307,14 +304,13 @@ async fn process_persisted_remote_im_events_individually_now(
                 Ok(()) => {
                     outcome = RemoteImReplyDispatchOutcome::DispatchStarted;
                     runtime_log_info(format!(
-                        "[应答委托] 引导已投递：delegate_id={}，contact_id={}，event_id={}",
-                        target_delegate_id, contact.id, event.id
+                        "[聊天] 引导已投递"
                     ));
                     continue;
                 }
                 Err(err) => runtime_log_warn(format!(
-                    "[应答委托] 跳过：目标委托已结束，改为新建委托，delegate_id={}，contact_id={}，event_id={}，error={}",
-                    target_delegate_id, contact.id, event.id, err
+                    "[聊天] 跳过：目标委托已结束，改为新建委托 原因={}",
+                    err
                 )),
             }
         }
@@ -335,8 +331,8 @@ async fn process_persisted_remote_im_events_individually_now(
             ) {
                 force_memory_prompt_snapshot = true;
                 runtime_log_warn(format!(
-                    "[群聊巡检] 在场状态、压缩或计时刷新降级，contact_id={}，error={}",
-                    contact.id, err
+                    "[聊天] 在场状态、压缩或计时刷新降级 联系人={} 原因={}",
+                    remote_im_contact_log_label(&contact), err
                 ));
             }
         } else if let Err(err) = remote_im_mark_contact_present_and_schedule(
@@ -346,8 +342,8 @@ async fn process_persisted_remote_im_events_individually_now(
             "巡检决定通知远程应答委托",
         ) {
             runtime_log_warn(format!(
-                "[群聊巡检] 在场状态或计时刷新降级，contact_id={}，error={}",
-                contact.id, err
+                "[聊天] 在场状态或计时刷新降级 联系人={} 原因={}",
+                remote_im_contact_log_label(&contact), err
             ));
         }
         let dispatch_policy = inspection.map(|entry| RemoteImGroupReplyDispatchPolicy {
@@ -399,8 +395,8 @@ fn schedule_remote_im_persisted_event_observe_retry(
     const MAX_ATTEMPTS: u8 = 6;
     if attempt >= MAX_ATTEMPTS {
         runtime_log_warn(format!(
-            "[群聊巡检] 联系人解析连续失败，消息已正常落库并等待后续入站恢复，event_id={}，attempts={}",
-            event.id, attempt
+            "[聊天] 联系人解析连续失败，消息已正常落库并等待后续入站恢复 尝试次数={}",
+            attempt
         ));
         return;
     }
@@ -414,14 +410,12 @@ fn schedule_remote_im_persisted_event_observe_retry(
         let source = remote_im_activation_source_from_sender(sender);
         match remote_im_resolve_secretary_contact(&state, std::slice::from_ref(&source)) {
             Ok(Some(contact)) => observe_remote_im_persisted_event(&state, &contact, &event),
-            Ok(None) => runtime_log_warn(format!(
-                "[群聊巡检] 联系人已不存在或不再允许巡检，消息保留但停止重试，event_id={}",
-                event.id
+            Ok(None) => runtime_log_info(format!(
+                "[聊天] 联系人已不存在或不再允许巡检，消息保留但停止重试"
             )),
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[群聊巡检] 联系人解析重试失败，批次仍保留，event_id={}，attempt={}，error={}",
-                    event.id,
+                    "[聊天] 联系人解析重试失败，批次仍保留 尝试={} 原因={}",
                     attempt.saturating_add(1),
                     err
                 ));
@@ -457,8 +451,8 @@ async fn process_persisted_remote_im_events_individually(
             Ok(None) => continue,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[群聊巡检] 入站降级，event_id={}，reason=联系人解析失败，error={}",
-                    event.id, err
+                    "[聊天] 入站降级 原因=联系人解析失败 错误={}",
+                    err
                 ));
                 schedule_remote_im_persisted_event_observe_retry(state, event.clone(), 0);
                 continue;
@@ -483,8 +477,8 @@ async fn process_remote_im_reply_debounce(
     if remote_im_contact_is_muted(state, &contact.id)? {
         clear_remote_im_debounces_for_contact(state, &contact.id)?;
         runtime_log_info(format!(
-            "[远程联系人防抖] 跳过，任务=定时触发，contact_id={}，reason=联系人处于闭嘴状态",
-            contact.id
+            "[聊天] 跳过 任务=定时触发 联系人={} 原因=联系人处于闭嘴状态",
+            remote_im_contact_log_label(&contact)
         ));
         return Ok(RemoteImReplyDispatchOutcome::NoReply);
     }
@@ -612,10 +606,8 @@ fn filter_remote_im_follow_up_sources_for_pending_queue(
             let has_pending_queue =
                 remote_im_source_has_pending_queue_event(state, conversation_id, source);
             if has_pending_queue {
-                runtime_log_warn(format!(
-                    "[远程联系人状态机] 待办续跑跳过: conversation_id={}，remote_contact_id={}，reason=等待队列消息先写入历史",
-                    conversation_id,
-                    source.remote_contact_id
+                runtime_log_info(format!(
+                    "[聊天] 待办续跑跳过 原因=等待队列消息先写入历史"
                 ));
             }
             !has_pending_queue

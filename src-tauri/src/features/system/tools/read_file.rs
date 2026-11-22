@@ -1263,7 +1263,7 @@ async fn builtin_read_media(
         let media = read_media_normalize_provider_image(mime, raw)?;
         let content_base64 = B64.encode(&media.bytes);
         runtime_log_debug(format!(
-            "[read_media] 直接返回图片：模型支持图片输入，mime={}，字节数={}，description={}",
+            "[工具] 直接返回图片：模型支持图片输入 格式={} 字节数={} 描述={}",
             media.mime,
             media.bytes.len(),
             if description_text.is_empty() { "<空>" } else { description_text.as_str() }
@@ -1304,7 +1304,7 @@ async fn builtin_read_media(
         }
         ReadMediaDetectedType::Audio if !selected_api.enable_audio => {
             runtime_log_debug(format!(
-                "[read_media] 跳过，媒体类型=音频，原因=模型未启用音频输入，api_id={}，api_name={}，api_url={}，模型={}",
+                "[工具] 跳过 媒体类型=音频 原因=模型未启用音频输入 模型配置={} 模型配置名={} 接口地址={} 模型={}",
                 selected_api.id, selected_api.name, selected_api.base_url, selected_api.model
             ));
             return Err("无法解析音频：多模态分析模型未启用音频输入。请告知用户在多模态模型配置中开启音频输入，或更换支持音频的多模态模型。".to_string());
@@ -1335,13 +1335,13 @@ async fn builtin_read_media(
         genai::adapter::AdapterKind::OpenAI,
     );
     runtime_log_debug(format!(
-        "[read_media 路由] configured_request_format={:?}，effective_request_format={:?}，base_url={}，model={}，adapter={:?}，adapter_source={:?}，route_family={}",
+        "[工具] 配置请求格式={} 生效请求格式={} 接口地址={} 模型={} 适配器={} 适配器来源={} 路由族={}",
         configured_request_format,
         resolved_api.request_format,
         resolved_api.base_url,
         selected_api.model,
         resolved_protocol.adapter_kind,
-        resolved_protocol.source,
+        resolved_protocol.source.as_str(),
         route_family.as_str(),
     ));
     if detected == ReadMediaDetectedType::Audio && use_opencode_qwen_compat {
@@ -1620,7 +1620,7 @@ impl ReadFileReader for PdfFileReader {
             Ok(value) => value,
             Err(err) if include_images && !is_pdf_page_limit_exceeded_error(&err) => {
                 runtime_log_warn(format!(
-                    "[read] PDF 页图提取失败，降级为文本读取，file={}，err={}",
+                    "[工具] PDF 页图提取失败，降级为文本读取 文件={} 错误={}",
                     path.display(),
                     err
                 ));
@@ -2027,8 +2027,7 @@ async fn builtin_read_file(
         }
     };
     runtime_log_info(format!(
-        "[read] 开始，任务=read，session_id={}，api_config_id={}，{}，detected_type={}",
-        session_id,
+        "[工具] 开始 任务=read 模型配置={}，{} 识别类型={}",
         api_config_id,
         read_file_log_target(&path),
         detected.as_str()
@@ -2085,16 +2084,14 @@ async fn builtin_read_file(
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match &result {
         Ok(_) => runtime_log_info(format!(
-            "[read] 完成，任务=read，session_id={}，api_config_id={}，reader={}，detected_type={}，elapsed_ms={}",
-            session_id,
+            "[工具] 完成 任务=read 模型配置={} 读取器={} 识别类型={} 耗时={}",
             api_config_id,
             reader_kind,
             detected.as_str(),
             elapsed_ms
         )),
         Err(err) => runtime_log_error(format!(
-            "[read] 失败，任务=read，session_id={}，api_config_id={}，reader={}，detected_type={}，elapsed_ms={}，error={}",
-            session_id,
+            "[工具] 失败 任务=read 模型配置={} 读取器={} 识别类型={} 耗时={} 错误={}",
             api_config_id,
             reader_kind,
             detected.as_str(),

@@ -37,8 +37,8 @@ fn task_tool_target_scope_from_conversation(
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[任务] target_scope解析失败: conversation_id={}, error={}",
-                conversation_id, err
+                "[工具] target_scope解析失败 原因={}",
+                err
             ));
             None
         }
@@ -248,10 +248,9 @@ async fn builtin_task(
                     .ok_or_else(|| "task.trigger is required for action=create".to_string())?,
             };
             runtime_log_info(format!(
-                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} todo_present={}",
+                "[工具] 状态=开始 动作=create 请求编号={} 目标={} 触发={} 带待办={}",
                 runtime_context.request_id.as_deref().unwrap_or(""),
                 create_input.goal.trim(),
-                create_input.conversation_id.as_deref().unwrap_or(""),
                 serde_json::to_string(&create_input.trigger)
                     .unwrap_or_else(|_| "<invalid trigger>".to_string()),
                 !create_input.todo.trim().is_empty()
@@ -281,7 +280,7 @@ async fn builtin_task(
                 completion_conclusion: args.completion_conclusion.unwrap_or_default(),
             };
             runtime_log_info(format!(
-                "[任务] 状态=开始 action=complete task_id={} completion_state={}",
+                "[工具] 状态=开始 动作=complete 任务编号={} 完成状态={}",
                 complete_input.task_id,
                 complete_input.completion_state
             ));

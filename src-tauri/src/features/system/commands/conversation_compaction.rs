@@ -128,8 +128,8 @@ pub(crate) async fn run_context_compaction_pipeline(
         MainSessionState::OrganizingContext,
     )?;
     runtime_log_debug(format!(
-        "[归档流程] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
-        trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
+        "[存储] 开始 任务=context_compaction 追踪={} 模型配置={} 开始时间={}",
+        trace_id, selected_api.id, started_at.elapsed().as_millis()
     ));
 
     let result = run_context_compaction_pipeline_inner(
@@ -180,13 +180,13 @@ pub(crate) async fn run_context_compaction_pipeline(
         set_conversation_runtime_state_and_emit(state, &source.id, MainSessionState::Idle)
     {
         runtime_log_error(format!(
-            "[归档流程] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
+            "[存储] 警告: 状态恢复失败 追踪={} 耗时={} 错误={}",
             trace_id, elapsed_ms, state_err
         ));
     } else {
         runtime_log_debug(format!(
-            "[归档流程] 完成: task=context_compaction, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
-            trace_id, effective_agent_id, selected_api.id, elapsed_ms
+            "[存储] 完成 任务=context_compaction 追踪={} 模型配置={} 耗时={}",
+            trace_id, selected_api.id, elapsed_ms
         ));
     }
 
@@ -231,10 +231,9 @@ async fn run_context_compaction_pipeline_inner(
             &active_conversation_id,
             "no_assistant_reply_deleted",
         );
-        runtime_log_info(format!(
-            "[归档流程] 整理前直接删除：conversation_id={}, reason=no_assistant_reply_deleted, next_conversation_id={}",
-            source.id, active_conversation_id
-        ));
+        runtime_log_info(
+            "[存储] 整理前直接删除 原因=no_assistant_reply_deleted".to_string(),
+        );
         return Ok(ForceArchiveResult {
             archived: false,
             archive_id: None,
@@ -253,7 +252,7 @@ async fn run_context_compaction_pipeline_inner(
     let compaction_source = conversation_service_v2()
         .read_archive_pipeline_last_block_conversation(state, &source.id)
         .map_err(|err| format!("读取消息锚定压缩上下文失败：{}", err))?;
-    let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
+    let (owner_agent, _owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
     let preserved_dialogue = conversation_service_v2()
         .read_block_preserved_dialogue(
             state,
@@ -267,14 +266,12 @@ async fn run_context_compaction_pipeline_inner(
         .map_err(|err| format!("读取 block 保留对话失败：{}", err))?;
 
     runtime_log_debug(format!(
-        "[{}] trace={} 开始，api={} model={} format={} conversation={} ownerAgent={}",
+        "[聊天] 标签={} 追踪={} 开始 接口={} 模型={} 格式={}",
         trace_tag,
         trace_id,
         selected_api.id,
         selected_api.model,
-        resolved_api.request_format,
-        source.id,
-        owner_agent_id
+        resolved_api.request_format
     ));
 
     let (summary_draft, compaction_warning) = summarize_compaction_with_fallback(
@@ -320,49 +317,43 @@ async fn run_context_compaction_pipeline_inner(
         refreshed_user_profile_snapshot,
     )?;
     let active_conversation_id = persist_result.active_conversation_id;
-    let compression_message_id = persist_result.compression_message_id;
-    runtime_log_info(format!(
-        "[归档流程] 上下文整理消息写入校验通过: conversation_id={}, message_id={}",
-        source.id, compression_message_id
-    ));
+    let _compression_message_id = persist_result.compression_message_id;
+    runtime_log_info("[存储] 上下文整理消息写入校验通过".to_string());
     // 压缩后刷新该会话的项目 Skill 缓存，下次装配提示词时重新扫描当前项目 `.pai/skills`。
     invalidate_conversation_project_skills(state, &source.id);
     if let Err(err) = update_conversation_todos_and_emit(state, &source.id, Vec::new()) {
         runtime_log_warn(format!(
-            "[归档流程] 清空会话待办失败: conversation_id={}, error={}",
-            source.id, err
+            "[存储] 清空会话待办失败 错误={}",
+            err
         ));
     } else {
-        runtime_log_info(format!(
-            "[归档流程] 清空会话待办完成: conversation_id={}",
-            source.id
-        ));
+        runtime_log_info("[存储] 清空会话待办完成".to_string());
     }
     match clear_apply_patch_temp(&state.data_path) {
         Ok((record_count, blob_count)) => {
             runtime_log_info(format!(
-                "[apply_patch缓存] 完成，任务=clear_temp_on_compaction，conversation_id={}，记录条数={}，备份条数={}",
-                source.id, record_count, blob_count
+                "[工具] 完成 任务=clear_temp_on_compaction 记录条数={} 备份条数={}",
+                record_count, blob_count
             ));
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[apply_patch缓存] 失败，任务=clear_temp_on_compaction，conversation_id={}，error={}",
-                source.id, err
+                "[工具] 失败 任务=clear_temp_on_compaction 错误={}",
+                err
             ));
         }
     }
     match clear_operate_screenshots_temp(&state.data_path, &source.id) {
         Ok((file_count, dir_count)) => {
             runtime_log_info(format!(
-                "[operate截图缓存] 完成，任务=clear_temp_on_compaction，conversation_id={}，截图文件数={}，子目录数={}",
-                source.id, file_count, dir_count
+                "[系统] 完成 任务=clear_temp_on_compaction 截图文件数={} 子目录数={}",
+                file_count, dir_count
             ));
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[operate截图缓存] 失败，任务=clear_temp_on_compaction，conversation_id={}，error={}",
-                source.id, err
+                "[系统] 失败 任务=clear_temp_on_compaction 错误={}",
+                err
             ));
         }
     }
@@ -375,9 +366,8 @@ async fn run_context_compaction_pipeline_inner(
     );
 
     runtime_log_debug(format!(
-        "[SummaryContext] 完成，场景=compaction，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_applied={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
+        "[聊天] 完成 场景=compaction 追踪={} 合并记忆数={} 合并组数={} 画像应用数={} 画像跳过数={} 有用采纳数={} 降权数={} 自然衰减数={}",
         trace_id,
-        source.id,
         applied_report.merged_memories,
         applied_report.merged_groups,
         applied_report.applied_profile_memories,

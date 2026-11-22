@@ -51,7 +51,7 @@ async fn parse_and_enqueue_onebot_event(
     manager: &OnebotV11WsManager,
 ) -> Result<RemoteImEnqueueResult, String> {
     runtime_log_info(format!(
-        "[远程IM][OneBot v11 事件][trace] channel_id={}, message_type={}, user_id={}, message_id={}",
+        "[远程IM] 收到事件 渠道={} 类型={} 发送者={}",
         channel_id,
         event
             .get("message_type")
@@ -59,10 +59,6 @@ async fn parse_and_enqueue_onebot_event(
             .unwrap_or("unknown"),
         event
             .get("user_id")
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        event
-            .get("message_id")
             .map(|v| v.to_string())
             .unwrap_or_else(|| "unknown".to_string())
     ));
@@ -221,7 +217,7 @@ async fn parse_and_enqueue_onebot_event(
             onebot_persist_group_member_cache(state, channel_id, &group_id, group_members)
         {
             runtime_log_warn(format!(
-                "[群聊入站] 群成员缓存更新失败，不影响消息入队，channel_id={}，group_id={}，error={}",
+                "[远程IM] 群成员缓存更新失败，不影响消息入队 渠道={} 群={} 原因={}",
                 channel_id, group_id, err
             ));
         }
@@ -264,7 +260,7 @@ async fn napcat_run_event_consumer_loop(
             }
         };
 
-        runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 开始消费事件", channel_id));
+        runtime_log_info(format!("[远程IM] 渠道 {} 开始消费事件", channel_id));
         manager.add_log(&channel_id, "info", "事件消费器已启动").await;
 
         loop {
@@ -278,24 +274,24 @@ async fn napcat_run_event_consumer_loop(
                             }
 
                             match parse_and_enqueue_onebot_event(&channel_id, &event, &state, &manager).await {
-                                Ok(result) => {
-                                    runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 入队成功: 事件ID={}", channel_id, result.event_id));
+                                Ok(_) => {
+                                    runtime_log_info(format!("[远程IM] 渠道 {} 入队成功", channel_id));
                                 }
                                 Err(err) if err.contains("跳过") => {
                                     // 正常跳过（联系人未开启、内容为空等），仅输出调试日志，不写渠道日志
-                                    runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} {}", channel_id, err));
+                                    runtime_log_info(format!("[远程IM] 渠道 {} 事件处理失败 原因={}", channel_id, err));
                                 }
                                 Err(err) => {
-                                    runtime_log_error(format!("[远程IM][OneBot v11 事件] 渠道 {} 入队失败: {}", channel_id, err));
+                                    runtime_log_error(format!("[远程IM] 渠道 {} 入队失败 原因={}", channel_id, err));
                                     manager.add_log(&channel_id, "warn", &format!("消息入队失败: {}", err)).await;
                                 }
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 落后 {} 条事件", channel_id, n));
+                            runtime_log_info(format!("[远程IM] 渠道 {} 落后 {} 条事件", channel_id, n));
                         }
                         Err(broadcast::error::RecvError::Closed) => {
-                            runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 事件通道关闭", channel_id));
+                            runtime_log_info(format!("[远程IM] 渠道 {} 事件通道关闭", channel_id));
                             break;
                         }
                     }
@@ -304,7 +300,7 @@ async fn napcat_run_event_consumer_loop(
                     match changed {
                         Ok(()) => {
                             if *stop_rx.borrow() {
-                                runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 收到消费器停止信号", channel_id));
+                                runtime_log_info(format!("[远程IM] 渠道 {} 收到消费器停止信号", channel_id));
                                 manager.add_log(&channel_id, "info", "事件消费器已停止").await;
                                 return;
                             }
@@ -313,7 +309,7 @@ async fn napcat_run_event_consumer_loop(
                     }
                 }
                 _ = cancel_token.cancelled() => {
-                    runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 收到取消信号，停止事件消费", channel_id));
+                    runtime_log_info(format!("[远程IM] 渠道 {} 收到取消信号，停止事件消费", channel_id));
                     manager.add_log(&channel_id, "info", "事件消费器已停止").await;
                     return; // 渠道已停止，完全退出消费循环
                 }
@@ -321,7 +317,7 @@ async fn napcat_run_event_consumer_loop(
         }
 
         // 事件通道关闭（客户端断开），按节流间隔等待重连
-        runtime_log_info(format!("[远程IM][OneBot v11 事件] 渠道 {} 等待重新连接...", channel_id));
+        runtime_log_info(format!("[远程IM] 渠道 {} 等待重新连接...", channel_id));
         tokio::select! {
             changed = stop_rx.changed() => {
                 match changed {
@@ -364,7 +360,7 @@ impl OnebotV11WsManager {
                         )
                         .await;
                         runtime_log_error(format!(
-                            "[远程IM][OneBot v11 事件] 停止消费器失败，已移除任务句柄: channel_id={}, error={}",
+                            "[远程IM] 停止消费器失败，已移除任务句柄 渠道={} 原因={}",
                             channel_id, err
                         ));
                     }
@@ -375,7 +371,7 @@ impl OnebotV11WsManager {
                     self.add_log(channel_id, "warn", "停止消费器超时，已强制中止")
                         .await;
                     runtime_log_error(format!(
-                        "[远程IM][OneBot v11 事件] 停止消费器超时，已强制中止: {}",
+                        "[远程IM] 停止消费器超时，已强制中止 渠道={}",
                         channel_id
                     ));
                 }

@@ -89,8 +89,7 @@ async fn switch_active_conversation_snapshot(
         }
         let unarchived_conversations = result.unarchived_conversations;
         runtime_log_debug(format!(
-            "[前台重型快照] 完成，conversation_id={}，message_count={}，has_more_history={}，summary_count={}，duration_ms={}",
-            snapshot.conversation_id,
+            "[聊天] 完成 消息数={} 还有历史={} 摘要数={} 耗时={}",
             snapshot.messages.len(),
             snapshot.has_more_history,
             unarchived_conversations.len(),
@@ -206,8 +205,7 @@ fn get_foreground_conversation_light_snapshot_blocking(
         stream_cache = Some(runtime_snapshot.stream_cache);
     }
     runtime_log_debug(format!(
-        "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",
-        snapshot.conversation_id,
+        "[聊天] 完成 消息数={} 还有历史={} 耗时={}",
         snapshot.messages.len(),
         snapshot.has_more_history,
         started_at.elapsed().as_millis()
@@ -349,7 +347,7 @@ fn set_conversation_plan_mode_inner(
     set_conversation_plan_mode_enabled(state, conversation_id, input.plan_mode_enabled)?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
-        "[计划模式] 完成，任务=切换会话运行时计划模式，会话ID={}，状态={}",
+        "[系统] 完成 任务=切换会话运行时计划模式 会话编号={} 状态={}",
         conversation_id,
         if input.plan_mode_enabled { "开启" } else { "关闭" }
     ));
@@ -424,8 +422,8 @@ async fn team_recruit_conversation_inner(
     team_ensure_role_available(state, &leader, &agent_id, &agent_name)?;
     let member = team_create_member(state, &leader, &agent_name, "", &agent_id).await?;
     runtime_log_info(format!(
-        "[队伍] 完成，任务=用户招募队员，会话ID={conversation_id}，role={}，conversation_id={}",
-        member.role, member.conversation_id
+        "[聊天] 完成 任务=用户招募队员 角色={}",
+        member.role
     ));
     Ok(TeamRecruitConversationOutput {
         conversation_id: member.conversation_id,
@@ -463,7 +461,7 @@ fn set_conversation_wheelchair_mode_inner(
     set_conversation_wheelchair_mode_enabled(state, conversation_id, input.wheelchair_mode_enabled)?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
-        "[护航] 完成，任务=切换会话运行时护航，会话ID={}，状态={}",
+        "[聊天] 完成 任务=切换会话运行时护航 会话编号={} 状态={}",
         conversation_id,
         if input.wheelchair_mode_enabled { "开启" } else { "关闭" }
     ));
@@ -509,7 +507,7 @@ fn dismiss_conversation_wheelchair_suggestion_inner(
         set_conversation_wheelchair_suggestion(state, conversation_id, None)?;
         emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
         runtime_log_info(format!(
-            "[护航] 完成，任务=清掉建议条，会话ID={}",
+            "[聊天] 完成 任务=清掉建议条 会话编号={}",
             conversation_id
         ));
     }
@@ -575,7 +573,7 @@ fn set_conversation_preferred_model_inner(
         .map(ToOwned::to_owned);
 
     runtime_log_info(format!(
-        "[会话模型] 开始，任务=切换会话首选模型，入口=tauri，会话ID={}，api_config_id={}",
+        "[聊天] 开始 任务=切换会话首选模型 入口=tauri 会话编号={} 模型配置={}",
         conversation_id,
         preferred_api_config_id.as_deref().unwrap_or("默认模型")
     ));
@@ -600,13 +598,12 @@ fn set_conversation_preferred_model_inner(
         resolved_preferred_api_config_id.as_deref(),
     ) {
         runtime_log_warn(format!(
-            "[会话模型] 跳过，任务=专家模型跟随用户选择，会话ID={conversation_id}，error={err}"
+            "[聊天] 跳过 任务=专家模型跟随用户选择 错误={err}"
         ));
     }
 
     runtime_log_info(format!(
-        "[会话模型] 完成，任务=切换会话首选模型，会话ID={}，api_config_id={}",
-        conversation_id,
+        "[聊天] 完成 任务=切换会话首选模型 模型配置={}",
         resolved_preferred_api_config_id.as_deref().unwrap_or("默认模型")
     ));
 
@@ -675,11 +672,7 @@ fn set_conversation_auto_push_remote_contact_inner(
     )?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
 
-    runtime_log_info(format!(
-        "[自动推送] 完成，任务=更新会话自动推送目标，会话ID={}，remote_contact_id={}",
-        conversation_id,
-        remote_contact_id.as_deref().unwrap_or("关闭")
-    ));
+    runtime_log_info("[远程IM] 完成 任务=更新会话自动推送目标".to_string());
 
     Ok(SetConversationAutoPushRemoteContactOutput {
         conversation_id: conversation_id.to_string(),
@@ -775,9 +768,7 @@ fn create_side_chat_conversation_blocking(
     let title = side_chat.title.clone();
     side_chat_persist_record(state, parent_id, &side_chat)?;
     runtime_log_info(format!(
-        "[追问会话] 完成，任务=创建真实会话，parent_conversation_id={}，conversation_id={}，message_count={}，with_context={}",
-        parent_id,
-        side_chat_id,
+        "[聊天] 完成 任务=创建真实会话 消息数={} 带上下文={}",
         side_chat.messages.len(),
         with_context
     ));
@@ -1331,7 +1322,7 @@ fn build_branch_conversation_record_from_selection(
             Ok(snapshot) => snapshot,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[会话分支] 跳过，任务=构建用户画像快照，agent_id={}，error={}",
+                    "[会话分支] 跳过 任务=构建用户画像快照 agent_id={} error={}",
                     agent.id, err
                 ));
                 None
@@ -1484,10 +1475,7 @@ async fn open_draft_conversation_inner(
                 is_draft: Some(true), conversation_kind: None,
             };
             let result = conversation_service_v2().create_conversation(&app_state, &input)?;
-            runtime_log_info(format!(
-                "[会话草稿] 完成，任务=创建备用草稿，conversation_id={}",
-                result.conversation_id
-            ));
+            runtime_log_info("[聊天] 完成 任务=创建备用草稿".to_string());
             Ok(OpenDraftConversationOutput {
                 conversation_id: result.conversation_id,
                 created: true,
@@ -1513,9 +1501,7 @@ fn reset_draft_team_state(state: &AppState, conversation_id: &str) -> Result<(),
         conversation.team.pending_member_agents.clear();
         Ok(())
     })?;
-    runtime_log_info(format!(
-        "[队伍] 完成，任务=重置草稿组队模式为单人，会话ID={conversation_id}"
-    ));
+    runtime_log_info("[聊天] 完成 任务=重置草稿组队模式为单人".to_string());
     Ok(())
 }
 
@@ -1640,17 +1626,14 @@ fn emit_chat_error_cleared_event(state: &AppState, conversation_id: &str) {
         Err(_) => None,
     };
     let Some(app_handle) = app_handle else {
-        runtime_log_warn(format!(
-            "[聊天推送] chatErrorCleared emit 跳过: app_handle unavailable, conversation_id={}",
-            conversation_id
-        ));
+        runtime_log_debug("[聊天] chatErrorCleared emit 跳过: app_handle unavailable".to_string());
         return;
     };
     match app_handle.emit("easy-call:chat-error-cleared", payload) {
         Ok(_) => {}
         Err(err) => runtime_log_error(format!(
-            "[聊天推送] chatErrorCleared emit 失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] chatErrorCleared emit 失败 错误={}",
+            err
         )),
     }
 }
@@ -1688,9 +1671,7 @@ fn normalize_draft_agent_id(
     {
         return Ok(Some(candidate));
     }
-    runtime_log_warn(format!(
-        "[会话草稿] 跳过，任务=继承当前会话人格，原因=人格不存在或不可用，agent_id={candidate}"
-    ));
+    runtime_log_warn("[聊天] 跳过 任务=继承当前会话人格 原因=人格不存在或不可用".to_string());
     Ok(None)
 }
 
@@ -1717,31 +1698,20 @@ fn create_unarchived_conversation_blocking(
 ) -> Result<(CreateUnarchivedConversationOutput, UnarchivedConversationOverviewUpdatedPayload), String> {
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
-        "[会话] 开始，任务=新建未归档会话，agent_id={}，api_config_id={}，title_len={}，copy_source_conversation_id={}",
-        input.agent_id.as_deref().unwrap_or(""),
+        "[聊天] 开始 任务=新建未归档会话 模型配置={} 标题长度={}",
         input.api_config_id.as_deref().unwrap_or(""),
-        input.title.as_deref().unwrap_or("").chars().count(),
-        input.copy_source_conversation_id.as_deref().unwrap_or("")
+        input.title.as_deref().unwrap_or("").chars().count()
     ));
     let result = conversation_service_v2().create_conversation(state, &input)?;
     let conversation_id = result.conversation_id.clone();
     let overview_count = result.overview_payload.unarchived_conversations.len();
-    let preferred_conversation_id = result
-        .overview_payload
-        .preferred_conversation_id
-        .as_deref()
-        .unwrap_or("")
-        .to_string();
     runtime_log_info(format!(
-        "[会话] 完成，任务=新建未归档会话，阶段=创建并更新索引，conversation_id={}，preferred_conversation_id={}，overview_count={}，duration_ms={}",
-        conversation_id,
-        preferred_conversation_id,
+        "[聊天] 完成 任务=新建未归档会话 阶段=创建并更新索引 概览数={} 耗时={}",
         overview_count,
         started_at.elapsed().as_millis()
     ));
     runtime_log_info(format!(
-        "[会话] 完成，任务=新建未归档会话，阶段=返回前端，conversation_id={}，overview_count={}，duration_ms={}",
-        conversation_id,
+        "[聊天] 完成 任务=新建未归档会话 阶段=返回前端 概览数={} 耗时={}",
         overview_count,
         started_at.elapsed().as_millis()
     ));
@@ -1796,8 +1766,7 @@ fn export_conversation_share_json_inner(
     let payload_json = serde_json::to_string_pretty(&payload)
         .map_err(|err| format!("生成会话分享 JSON 失败: {err}"))?;
     runtime_log_info(format!(
-        "[会话分享] 完成，任务=导出会话，conversation_id={}，message_count={}",
-        conversation.id,
+        "[聊天] 完成 任务=导出会话 消息数={}",
         conversation.messages.len()
     ));
     Ok(ExportConversationShareOutput {
@@ -1902,9 +1871,7 @@ fn import_conversation_share_from_file(
         &conversation_id,
     );
     runtime_log_info(format!(
-        "[会话分享] 完成，任务=导入会话，conversation_id={}，agent_id={}，message_count={}",
-        conversation.id,
-        conversation.agent_id,
+        "[聊天] 完成 任务=导入会话 消息数={}",
         conversation.messages.len()
     ));
     Ok(CreateUnarchivedConversationOutput {
@@ -1991,9 +1958,7 @@ async fn branch_unarchived_conversation_from_current_internal(
         );
     }
     runtime_log_info(format!(
-        "[会话分支] 完成，任务=从当前会话创建分支，source_conversation_id={}，conversation_id={}，duration_ms={}",
-        source_conversation_id,
-        conversation_id,
+        "[聊天] 完成 任务=从当前会话创建分支 耗时={}",
         started_at.elapsed().as_millis()
     ));
     Ok(BranchUnarchivedConversationFromSelectionOutput {
@@ -2103,10 +2068,7 @@ async fn create_conversation_branch_from_message_internal(
         );
     }
     runtime_log_info(format!(
-        "[会话分支] 完成，任务=从此消息开始创建会话分支，source_conversation_id={}，conversation_id={}，turn_message_id={}，target_message_index={}，has_rewind_anchor={}，duration_ms={}",
-        source_conversation_id,
-        conversation_id,
-        turn_message_id,
+        "[聊天] 完成 任务=从此消息开始创建会话分支 目标消息序号={} 有回退锚点={} 耗时={}",
         target_message_index,
         rewind_anchor_index < branched_conversation.messages.len(),
         started_at.elapsed().as_millis()
@@ -2147,9 +2109,7 @@ async fn branch_unarchived_conversation_from_selection_internal(
         &result.conversation_id,
     );
     runtime_log_info(format!(
-        "[会话分支] 完成，任务=按已选消息创建会话分支，source_conversation_id={}，conversation_id={}，selected_count={}，has_compaction_seed={}",
-        source_conversation_id,
-        result.conversation_id,
+        "[聊天] 完成 任务=按已选消息创建会话分支 选中数={} 有压缩种子={}",
         result.selected_count,
         result.has_compaction_seed
     ));
@@ -2208,9 +2168,7 @@ async fn forward_unarchived_conversation_selection_inner(
         &result.target_conversation_id,
     );
     runtime_log_info(format!(
-        "[转发到会话] 完成，任务=转发已选消息到目标会话，source_conversation_id={}，target_conversation_id={}，message_count={}",
-        source_conversation_id,
-        result.target_conversation_id,
+        "[聊天] 完成 任务=转发已选消息到目标会话 消息数={}",
         result.forwarded_count
     ));
 
@@ -2270,10 +2228,7 @@ fn forward_selection_to_remote_im_contact_inner(
         &result.target_conversation_id,
     );
     runtime_log_info(format!(
-        "[转发到远程联系人] 完成，任务=转发已选消息到远程联系人会话，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_count={}",
-        source_conversation_id,
-        result.target_conversation_id,
-        result.remote_contact_id,
+        "[远程IM] 完成 任务=转发已选消息到远程联系人会话 消息数={}",
         result.forwarded_count
     ));
 
@@ -2308,8 +2263,8 @@ fn rename_unarchived_conversation_inner(
     )?;
 
     runtime_log_info(format!(
-        "[会话] 完成，任务=重命名会话，conversation_id={}，title={}",
-        conversation_id, next_title
+        "[聊天] 完成 任务=重命名会话 标题={}",
+        next_title
     ));
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
 
@@ -2374,9 +2329,7 @@ async fn rebind_unarchived_conversation_recipient_inner(
         .await?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
-        "[会话] 完成，任务=修复会话接收人，conversation_id={}，agent_id={}，preferred_api_config_id={}",
-        conversation_id,
-        agent_id,
+        "[聊天] 完成 任务=修复会话接收人 首选模型配置={}",
         preferred_api_config_id.as_deref().unwrap_or("")
     ));
     Ok(RebindUnarchivedConversationRecipientOutput {
@@ -2411,8 +2364,8 @@ fn toggle_unarchived_conversation_pin_inner(
         &input.conversation_id,
     )?;
     runtime_log_info(format!(
-        "[会话] 完成，任务=切换会话置顶，conversation_id={}，is_pinned={}",
-        result.conversation_id, result.is_pinned
+        "[聊天] 完成 任务=切换会话置顶 已置顶={}",
+        result.is_pinned
     ));
     emit_conversation_pin_updated_payload(
         state,
@@ -2464,7 +2417,7 @@ fn save_conversation_section_order_inner(
     }
     state_service_set_conversation_section_orders(state, &orders)?;
     runtime_log_info(format!(
-        "[会话分组排序] 完成，任务=保存会话分组顺序，tab={}，group_count={}",
+        "[聊天] 完成 任务=保存会话分组顺序 标签页={} 分组数={}",
         tab,
         ordered_keys.len()
     ));
@@ -2972,14 +2925,10 @@ fn list_conversation_delegate_statuses_inner(
     if root_conversation_id.is_empty() {
         return Err("conversationId 不能为空".to_string());
     }
-    runtime_log_debug(format!(
-        "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=active_threads，root_conversation_id={}",
-        root_conversation_id
-    ));
+    runtime_log_debug("[委托] 开始 任务=list_conversation_delegate_statuses 阶段=active_threads".to_string());
     let active_threads = delegate_runtime_thread_list(state)?;
     runtime_log_debug(format!(
-        "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=active_threads，root_conversation_id={}，thread_count={}",
-        root_conversation_id,
+        "[委托] 完成 任务=list_conversation_delegate_statuses 阶段=active_threads 线程数={}",
         active_threads.len()
     ));
     let active_ids = active_threads
@@ -3001,10 +2950,7 @@ fn list_conversation_delegate_statuses_inner(
             true,
         )?);
     }
-    runtime_log_debug(format!(
-        "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=recent_threads，root_conversation_id={}",
-        root_conversation_id
-    ));
+    runtime_log_debug("[委托] 开始 任务=list_conversation_delegate_statuses 阶段=recent_threads".to_string());
     for thread in delegate_recent_thread_list(state)? {
         if thread.root_conversation_id.trim() != root_conversation_id {
             continue;
@@ -3019,14 +2965,10 @@ fn list_conversation_delegate_statuses_inner(
         )?);
     }
     runtime_log_debug(format!(
-        "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=recent_threads，root_conversation_id={}，summary_count={}",
-        root_conversation_id,
+        "[委托] 完成 任务=list_conversation_delegate_statuses 阶段=recent_threads 摘要数={}",
         summaries.len()
     ));
-    runtime_log_debug(format!(
-        "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=persisted_snapshots，root_conversation_id={}",
-        root_conversation_id
-    ));
+    runtime_log_debug("[委托] 开始 任务=list_conversation_delegate_statuses 阶段=persisted_snapshots".to_string());
     for snapshot in delegate_persisted_snapshot_list_by_root(state, root_conversation_id)? {
         if !seen_ids.insert(snapshot.delegate_id.clone()) {
             continue;
@@ -3037,8 +2979,7 @@ fn list_conversation_delegate_statuses_inner(
         )?);
     }
     runtime_log_debug(format!(
-        "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=persisted_snapshots，root_conversation_id={}，summary_count={}",
-        root_conversation_id,
+        "[委托] 完成 任务=list_conversation_delegate_statuses 阶段=persisted_snapshots 摘要数={}",
         summaries.len()
     ));
     summaries.sort_by(|a, b| {
@@ -3047,8 +2988,7 @@ fn list_conversation_delegate_statuses_inner(
             .then_with(|| b.started_at.cmp(&a.started_at))
     });
     runtime_log_debug(format!(
-        "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=return，root_conversation_id={}，summary_count={}",
-        root_conversation_id,
+        "[委托] 完成 任务=list_conversation_delegate_statuses 阶段=return 摘要数={}",
         summaries.len()
     ));
     Ok(summaries)
@@ -3470,8 +3410,8 @@ fn delete_delegate_conversation_inner(
     }
     let deleted = delegate_runtime_thread_conversation_delete(state, conversation_id)?;
     runtime_log_info(format!(
-        "[委托会话] 完成，任务=删除委托会话，conversation_id={}，deleted={}",
-        conversation_id, deleted
+        "[委托] 完成 任务=删除委托会话 已删除={}",
+        deleted
     ));
     Ok(DeleteDelegateConversationOutput {
         deleted_conversation_id: conversation_id.to_string(),
@@ -3525,10 +3465,9 @@ fn delete_unarchived_conversation_blocking(
         return Err("conversationId is required.".to_string());
     }
     let started_at = std::time::Instant::now();
-    runtime_log_info(format!(
-        "[会话] 开始，任务=delete_unarchived_conversation，action=delete_unarchived_convo，convo_id={}",
-        conversation_id
-    ));
+    runtime_log_info(
+        "[聊天] 开始 任务=delete_unarchived_conversation 动作=delete_unarchived_convo".to_string(),
+    );
     let result = match conversation_service_v2().delete_conversation(
         state,
         conversation_id,
@@ -3545,8 +3484,7 @@ fn delete_unarchived_conversation_blocking(
                 "delete_failed"
             };
             runtime_log_info(format!(
-                "[会话] 失败，任务=delete_unarchived_conversation，action=delete_unarchived_convo，convo_id={}，reason={}，duration_ms={}",
-                conversation_id,
+                "[聊天] 失败 任务=delete_unarchived_conversation 动作=delete_unarchived_convo 原因={} 耗时={}",
                 reason,
                 started_at.elapsed().as_millis()
             ));
@@ -3554,18 +3492,17 @@ fn delete_unarchived_conversation_blocking(
         }
     };
     runtime_log_info(format!(
-        "[会话] 完成，任务=delete_unarchived_conversation，action=delete_unarchived_convo，convo_id={}，duration_ms={}",
-        conversation_id,
+        "[聊天] 完成 任务=delete_unarchived_conversation 动作=delete_unarchived_convo 耗时={}",
         started_at.elapsed().as_millis()
     ));
     match delegate_runtime_thread_conversation_delete_by_root(state, conversation_id) {
         Ok(deleted_count) => runtime_log_info(format!(
-            "[委托会话] 完成，任务=随会话删除级联清理，root_conversation_id={}，deleted_count={}",
-            conversation_id, deleted_count
+            "[委托] 完成 任务=随会话删除级联清理 删除数={}",
+            deleted_count
         )),
         Err(err) => runtime_log_warn(format!(
-            "[委托会话] 失败，任务=随会话删除级联清理，root_conversation_id={}，error={}",
-            conversation_id, err
+            "[委托] 失败 任务=随会话删除级联清理 错误={}",
+            err
         )),
     }
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
@@ -3573,14 +3510,14 @@ fn delete_unarchived_conversation_blocking(
     match clear_operate_screenshots_temp(&state.data_path, conversation_id) {
         Ok((file_count, dir_count)) => {
             runtime_log_info(format!(
-                "[operate截图缓存] 完成，任务=clear_temp_on_delete，conversation_id={}，截图文件数={}，子目录数={}",
-                conversation_id, file_count, dir_count
+                "[系统] 完成 任务=clear_temp_on_delete 截图文件数={} 子目录数={}",
+                file_count, dir_count
             ));
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[operate截图缓存] 失败，任务=clear_temp_on_delete，conversation_id={}，error={}",
-                conversation_id, err
+                "[系统] 失败 任务=clear_temp_on_delete 错误={}",
+                err
             ));
         }
     }
@@ -3870,10 +3807,7 @@ fn request_conversation_messages_after_async_inner(
     let state_clone = state.clone();
     let request_id_clone = request_id.clone();
     runtime_log_warn(format!(
-        "[聊天推送] 收到异步补消息请求: request_id={}, conversation_id={}, after_message_id={}, fallback_limit={}",
-        request_id,
-        conversation_id,
-        after_message_id.as_deref().unwrap_or(""),
+        "[聊天] 收到异步补消息请求 兜底上限={}",
         fallback_limit
     ));
     tauri::async_runtime::spawn(async move {
@@ -3885,9 +3819,7 @@ fn request_conversation_messages_after_async_inner(
         ) {
             Ok((messages, fallback_mode)) => {
                 runtime_log_warn(format!(
-                    "[聊天推送] 异步补消息完成: request_id={}, conversation_id={}, message_count={}, fallback_mode={}",
-                    request_id_clone,
-                    conversation_id,
+                    "[聊天] 异步补消息完成 消息数={} 兜底模式={}",
                     messages.len(),
                     fallback_mode.as_deref().unwrap_or("")
                 ));
@@ -3902,8 +3834,8 @@ fn request_conversation_messages_after_async_inner(
             }
             Err(error) => {
                 runtime_log_error(format!(
-                    "[聊天推送] 异步补消息失败: request_id={}, conversation_id={}, error={}",
-                    request_id_clone, conversation_id, error
+                    "[聊天] 异步补消息失败 错误={}",
+                    error
                 ));
                 ConversationMessagesAfterAsyncPayload {
                     request_id: request_id_clone.clone(),
@@ -3924,20 +3856,16 @@ fn request_conversation_messages_after_async_inner(
             Err(_) => None,
         };
         let Some(app_handle) = app_handle else {
-            runtime_log_warn(format!(
-                "[聊天推送] 异步补消息 emit 跳过: app_handle unavailable, request_id={}, conversation_id={}",
-                request_id_clone, conversation_id
-            ));
+            runtime_log_debug(
+                "[聊天] 异步补消息 emit 跳过: app_handle unavailable".to_string(),
+            );
             return;
         };
         match app_handle.emit("easy-call:conversation-messages-after-synced", &payload) {
-            Ok(_) => runtime_log_info(format!(
-                "[聊天推送] 异步补消息 emit 成功: request_id={}, conversation_id={}",
-                request_id_clone, conversation_id
-            )),
+            Ok(_) => runtime_log_info("[聊天] 异步补消息 emit 成功".to_string()),
             Err(err) => runtime_log_error(format!(
-                "[聊天推送] 异步补消息 emit 失败: request_id={}, conversation_id={}, error={}",
-                request_id_clone, conversation_id, err
+                "[聊天] 异步补消息 emit 失败 错误={}",
+                err
             )),
         }
     });
@@ -3990,7 +3918,7 @@ fn validate_rewind_input(
     if message_id.is_empty() {
         let elapsed_ms = started_at.elapsed().as_millis();
         runtime_log_error(format!(
-            "[会话撤回] 失败，任务=validate_rewind_input，reason=message_id_empty，duration_ms={}",
+            "[聊天] 失败 任务=validate_rewind_input 原因=message_id_empty 耗时={}",
             elapsed_ms
         ));
         return Err("messageId is required.".to_string());
@@ -4000,7 +3928,7 @@ fn validate_rewind_input(
     if requested_conversation_id.is_none() {
         let elapsed_ms = started_at.elapsed().as_millis();
         runtime_log_error(format!(
-            "[会话撤回] 失败，任务=validate_rewind_input，reason=conversation_id_empty，duration_ms={}",
+            "[聊天] 失败 任务=validate_rewind_input 原因=conversation_id_empty 耗时={}",
             elapsed_ms
         ));
         return Err("conversationId is required.".to_string());
@@ -4099,18 +4027,14 @@ async fn preview_rewind_conversation_from_message_inner(
 ) -> Result<RewindConversationPreviewResultPayload, String> {
     let started_at = std::time::Instant::now();
     let message_id = validate_rewind_input(&input, &started_at)?;
-    runtime_log_info(format!(
-        "[会话撤回] 开始，任务=preview_rewind_conversation_from_message，message_id={}",
-        message_id
-    ));
+    runtime_log_info("[聊天] 开始 任务=preview_rewind_conversation_from_message".to_string());
     let result = conversation_service_v2().preview_rewind_conversation(
         state,
         &input,
         &message_id,
     )?;
     runtime_log_info(format!(
-        "[会话撤回] 完成，任务=preview_rewind_conversation_from_message，conversation_id={}，can_undo_patch={}，duration_ms={}",
-        result.conversation_id,
+        "[聊天] 完成 任务=preview_rewind_conversation_from_message 可撤销补丁={} 耗时={}",
         result.can_undo_patch,
         started_at.elapsed().as_millis()
     ));
@@ -4183,9 +4107,7 @@ async fn repair_conversation_storage_inner(
     if runtime_state != MainSessionState::Idle {
         return Err("当前会话正在运行或整理上下文，完成后再修复。".to_string());
     }
-    runtime_log_info(format!(
-        "[聊天索引修复] 用户触发，conversation_id={conversation_id}"
-    ));
+    runtime_log_info("[存储] 用户触发".to_string());
     let data_path = state.data_path.clone();
     tokio::task::spawn_blocking(move || {
         message_store::chat_metadata_store_repair_conversation(&data_path, &conversation_id)
@@ -4201,8 +4123,8 @@ async fn rewind_conversation_from_message_inner(
     let started_at = std::time::Instant::now();
     let message_id = validate_rewind_input(&input, &started_at)?;
     runtime_log_info(format!(
-        "[会话撤回] 开始，任务=rewind_conversation_from_message，message_id={}，undo_apply_patch={}",
-        message_id, input.undo_apply_patch
+        "[聊天] 开始 任务=rewind_conversation_from_message 撤销补丁={}",
+        input.undo_apply_patch
     ));
 
     let result = conversation_service_v2().rewind_conversation(
@@ -4240,27 +4162,23 @@ async fn rewind_conversation_from_message_inner(
                 .is_some()
         {
             runtime_log_info(format!(
-                "[会话撤回] 开始 Git 幽灵快照恢复，任务=rewind_conversation_from_message，conversation_id={}，message_id={}，workspace={}",
-                conversation_id,
-                message_id,
+                "[聊天] 开始 Git 幽灵快照恢复 任务=rewind_conversation_from_message 工作区={}",
                 snapshot.main_workspace_path
             ));
             match restore_main_workspace_from_git_ghost_snapshot(snapshot).await {
                 Ok(()) => runtime_log_info(format!(
-                    "[会话撤回] Git 幽灵快照恢复完成，任务=rewind_conversation_from_message，conversation_id={}，message_id={}，commit_id={}",
-                    conversation_id,
-                    message_id,
+                    "[聊天] Git 幽灵快照恢复完成 任务=rewind_conversation_from_message 提交={}",
                     snapshot.ghost_commit_id.as_deref().unwrap_or_default()
                 )),
                 Err(err) => runtime_log_error(format!(
-                    "[会话撤回] Git 幽灵快照恢复失败，任务=rewind_conversation_from_message，conversation_id={}，message_id={}，error={}",
-                    conversation_id, message_id, err
+                    "[聊天] Git 幽灵快照恢复失败 任务=rewind_conversation_from_message 错误={}",
+                    err
                 )),
             }
         } else {
             runtime_log_info(format!(
-                "[会话撤回] 跳过 Git 幽灵快照恢复，任务=rewind_conversation_from_message，conversation_id={}，message_id={}，status={}",
-                conversation_id, message_id, snapshot.status
+                "[聊天] 跳过 Git 幽灵快照恢复 任务=rewind_conversation_from_message 状态={}",
+                snapshot.status
             ));
         }
     }
@@ -4270,7 +4188,7 @@ async fn rewind_conversation_from_message_inner(
     }
     let elapsed_ms = started_at.elapsed().as_millis();
     runtime_log_info(format!(
-        "[会话撤回] 完成，任务=rewind_conversation_from_message，removed_count={}，remaining_count={}，duration_ms={}",
+        "[聊天] 完成 任务=rewind_conversation_from_message 移除数={} 剩余数={} 耗时={}",
         removed_count, remaining_count, elapsed_ms
     ));
 
@@ -4278,14 +4196,14 @@ async fn rewind_conversation_from_message_inner(
     match clear_operate_screenshots_temp(&state.data_path, &conversation_id) {
         Ok((file_count, dir_count)) => {
             runtime_log_info(format!(
-                "[operate截图缓存] 完成，任务=clear_temp_on_rewind，conversation_id={}，截图文件数={}，子目录数={}",
-                conversation_id, file_count, dir_count
+                "[系统] 完成 任务=clear_temp_on_rewind 截图文件数={} 子目录数={}",
+                file_count, dir_count
             ));
         }
         Err(err) => {
             runtime_log_error(format!(
-                "[operate截图缓存] 失败，任务=clear_temp_on_rewind，conversation_id={}，error={}",
-                conversation_id, err
+                "[系统] 失败 任务=clear_temp_on_rewind 错误={}",
+                err
             ));
         }
     }

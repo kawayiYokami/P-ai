@@ -229,7 +229,7 @@ impl ConversationServiceV2 {
                 Ok(value) => (value, true),
                 Err(err) => {
                     runtime_log_warn(format!(
-                        "[会话切换] 读取主会话 ID 失败，按无主会话降级继续：error={err}"
+                        "[聊天] 读取主会话 ID 失败，按无主会话降级继续 原因={err}"
                     ));
                     (None, false)
                 }
@@ -334,8 +334,8 @@ impl ConversationServiceV2 {
                     Ok(conversation) => conversation,
                     Err(err) => {
                         runtime_log_debug(format!(
-                            "[Todo] 读取会话失败，函数=update_conversation_todos，conversation_id={}，error={}",
-                            normalized_conversation_id, err
+                            "[聊天] 读取会话失败 函数=update_conversation_todos 原因={}",
+                            err
                         ));
                         return Ok(false);
                     }
@@ -417,8 +417,8 @@ impl ConversationServiceV2 {
                         Ok(conversation_meta) => conversation_meta,
                         Err(err) => {
                             runtime_log_error(format!(
-                                "[会话索引读取] 状态=失败，任务=read_unarchived_conversation_summary，conversation_id={}，error={}",
-                                normalized_conversation_id, err
+                                "[聊天] 状态=失败 任务=read_unarchived_conversation_summary 原因={}",
+                                err
                             ));
                             metas.push(None);
                             continue;

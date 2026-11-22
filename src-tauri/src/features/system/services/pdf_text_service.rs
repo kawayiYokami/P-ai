@@ -159,7 +159,7 @@ fn truncate_pdf_pages_to_token_limit(
         .get_or_init(|| tiktoken_rs::cl100k_base().ok())
         .as_ref()
     else {
-        runtime_log_warn(format!("[PDF提取] tiktoken 初始化失败，跳过 30K token 截断。"));
+        runtime_log_warn(format!("[工具] tiktoken 初始化失败，跳过 30K token 截断。"));
         return Ok(());
     };
 
@@ -328,8 +328,8 @@ pub(crate) fn cleanup_pdf_cache_for_conversation(
         state_service_remove_conversation_from_pdf_caches(state, conversation_id)?;
     if removed_text > 0 || removed_image > 0 {
         runtime_log_info(format!(
-            "[PDF缓存清理] 完成 conversation_id={}, removed_text={}, removed_image={}",
-            conversation_id, removed_text, removed_image
+            "[工具] 完成 移除文本={} 移除图片={}",
+            removed_text, removed_image
         ));
     }
     Ok(())

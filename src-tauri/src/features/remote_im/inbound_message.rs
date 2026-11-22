@@ -67,7 +67,7 @@ fn resolve_contact_agent_id(
         Some(agent) => agent,
         None => {
             runtime_log_warn(format!(
-                "[远程IM] 路由人格已不存在，回落到默认客服/助理人格: agent_id={hint_agent_id}"
+                "[远程IM] 路由人格已不存在，回落到默认客服/助理人格"
             ));
             runtime_agent_by_id(&snapshot, &default_agent_id)
                 .ok_or_else(|| format!("默认人格不存在: {default_agent_id}"))?
@@ -146,8 +146,8 @@ fn ensure_remote_im_contact_conversation_id(
         Ok(agent_id) => Some(agent_id),
         Err(err) => {
             runtime_log_warn(format!(
-                "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，原因={}",
-                contact.id, err
+                "[远程IM] 跳过 任务=同步联系人会话绑定 原因={}",
+                err
             ));
             None
         }
@@ -243,8 +243,7 @@ fn sync_remote_im_contact_conversation_binding(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_warn(format!(
-                "[远程IM] 联系人会话同步锁中毒，已恢复，contact_id={}",
-                contact.id
+                "[远程IM] 联系人会话同步锁中毒，已恢复"
             ));
             poisoned.into_inner()
         }
@@ -257,8 +256,7 @@ fn sync_remote_im_contact_conversation_binding(
             state_service_get_remote_im_contact(state, &contact.id)?
         else {
             runtime_log_warn(format!(
-                "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，conversation_id={}，原因=联系人已删除",
-                contact.id, normalized_conversation_id
+                "[远程IM] 跳过 任务=同步联系人会话绑定 原因=联系人已删除"
             ));
             return Ok(());
         };
@@ -270,8 +268,7 @@ fn sync_remote_im_contact_conversation_binding(
             != Some(normalized_conversation_id)
         {
             runtime_log_warn(format!(
-                "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，conversation_id={}，原因=会话绑定已变化",
-                contact.id, normalized_conversation_id
+                "[远程IM] 跳过 任务=同步联系人会话绑定 原因=会话绑定已变化"
             ));
             return Ok(());
         }
@@ -282,8 +279,8 @@ fn sync_remote_im_contact_conversation_binding(
             Ok(agent_id) => agent_id,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，conversation_id={}，原因={} ",
-                    contact.id, normalized_conversation_id, err
+                    "[远程IM] 跳过 任务=同步联系人会话绑定 原因={}",
+                    err
                 ));
                 return Ok(());
             }
@@ -297,8 +294,8 @@ fn sync_remote_im_contact_conversation_binding(
             &agent_id,
         ) {
             runtime_log_warn(format!(
-                "[远程IM] 会话绑定写入失败，尝试条件回滚，contact_id={}，conversation_id={}，error={}",
-                contact.id, normalized_conversation_id, err
+                "[远程IM] 会话绑定写入失败，尝试条件回滚 原因={}",
+                err
             ));
             if let Err(rollback_err) = restore_remote_im_contact_conversation_binding(
                 state,
@@ -308,8 +305,8 @@ fn sync_remote_im_contact_conversation_binding(
                 &agent_id,
             ) {
                 runtime_log_warn(format!(
-                    "[远程IM] 会话绑定写入失败后的回滚降级，contact_id={}，conversation_id={}，error={}",
-                    contact.id, normalized_conversation_id, rollback_err
+                    "[远程IM] 会话绑定写入失败后的回滚降级 原因={}",
+                    rollback_err
                 ));
             }
             return Err(err);
@@ -318,8 +315,8 @@ fn sync_remote_im_contact_conversation_binding(
             Ok(latest) => latest,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[远程IM] 会话绑定写后复核失败，回滚本次路由变更，contact_id={}，conversation_id={}，error={}",
-                    contact.id, normalized_conversation_id, err
+                    "[远程IM] 会话绑定写后复核失败，回滚本次路由变更 原因={}",
+                    err
                 ));
                 restore_remote_im_contact_conversation_binding(
                     state,
@@ -345,9 +342,7 @@ fn sync_remote_im_contact_conversation_binding(
             return Ok(());
         }
         runtime_log_warn(format!(
-            "[远程IM] 联系人绑定在会话同步期间变化，按最新配置重试，contact_id={}，conversation_id={}，attempt={}",
-            contact.id,
-            normalized_conversation_id,
+            "[远程IM] 联系人绑定在会话同步期间变化，按最新配置重试 尝试={}",
             attempt + 1
         ));
         if latest
@@ -368,8 +363,7 @@ fn sync_remote_im_contact_conversation_binding(
         }
     }
     runtime_log_warn(format!(
-        "[远程IM] 联系人绑定持续变化，回滚本次会话路由变更，contact_id={}，conversation_id={}",
-        contact.id, normalized_conversation_id
+        "[远程IM] 联系人绑定持续变化，回滚本次会话路由变更"
     ));
     if let Some((written_contact, written_agent_id)) = last_written {
         restore_remote_im_contact_conversation_binding(
@@ -411,9 +405,8 @@ fn restore_remote_im_contact_conversation_binding(
         },
     )?;
     if !restored {
-        runtime_log_warn(format!(
-            "[远程IM] 跳过过期会话路由回滚，conversation_id={}，原因=路由已被其他操作更新",
-            conversation_id
+        runtime_log_info(format!(
+            "[远程IM] 跳过过期会话路由回滚 原因=路由已被其他操作更新"
         ));
     }
     Ok(())
@@ -599,8 +592,8 @@ fn build_chat_message_from_input(
     }
     for warning in warnings {
         runtime_log_warn(format!(
-            "[远程IM] 附件入站降级继续，conversation_id={}，contact_id={}，warning={}",
-            conversation_id, contact_id, warning
+            "[远程IM] 附件入站降级继续 提示={}",
+            warning
         ));
     }
 

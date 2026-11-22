@@ -55,7 +55,7 @@ fn catalog_icon_allowed_set() -> &'static std::sync::Mutex<CatalogIconAllowlist>
 /// 只有登记过的地址才允许取图，避免这一层变成任意出站请求的入口。
 fn catalog_remember_icon_addresses(entries: &[CatalogEntry]) {
     let Ok(mut allowed) = catalog_icon_allowed_set().lock() else {
-        runtime_log_warn("[能力商店] 图标白名单加锁失败，本轮跳过登记".to_string());
+        runtime_log_warn("[工具] 能力商店 图标白名单加锁失败，本轮跳过登记".to_string());
         return;
     };
     for entry in entries {
@@ -197,15 +197,15 @@ fn catalog_write_icon_cache(state: &AppState, address: &str, mime: &str, bytes: 
         return;
     };
     if let Err(err) = std::fs::create_dir_all(dir) {
-        runtime_log_warn(format!("[能力商店] 创建图标缓存目录失败：{err}"));
+        runtime_log_warn(format!("[工具] 能力商店 创建图标缓存目录失败：{err}"));
         return;
     }
     if let Err(err) = std::fs::write(&bin_path, bytes) {
-        runtime_log_warn(format!("[能力商店] 写入图标缓存失败：{err}"));
+        runtime_log_warn(format!("[工具] 能力商店 写入图标缓存失败：{err}"));
         return;
     }
     if let Err(err) = std::fs::write(&type_path, mime) {
-        runtime_log_warn(format!("[能力商店] 写入图标类型失败：{err}"));
+        runtime_log_warn(format!("[工具] 能力商店 写入图标类型失败：{err}"));
     }
 }
 
@@ -241,7 +241,7 @@ fn catalog_icon_http_client() -> Option<&'static reqwest::Client> {
 /// 任何一步不成立都返回空串：前端据此退首字母方块，不需要区分错误类型。
 async fn catalog_icon_data_url_from_remote(state: &AppState, address: &str) -> String {
     let Some(client) = catalog_icon_http_client() else {
-        runtime_log_warn("[能力商店] 图标 HTTP 客户端构建失败，本轮一律退首字母".to_string());
+        runtime_log_warn("[工具] 能力商店 图标 HTTP 客户端构建失败，本轮一律退首字母".to_string());
         return String::new();
     };
     let resp = client
@@ -250,19 +250,19 @@ async fn catalog_icon_data_url_from_remote(state: &AppState, address: &str) -> S
         .send()
         .await;
     let Ok(resp) = resp else {
-        runtime_log_debug(format!("[能力商店] 图标请求失败，退首字母：{address}"));
+        runtime_log_debug(format!("[工具] 能力商店 图标请求失败，退首字母：{address}"));
         return String::new();
     };
     if !resp.status().is_success() {
         runtime_log_debug(format!(
-            "[能力商店] 图标请求返回 {}，退首字母：{address}",
+            "[工具] 能力商店 图标请求返回 {}，退首字母：{address}",
             resp.status()
         ));
         return String::new();
     }
     if let Some(length) = resp.content_length() {
         if length as usize > CATALOG_ICON_MAX_BYTES {
-            runtime_log_debug(format!("[能力商店] 图标超过 1MB，丢弃：{address}"));
+            runtime_log_debug(format!("[工具] 能力商店 图标超过 1MB，丢弃：{address}"));
             return String::new();
         }
     }
@@ -270,11 +270,11 @@ async fn catalog_icon_data_url_from_remote(state: &AppState, address: &str) -> S
         return String::new();
     };
     if bytes.is_empty() || bytes.len() > CATALOG_ICON_MAX_BYTES {
-        runtime_log_debug(format!("[能力商店] 图标字节数不合格，丢弃：{address}"));
+        runtime_log_debug(format!("[工具] 能力商店 图标字节数不合格，丢弃：{address}"));
         return String::new();
     }
     let Some(mime) = catalog_icon_mime_from_bytes(&bytes) else {
-        runtime_log_debug(format!("[能力商店] 取到的不是图片，丢弃：{address}"));
+        runtime_log_debug(format!("[工具] 能力商店 取到的不是图片，丢弃：{address}"));
         return String::new();
     };
     catalog_write_icon_cache(state, address, mime, &bytes);

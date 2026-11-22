@@ -17,7 +17,7 @@ fn session_mcp_servers_snapshot() -> Vec<McpServerConfig> {
     match session_mcp_store().lock() {
         Ok(guard) => guard.clone(),
         Err(err) => {
-            runtime_log_warn(format!("[会话级MCP] 读取失败，锁已损坏：{err}"));
+            runtime_log_warn(format!("[工具] MCP 会话 读取失败，锁已损坏：{err}"));
             Vec::new()
         }
     }
@@ -35,7 +35,7 @@ async fn session_mcp_attach(state: &AppState, servers: Vec<McpServerConfig>) -> 
         match mcp_list_server_tools_runtime(&server).await {
             Ok(tools) => {
                 runtime_log_info(format!(
-                    "[会话级MCP] 完成，任务=挂载服务器，server_id={}，name={}，tools={}，elapsed_ms={}",
+                    "[工具] MCP 会话 完成 任务=挂载服务器 服务={} 名称={} 工具数={} 耗时={}",
                     server.id,
                     server.name,
                     tools.len(),
@@ -46,7 +46,7 @@ async fn session_mcp_attach(state: &AppState, servers: Vec<McpServerConfig>) -> 
             }
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[会话级MCP] 失败，任务=挂载服务器，server_id={}，name={}，error={err}",
+                    "[工具] MCP 会话 失败 任务=挂载服务器 服务={} 名称={} 错误={err}",
                     server.id, server.name
                 ));
                 errors.push(format!("{}: {err}", server.name.trim()));
@@ -57,7 +57,7 @@ async fn session_mcp_attach(state: &AppState, servers: Vec<McpServerConfig>) -> 
         match session_mcp_store().lock() {
             Ok(mut guard) => guard.extend(attached),
             Err(err) => runtime_log_error(format!(
-                "[会话级MCP] 写入失败，任务=登记服务器，原因=锁已损坏：{err}"
+                "[工具] MCP 会话 写入失败 任务=登记服务器 原因=锁已损坏：{err}"
             )),
         }
         refresh_global_tool_schema_cache(state);
@@ -73,7 +73,7 @@ async fn session_mcp_dispose_all(state: &AppState) {
         Ok(mut guard) => std::mem::take(&mut *guard),
         Err(err) => {
             runtime_log_error(format!(
-                "[会话级MCP] 清理失败，任务=读取服务器表，原因=锁已损坏：{err}"
+                "[工具] MCP 会话 清理失败 任务=读取服务器表 原因=锁已损坏：{err}"
             ));
             return;
         }
@@ -86,7 +86,7 @@ async fn session_mcp_dispose_all(state: &AppState) {
         mcp_runtime_state_set(&server.id, false, "stopped", "", Vec::new());
     }
     runtime_log_info(format!(
-        "[会话级MCP] 完成，任务=清理服务器，count={}",
+        "[工具] MCP 会话 完成 任务=清理服务器 数量={}",
         servers.len()
     ));
     refresh_global_tool_schema_cache(state);

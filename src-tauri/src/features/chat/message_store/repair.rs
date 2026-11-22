@@ -124,7 +124,7 @@ fn chat_metadata_store_probe_conversation_rows(
 /// 坏页可能牵连同表其他行，所以搬运按全库进行，读不出来的会话一律按块文件重建。
 pub(super) fn chat_metadata_store_repair_conversation(
     data_path: &PathBuf,
-    conversation_id: &str,
+    _conversation_id: &str,
 ) -> Result<ChatStorageRepairOutcome, String> {
     // 库级写锁：整个修复期间独占该库，所有写入排在后面。
     // 只锁目标会话是不够的，别的会话照样会往旧库提交，换库后那批写入就丢了。
@@ -137,7 +137,7 @@ pub(super) fn chat_metadata_store_repair_conversation(
         return Err("聊天索引库不存在，无需修复".to_string());
     }
     runtime_log_info(format!(
-        "[聊天索引修复] 开始，conversation_id={conversation_id}，path={}",
+        "[聊天] 开始 文件={}",
         db_path.display()
     ));
     // 源库直接打开，不走 chat_metadata_store_open：那条路会执行建表语句，
@@ -219,7 +219,7 @@ pub(super) fn chat_metadata_store_repair_conversation(
     // 库文件换了，块文件缓存里的路径可能指向旧布局，整体清空重读。
     retain_message_store_block_file_cache_paths(&std::collections::HashSet::new());
     runtime_log_info(format!(
-        "[聊天索引修复] 完成，conversation_id={conversation_id}，重建会话={}，重建消息={}，备份={}",
+        "[聊天] 完成 重建会话={} 重建消息={} 备份={}",
         outcome.rebuilt_conversation_ids.len(),
         outcome.rebuilt_message_count,
         backup_path.display()
@@ -366,7 +366,7 @@ fn chat_metadata_store_repair_into(
                     .or_else(|| locators.err())
                     .unwrap_or_else(|| "未知原因".to_string());
                 runtime_log_warn(format!(
-                    "[聊天索引修复] 会话索引行不可读，改按块文件重建，conversation_id={conversation_id}，error={detail}"
+                    "[聊天] 会话索引行不可读，改按块文件重建 原因={detail}"
                 ));
                 // 单个会话救不回来不该让整库修复失败：那会让用户唯一的自救通道永久不可用。
                 match chat_metadata_rebuild_conversation_rows(
@@ -378,7 +378,7 @@ fn chat_metadata_store_repair_into(
                     Ok(()) => rebuilt_conversation_ids.push(conversation_id.clone()),
                     Err(rebuild_error) => {
                         runtime_log_warn(format!(
-                            "[聊天索引修复] 会话重建失败，跳过该会话索引，conversation_id={conversation_id}，error={rebuild_error}"
+                            "[聊天] 会话重建失败，跳过该会话索引 原因={rebuild_error}"
                         ));
                         failed_conversations.push(ChatStorageRepairFailure {
                             conversation_id: conversation_id.clone(),
@@ -429,7 +429,7 @@ fn chat_metadata_store_repair_into(
                 }
             }
             Err(err) => runtime_log_warn(format!(
-                "[聊天索引修复] 会话计划记录不可读，跳过，conversation_id={conversation_id}，error={err}"
+                "[聊天] 会话计划记录不可读，跳过 原因={err}"
             )),
         }
         balanced_conversation_count += 1;
@@ -491,7 +491,7 @@ fn chat_metadata_store_repair_into(
                     .map_err(|err| format!("写入用量统计失败: {err}"))?;
             }
         }
-        Err(err) => runtime_log_warn(format!("[聊天索引修复] 用量统计不可读，跳过，error={err}")),
+        Err(err) => runtime_log_warn(format!("[聊天] 用量统计不可读，跳过 原因={err}")),
     }
 
     transaction

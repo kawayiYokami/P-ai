@@ -140,15 +140,15 @@ fn mcp_current_server_matches_probe(
     match load_server_by_id(state, &probe_server.id) {
         Ok(current) => {
             if !current.enabled {
-                runtime_log_warn(format!(
-                    "[MCP监管] 跳过提交 server_id={} trigger={} reason=disabled",
+                runtime_log_info(format!(
+                    "[工具] MCP 监管 跳过提交 服务={} 触发={} 原因=disabled",
                     probe_server.id, trigger
                 ));
                 return None;
             }
             if current.definition_json != probe_server.definition_json {
-                runtime_log_warn(format!(
-                    "[MCP监管] 跳过提交 server_id={} trigger={} reason=definition_changed",
+                runtime_log_info(format!(
+                    "[工具] MCP 监管 跳过提交 服务={} 触发={} 原因=definition_changed",
                     probe_server.id, trigger
                 ));
                 return None;
@@ -157,7 +157,7 @@ fn mcp_current_server_matches_probe(
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[MCP监管] 跳过提交 server_id={} trigger={} reason=missing error={}",
+                "[工具] MCP 监管 跳过提交 服务={} 触发={} 原因=missing 错误={}",
                 probe_server.id, trigger, err
             ));
             None
@@ -219,14 +219,14 @@ fn mcp_clear_stale_oauth_capable_mark(state: &AppState, server_id: &str) -> bool
         Ok(()) => {
             mcp_oauth_clear_cached_challenge(server_id);
             runtime_log_info(format!(
-                "[MCP OAuth] 清理陈旧标记，任务=clear_oauth_capable，server_id={}，原因=探测结果证明不需要 OAuth",
+                "[工具] MCP 授权 清理陈旧标记 任务=clear_oauth_capable 服务={} 原因=探测结果证明不需要 OAuth",
                 server_id
             ));
             true
         }
         Err(err) => {
             runtime_log_warn(format!(
-                "[MCP OAuth] 清理陈旧标记失败，server_id={}，error={}",
+                "[工具] MCP 授权 清理陈旧标记失败 服务={} 错误={}",
                 server_id, err
             ));
             false
@@ -251,7 +251,7 @@ fn mcp_start_supervisor_probe_for_server(state: AppState, server: McpServerConfi
             Ok(permit) => permit,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[MCP监管] 跳过 server_id={} trigger={} reason=semaphore_closed error={}",
+                    "[工具] MCP 监管 跳过 服务={} 触发={} 原因=semaphore_closed 错误={}",
                     server.id, trigger, err
                 ));
                 return;
@@ -275,7 +275,7 @@ fn mcp_start_supervisor_probe_all_from_policy(state: AppState, trigger: &'static
         }
     }
     runtime_log_info(format!(
-        "[MCP监管] 开始 trigger={} enabled_servers={} stdio_concurrency={} remote_concurrency={}",
+        "[工具] MCP 监管 开始 触发={} 启用服务={} 本地并发={} 远程并发={}",
         trigger,
         started,
         MCP_SUPERVISOR_STDIO_CONCURRENCY,
@@ -291,7 +291,7 @@ async fn mcp_probe_server_tools_background(
 ) {
     let started = std::time::Instant::now();
     runtime_log_info(format!(
-        "[MCP监管] 开始 server_id={} trigger={}",
+        "[工具] MCP 监管 开始 服务={} 触发={}",
         server.id, trigger
     ));
     let tools_res = mcp_list_server_tools_runtime(&server).await;
@@ -312,7 +312,7 @@ async fn mcp_probe_server_tools_background(
                 }
                 mcp_runtime_state_mark_probe_failure(&current_server, "auth_required", "需要 OAuth 授权登录");
                 runtime_log_info(format!(
-                    "[MCP OAuth] 探测到需要授权登录 server_id={} trigger={}",
+                    "[工具] MCP 授权 探测到需要授权登录 服务={} 触发={}",
                     current_server.id, trigger
                 ));
                 return;
@@ -330,7 +330,7 @@ async fn mcp_probe_server_tools_background(
             mcp_runtime_state_mark_probe_failure(&current_server, status, &err);
             let label = if status == "timeout" { "超时" } else { "失败" };
             runtime_log_warn(format!(
-                "[MCP监管] {} server_id={} trigger={} duration_ms={} error={}",
+                "[工具] MCP 监管 {} 服务={} 触发={} 耗时={} 错误={}",
                 label,
                 server.id,
                 trigger,
@@ -362,7 +362,7 @@ async fn mcp_probe_server_tools_background(
             };
             mcp_runtime_state_mark_probe_failure(&current_server, "failed", &err);
             runtime_log_warn(format!(
-                "[MCP监管] 失败 server_id={} trigger={} stage=merge_policy duration_ms={} error={}",
+                "[工具] MCP 监管 失败 服务={} 触发={} 阶段=merge_policy 耗时={} 错误={}",
                 server.id,
                 trigger,
                 started.elapsed().as_millis(),
@@ -397,7 +397,7 @@ async fn mcp_probe_server_tools_background(
     refresh_global_tool_schema_cache(&state);
     mark_prompt_cache_rebuild_for_all_final_system_sources(&state);
     runtime_log_info(format!(
-        "[MCP监管] 完成 server_id={} trigger={} tools={} duration_ms={}",
+        "[工具] MCP 监管 完成 服务={} 触发={} 工具={} 耗时={}",
         server.id,
         trigger,
         tool_count,
@@ -965,6 +965,6 @@ async fn mcp_oauth_clear_credentials_inner(
     // 保留部署：policy.enabled 不变，运行时标记为待授权。
     // 重启后监管探测同样会因缺少凭据得到 auth_required，与重启前 UI 一致。
     mcp_runtime_state_set(server_id, true, "auth_required", "需要 OAuth 授权登录", Vec::new());
-    runtime_log_info(format!("[MCP OAuth] 清除凭据完成 server_id={}", server_id));
+    runtime_log_info(format!("[工具] MCP 授权 清除凭据完成 服务={}", server_id));
     Ok(deleted)
 }

@@ -627,7 +627,7 @@ fn grok_first_frame_data_url(image_url: &str, budget_bytes: usize) -> Result<Str
             );
             if data_url.len() <= budget_bytes {
                 runtime_log_info(format!(
-                    "[图生视频] 首帧体积收敛 原始={}KB 输出={}KB 长边上限={max_edge} 尺寸={}x{} 质量={quality}",
+                    "[工具] 图生视频 首帧体积收敛 原始={}KB 输出={}KB 长边上限={max_edge} 尺寸={}x{} 质量={quality}",
                     original_bytes.len() / 1024,
                     encoded.len() / 1024,
                     fitted.width(),

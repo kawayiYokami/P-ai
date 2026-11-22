@@ -5,6 +5,16 @@ enum PromptPreviewMode {
     Archive,
 }
 
+impl PromptPreviewMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Compaction => "compaction",
+            Self::Archive => "archive",
+        }
+    }
+}
+
 fn parse_prompt_preview_mode(raw: Option<&str>) -> PromptPreviewMode {
     match raw.unwrap_or("").trim() {
         "compaction" => PromptPreviewMode::Compaction,
@@ -100,9 +110,6 @@ async fn get_prompt_preview_inner(
     let latest_user_message = conversation.messages.iter().rev().find(|message| {
         prompt_role_for_message(message, &agent.id).as_deref() == Some("user")
     });
-    let latest_user_message_id = latest_user_message
-        .map(|message| message.id.clone())
-        .unwrap_or_default();
     let latest_user_retrieved_memory_ids = latest_user_message
         .and_then(|message| {
             message
@@ -125,13 +132,9 @@ async fn get_prompt_preview_inner(
         })
         .unwrap_or_default();
     runtime_log_info(format!(
-        "[请求体预览][当前消息提取] mode={:?} requested_conversation_id={:?} selected_conversation_id={} agent_id={} latest_user_message_id={} latest_user_retrieved_memory_ids={:?}",
-        preview_mode,
-        input.conversation_id,
-        conversation.id,
-        agent.id,
-        latest_user_message_id,
-        latest_user_retrieved_memory_ids
+        "[聊天] 当前消息提取 模式={} 最新用户记忆={}",
+        preview_mode.as_str(),
+        latest_user_retrieved_memory_ids.join("、")
     ));
 
     let user_name = agents
@@ -240,9 +243,8 @@ async fn get_prompt_preview_inner(
         serde_json::to_string_pretty(&prepared_prompt_to_messages_json(&prepared))
             .map_err(|err| format!("序列化请求预览失败：{err}"))?;
     runtime_log_info(format!(
-        "[请求体预览] 完成: mode={:?} conversation_id={} latest_user_text_len={} latest_images={} latest_audios={} request_has_memory_board={} request_len={}",
-        preview_mode,
-        conversation.id,
+        "[聊天] 完成 模式={} 用户文本长度={} 图片数={} 音频数={} 含记忆板={} 请求长度={}",
+        preview_mode.as_str(),
         prepared.latest_user_text.len(),
         prepared.latest_images.len(),
         prepared.latest_audios.len(),
@@ -442,7 +444,7 @@ fn unarchive_archive_inner(state: &AppState, archive_id: &str) -> Result<(), Str
     flush_pending_persists_blocking(state)?;
     if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
         runtime_log_warn(format!(
-            "[归档] 失败，任务=取消归档后刷新会话概览，archive_id={}，error={}",
+            "[存储] 失败 任务=取消归档后刷新会话概览 归档={} 错误={}",
             archive_id, err
         ));
     }

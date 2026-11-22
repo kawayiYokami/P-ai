@@ -48,9 +48,8 @@ fn delegate_conversation_store_write_if_not_deleted(
         .lock()
         .map_err(|_| "Failed to lock deleted delegate conversation ids".to_string())?;
     if deleted.contains(normalized_delegate_id) {
-        runtime_log_warn(format!(
-            "[委托会话] 跳过，任务=写入已删除委托会话，delegate_id={}",
-            normalized_delegate_id
+        runtime_log_info(format!(
+            "[委托] 会话 跳过 任务=写入已删除委托会话"
         ));
         return Ok(false);
     }
@@ -178,9 +177,7 @@ fn delegate_capture_workspace_snapshot(
     let snapshot = delegate_parent_shell_workspace(app_state, root_conversation_id, parent_chat_session_key)
         .and_then(|conversation| delegate_workspace_snapshot_from_conversation(&conversation));
     runtime_log_debug(format!(
-        "[委托工作目录] 捕获快照 conversation_id={} parent_chat_session_key={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
-        root_conversation_id,
-        parent_chat_session_key.unwrap_or(""),
+        "[委托] 工作目录 捕获快照 工作目录={} 工作目录列表={} 自主模式={}",
         snapshot
             .as_ref()
             .and_then(|value| value.shell_workspace_path.as_deref())
@@ -227,8 +224,7 @@ fn delegate_runtime_thread_build(
             normalize_shell_work_branch_text(&workspace_snapshot.shell_work_branch);
     }
     runtime_log_info(format!(
-        "[委托工作目录] 写入子智能体 delegate_id={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
-        delegate.delegate_id,
+        "[委托] 工作目录 写入子智能体 工作目录={} 工作目录列表={} 自主模式={}",
         conversation.shell_workspace_path.as_deref().unwrap_or(""),
         conversation
             .shell_workspaces
@@ -364,8 +360,8 @@ fn delegate_runtime_thread_apply_persisted_conversation(
         Ok(None) => {}
         Err(err) => {
             runtime_log_warn(format!(
-                "[委托会话] 警告，任务=读取持久化委托会话失败，delegate_id={}，error={}",
-                thread.delegate_id, err
+                "[委托] 会话 警告 任务=读取持久化委托会话失败 错误={}",
+                err
             ));
         }
     }
@@ -482,14 +478,14 @@ fn abort_delegate_runtime_thread(
         "委托已被打断，队列消息已清理",
     ) {
         runtime_log_error(format!(
-            "[委托会话] 清理队列失败: delegate_id={}, error={}",
-            normalized_delegate_id, err
+            "[委托] 会话 清理队列失败 错误={}",
+            err
         ));
     }
     if let Err(err) = release_conversation_processing_claim(app_state, &thread.conversation.id) {
         runtime_log_error(format!(
-            "[委托会话] 释放处理声明失败: delegate_id={}, error={}",
-            normalized_delegate_id, err
+            "[委托] 会话 释放处理声明失败 错误={}",
+            err
         ));
     }
     if let Err(err) =
@@ -500,8 +496,8 @@ fn abort_delegate_runtime_thread(
         )
     {
         runtime_log_error(format!(
-            "[委托会话] 重置运行态失败: delegate_id={}, error={}",
-            normalized_delegate_id, err
+            "[委托] 会话 重置运行态失败 错误={}",
+            err
         ));
     }
     clear_inflight_completed_tool_history(app_state, &chat_key)?;
@@ -519,9 +515,7 @@ fn abort_delegate_runtime_thread(
         DELEGATE_STATUS_FAILED,
     );
     runtime_log_info(format!(
-        "[委托会话] 已打断: delegate_id={}, chat_key={}, reason={}, aborted_chat={}, aborted_tool={}, descendant_count={}",
-        normalized_delegate_id,
-        chat_key,
+        "[委托] 会话 已打断 原因={} 中止聊天={} 中止工具={} 后代数量={}",
         reason,
         aborted_chat,
         aborted_tool,
@@ -609,7 +603,7 @@ fn delegate_runtime_thread_conversation_mutation_lock(
     let mut locks = match locks.lock() {
         Ok(locks) => locks,
         Err(poisoned) => {
-            runtime_log_warn("[委托会话] 变更锁表中毒，已恢复".to_string());
+            runtime_log_warn("[委托] 会话 变更锁表中毒，已恢复".to_string());
             poisoned.into_inner()
         }
     };
@@ -663,8 +657,7 @@ fn delegate_runtime_thread_conversation_update(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_warn(format!(
-                "[委托会话] 变更锁中毒，已恢复，delegate_id={}",
-                delegate_id
+                "[委托] 会话 变更锁中毒，已恢复"
             ));
             poisoned.into_inner()
         }
@@ -689,8 +682,7 @@ fn delegate_runtime_thread_append_fast_request(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_warn(format!(
-                "[委托会话] 杂务追加锁中毒，已恢复，delegate_id={}",
-                normalized_delegate_id
+                "[委托] 会话 杂务追加锁中毒，已恢复"
             ));
             poisoned.into_inner()
         }
@@ -749,8 +741,7 @@ fn delegate_runtime_thread_conversation_append_if_absent(
         Ok(guard) => guard,
         Err(poisoned) => {
             runtime_log_warn(format!(
-                "[委托会话] 追加锁中毒，已恢复，delegate_id={}",
-                delegate_id
+                "[委托] 会话 追加锁中毒，已恢复"
             ));
             poisoned.into_inner()
         }
@@ -790,9 +781,7 @@ fn delegate_runtime_thread_conversation_delete(
         let descendant_count = abort_delegate_runtime_descendants_by_parent_session(app_state, &chat_key)?;
         clear_inflight_completed_tool_history(app_state, &chat_key)?;
         runtime_log_info(format!(
-            "[委托会话] 完成，任务=删除前中止委托调度，delegate_id={}，chat_key={}，aborted_chat={}，aborted_tool={}，descendant_count={}",
-            normalized_delegate_id,
-            chat_key,
+            "[委托] 会话 完成 任务=删除前中止委托调度 中止聊天={} 中止工具={} 后代数量={}",
             aborted_chat,
             aborted_tool,
             descendant_count

@@ -229,7 +229,7 @@ where
 
     let old_provider_id = memory_store_get_runtime_state(&conn, KB_STATE_ACTIVE_INDEX_PROVIDER_ID)?;
     runtime_log_info(format!(
-        "[记忆存储] 开始，任务=向量索引同步，old_provider_id={}，new_provider_id={}，model_name={}",
+        "[记忆] 存储 开始 任务=向量索引同步 旧模型配置={} 新模型配置={} 模型名={}",
         old_provider_id.clone().unwrap_or_default(),
         new_provider_id.trim(),
         model_name.trim()
@@ -238,8 +238,8 @@ where
         .map(|p| p.exists())
         .unwrap_or(false);
     if !force && old_provider_id.as_deref() == Some(new_provider_id.trim()) && provider_store_exists {
-        runtime_log_warn(format!(
-            "[记忆存储] 跳过，任务=向量索引同步，reason=no_op，provider_id={}",
+        runtime_log_debug(format!(
+            "[记忆] 存储 跳过 任务=向量索引同步 原因=no_op 模型配置={}",
             new_provider_id.trim()
         ));
         return Ok(MemoryStoreProviderSyncReport {
@@ -322,7 +322,7 @@ where
         let _ = memory_store_set_runtime_state(&conn, KB_STATE_REBUILD_STATUS, "failed");
         let _ = memory_store_set_runtime_state(&conn, KB_STATE_REBUILD_ERROR, err);
         runtime_log_error(format!(
-            "[记忆存储] 失败，任务=向量索引同步，provider_id={}，error={}，duration_ms={}",
+            "[记忆] 存储 失败 任务=向量索引同步 模型配置={} 错误={} 耗时={}",
             new_provider_id.trim(),
             err,
             started_at.elapsed().as_millis()
@@ -331,7 +331,7 @@ where
 
     if let Ok(report) = sync_result.as_ref() {
         runtime_log_info(format!(
-            "[记忆存储] 完成，任务=向量索引同步，provider_id={}，deleted={}，added={}，batch_count={}，duration_ms={}",
+            "[记忆] 存储 完成 任务=向量索引同步 模型配置={} 删除数={} 新增数={} 批次数量={} 耗时={}",
             new_provider_id.trim(),
             report.deleted,
             report.added,

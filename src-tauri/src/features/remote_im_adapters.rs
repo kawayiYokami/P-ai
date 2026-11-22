@@ -305,14 +305,89 @@ fn remote_im_is_dingtalk_private_target_likely_conversation_id(remote_contact_id
 }
 
 fn remote_im_log(level: &str, event: &str, fields: Value) {
-    runtime_log_info(format!(
-        "{}",
-        serde_json::json!({
-            "level": level,
-            "event": event,
-            "fields": fields
-        })
-    ));
+    // 一条日志一句话：前缀 + 事件名 + 级别 + 摊平的「中文键=值」，不打 JSON。
+    let mut message = format!("[远程IM] {event} 级别={level}");
+    if let Some(object) = fields.as_object() {
+        for (key, value) in object {
+            let value_text = match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            let value_text = if key == "app_secret" {
+                remote_im_mask_secret(&value_text)
+            } else {
+                value_text
+            };
+            message.push(' ');
+            message.push_str(remote_im_log_field_label(key));
+            message.push('=');
+            message.push_str(&value_text);
+        }
+    }
+    match level.trim().to_ascii_uppercase().as_str() {
+        "ERROR" => runtime_log_error(message),
+        "WARN" => runtime_log_warn(message),
+        "DEBUG" => runtime_log_debug(message),
+        _ => runtime_log_info(message),
+    }
+}
+
+/// 日志字段键名统一转中文；表外键原样保留英文，避免自行发明语义。
+fn remote_im_log_field_label(key: &str) -> &str {
+    match key {
+        "channel_id" => "渠道",
+        "remote_contact_id" => "远程联系人",
+        "contact_id" => "联系人",
+        "status" => "状态",
+        "trigger" => "触发",
+        "task_name" => "任务",
+        "error" => "错误",
+        "duration_ms" => "耗时",
+        "type" => "类型",
+        "segment_type" => "分段类型",
+        "text" => "文本",
+        "content" => "内容",
+        "text_len" => "文本长度",
+        "message_id" => "消息",
+        "message" => "消息内容",
+        "content_count" => "内容数",
+        "content_item_count" => "内容条数",
+        "action" => "动作",
+        "token_present" => "凭证存在",
+        "token_masked" => "凭证掩码",
+        "token" => "凭证",
+        "raw_size" => "原始体积",
+        "raw" => "原文",
+        "receive_id_type" => "接收方类型",
+        "receive_id" => "接收方",
+        "send_mode" => "发送方式",
+        "is_group" => "群聊",
+        "group_id" => "群",
+        "user_id" => "用户",
+        "name" => "名称",
+        "msgtype" | "msg_type" => "消息类型",
+        "image_name" => "图片名",
+        "image_mime" => "图片格式",
+        "image_key" => "图片键",
+        "file_name" => "文件名",
+        "file_key" => "文件键",
+        "file" => "文件",
+        "message_length" => "消息长度",
+        "payload_summary" => "载荷摘要",
+        "data" => "数据",
+        "app_id" => "应用编号",
+        "app_secret" => "应用密钥",
+        other => other,
+    }
+}
+
+/// 密钥只留前 4 位，其余固定打码。
+fn remote_im_mask_secret(secret: &str) -> String {
+    let head = secret.trim().chars().take(4).collect::<String>();
+    if head.is_empty() {
+        return "***".to_string();
+    }
+    format!("{head}***")
 }
 
 include!("remote_im/feishu_sdk.rs");

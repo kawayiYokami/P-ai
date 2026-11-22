@@ -237,11 +237,11 @@ fn window_layouts_snapshot() -> Result<PersistedWindowLayouts, String> {
 
 fn enqueue_window_layout_save(layouts: PersistedWindowLayouts) {
     let Some(sender) = WINDOW_LAYOUT_SAVE_SENDER.get() else {
-        runtime_log_warn("[窗口布局] 保存队列尚未初始化，跳过异步写盘".to_string());
+        runtime_log_debug("[系统] 保存队列尚未初始化，跳过异步写盘".to_string());
         return;
     };
     if let Err(err) = sender.send(layouts) {
-        runtime_log_warn(format!("[窗口布局] 写入异步保存队列失败：{err}"));
+        runtime_log_warn(format!("[系统] 写入异步保存队列失败：{err}"));
     }
 }
 
@@ -261,7 +261,7 @@ fn run_window_layout_save_worker(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if let Err(err) = state_service_save_window_layouts(&state, &pending) {
                     runtime_log_warn(format!(
-                        "[窗口布局] 异步写盘失败，将在下一轮重试：error={err}"
+                        "[系统] 异步写盘失败，将在下一轮重试 错误={err}"
                     ));
                     next_save_at = std::time::Instant::now() + WINDOW_LAYOUT_SAVE_INTERVAL;
                     continue;
@@ -293,7 +293,7 @@ fn initialize_window_layout_store(app: &AppHandle) {
         Ok(layouts) => (layouts, false),
         Err(err) => {
             runtime_log_warn(format!(
-                "[窗口布局] 读取布局失败，已使用新的内存布局：error={err}"
+                "[系统] 读取布局失败，已使用新的内存布局 错误={err}"
             ));
             (PersistedWindowLayouts::default(), true)
         }
@@ -378,7 +378,7 @@ fn detached_chat_window_for_conversation(conversation_id: &str) -> Option<String
     }
     let guard = detached_chat_windows().lock().unwrap_or_else(|poison| {
         runtime_log_info(format!(
-            "[独立聊天窗口] 会话到窗口映射锁已中毒，继续恢复读取：error={:?}",
+            "[系统] 会话到窗口映射锁已中毒，继续恢复读取 错误={}",
             poison
         ));
         poison.into_inner()
@@ -471,7 +471,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
         .name("file-reader-window-create".to_string())
         .spawn(move || {
             let started_at = std::time::Instant::now();
-            runtime_log_info(format!("[文件阅读窗口] 开始创建窗口：window_label={}", FILE_READER_WINDOW_LABEL));
+            runtime_log_info(format!("[系统] 开始创建窗口 窗口={}", FILE_READER_WINDOW_LABEL));
             if app_handle.get_webview_window(FILE_READER_WINDOW_LABEL).is_some() {
                 let _ = focus_file_reader_window(&app_handle);
                 let _ = emit_file_reader_open_path(&app_handle, &path);
@@ -497,7 +497,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
                 Ok(window) => window,
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[文件阅读窗口] 创建失败：window_label={}，error={}",
+                        "[系统] 创建失败 窗口={} 错误={}",
                         FILE_READER_WINDOW_LABEL,
                         err
                     ));
@@ -507,7 +507,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
 
             if let Err(err) = apply_window_layout_before_show(&app_handle, FILE_READER_WINDOW_LABEL) {
                 runtime_log_error(format!(
-                    "[文件阅读窗口] 应用窗口布局失败：window_label={}，error={}",
+                    "[系统] 应用窗口布局失败 窗口={} 错误={}",
                     FILE_READER_WINDOW_LABEL,
                     err
                 ));
@@ -519,7 +519,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
             ensure_window_visible_after_show(&app_handle, FILE_READER_WINDOW_LABEL);
             let _ = window.set_focus();
             runtime_log_info(format!(
-                "[文件阅读窗口] 窗口已显示：window_label={}，elapsed_ms={}",
+                "[系统] 窗口已显示 窗口={} 耗时={}",
                 FILE_READER_WINDOW_LABEL,
                 started_at.elapsed().as_millis()
             ));
@@ -942,7 +942,7 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
     // 我们这里是 hide/show 复用窗口，早期实现每次 show 都重设一遍，等于每开一次窗口就把
     // 最大化状态拽掉一次；现在对齐成进程内只恢复一次，后续 show 只负责 unminimize + show。
     if window_layout_already_restored(label) {
-        runtime_log_info(format!("[窗口布局] 本进程已恢复过，跳过尺寸恢复：label={label}"));
+        runtime_log_info(format!("[系统] 本进程已恢复过，跳过尺寸恢复 标签={label}"));
         return Ok(());
     }
     let result = apply_window_layout_once(app, label);
@@ -968,7 +968,7 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
     // 手动拖一下窗口才恢复。尺寸恢复本来就该只在非最大化状态下做。
     if matches!(window.is_maximized(), Ok(true)) {
         runtime_log_info(format!(
-            "[窗口布局] 跳过尺寸恢复：label={label} 当前已最大化"
+            "[系统] 跳过尺寸恢复 标签={label} 当前已最大化"
         ));
         return Ok(());
     }
@@ -977,11 +977,11 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
     let fallback_monitor = preferred_window_monitor(&window);
     match saved {
         Some(saved) => runtime_log_info(format!(
-            "[窗口布局] 快照: label={label} width={:?} height={:?} x={:?} y={:?} maximized={} monitor={:?}",
-            saved.width,
-            saved.height,
-            saved.x,
-            saved.y,
+            "[系统] 快照 标签={label} 宽={} 高={} 横坐标={} 纵坐标={} 最大化={} 显示器={}",
+            saved.width.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()),
+            saved.height.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()),
+            saved.x.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()),
+            saved.y.map(|value| value.to_string()).unwrap_or_else(|| "无".to_string()),
             saved.maximized,
             fallback_monitor
                 .as_ref()
@@ -993,7 +993,7 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
                 ))
                 .unwrap_or_else(|| "none".to_string()),
         )),
-        None => runtime_log_info(format!("[窗口布局] 无快照：label={label}")),
+        None => runtime_log_info(format!("[系统] 无快照 标签={label}")),
     }
 
     if let Some(saved) = saved {
@@ -1009,7 +1009,7 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
                 && window_size_is_near_fullscreen(resolved_width, resolved_height, monitor)
             {
                 runtime_log_info(format!(
-                    "[窗口布局] 快照尺寸接近全屏，改为最大化而不是 set_size: label={label} size={resolved_width}x{resolved_height}"
+                    "[系统] 快照尺寸接近全屏，改为最大化而不是设置尺寸 标签={label} 尺寸={resolved_width}x{resolved_height}"
                 ));
                 let _ = window.maximize();
                 return Ok(());
@@ -1019,7 +1019,7 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
             let resolved_height_physical =
                 logical_to_physical_px(resolved_height, monitor.scale_factor()) as u32;
             runtime_log_info(format!(
-                "[窗口布局] 解析后 set_size: label={label} 请求={resolved_width}x{resolved_height}(逻辑) 物理={resolved_width_physical}x{resolved_height_physical}"
+                "[系统] 解析后设置尺寸 标签={label} 请求={resolved_width}x{resolved_height}(逻辑) 物理={resolved_width_physical}x{resolved_height_physical}"
             ));
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
                 resolved_width as f64,
@@ -1071,7 +1071,7 @@ fn apply_window_layout_once(app: &AppHandle, label: &str) -> Result<(), String> 
             }
         }
         if saved.maximized {
-            runtime_log_info(format!("[窗口布局] 快照要求最大化：label={label}"));
+            runtime_log_info(format!("[系统] 快照要求最大化 标签={label}"));
             let _ = window.maximize();
         }
         return Ok(());
@@ -1136,7 +1136,7 @@ fn persist_window_layout_snapshot(app: &AppHandle, label: &str) -> Result<(), St
             .unwrap_or(false);
         if !reported && near_fullscreen {
             runtime_log_info(format!(
-                "[窗口布局] is_maximized=false 但尺寸接近全屏，按最大化记账：label={label}"
+                "[系统] 最大化=false 但尺寸接近全屏，按最大化记账 标签={label}"
             ));
         }
         reported || near_fullscreen
@@ -1196,7 +1196,7 @@ fn attach_window_layout_persistence_for(
         tauri::WindowEvent::Resized(_) => {
             if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
-                    "[窗口] 持久化窗口布局失败: label={}, error={}",
+                    "[系统] 持久化窗口布局失败 标签={} 错误={}",
                     label.trim(),
                     err
                 ));
@@ -1205,7 +1205,7 @@ fn attach_window_layout_persistence_for(
         tauri::WindowEvent::Moved(_) => {
             if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
-                    "[窗口] 持久化窗口布局失败: label={}, error={}",
+                    "[系统] 持久化窗口布局失败 标签={} 错误={}",
                     label.trim(),
                     err
                 ));
@@ -1214,7 +1214,7 @@ fn attach_window_layout_persistence_for(
         tauri::WindowEvent::CloseRequested { .. } => {
             if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
-                    "[窗口] 持久化窗口布局失败: label={}, error={}",
+                    "[系统] 持久化窗口布局失败 标签={} 错误={}",
                     label.trim(),
                     err
                 ));
@@ -1223,7 +1223,7 @@ fn attach_window_layout_persistence_for(
         tauri::WindowEvent::Destroyed => {
             if let Err(err) = persist_window_layout_snapshot(&app_handle, &label) {
                 runtime_log_error(format!(
-                    "[窗口] 持久化窗口布局失败: label={}, error={}",
+                    "[系统] 持久化窗口布局失败 标签={} 错误={}",
                     label.trim(),
                     err
                 ));
@@ -1277,7 +1277,7 @@ fn log_window_geometry(stage: &str, label: &str, window: &tauri::WebviewWindow) 
         .map(|monitor| (monitor.size().width, monitor.size().height, monitor.scale_factor()))
         .unwrap_or((0, 0, 0.0));
     runtime_log_info(format!(
-        "[窗口几何] {stage}: label={label} maximized={maximized} outer={outer_w}x{outer_h} inner={inner_w}x{inner_h} pos=({pos_x}, {pos_y}) scale={scale:.2} monitor={monitor_w}x{monitor_h}@{monitor_scale:.2}"
+        "[系统] {stage} 标签={label} 最大化={maximized} 外框={outer_w}x{outer_h} 内框={inner_w}x{inner_h} 位置=({pos_x}, {pos_y}) 缩放={scale:.2} 显示器={monitor_w}x{monitor_h}@{monitor_scale:.2}"
     ));
 }
 
@@ -1331,7 +1331,7 @@ fn rebuild_window(app: &AppHandle, label: &str) -> Result<(), String> {
         .cloned()
     else {
         runtime_log_warn(format!(
-            "[WebView2] 窗口未在配置中声明，无法重建，退化为重载：window_label={label}"
+            "[系统] 窗口未在配置中声明，无法重建，退化为重载 窗口={label}"
         ));
         return reload_window(app, label);
     };
@@ -1530,7 +1530,7 @@ fn show_chat_entry_window(app: &AppHandle) -> Result<(), String> {
             startup_window_label_for_config(&config)
         }
         Err(err) => {
-            runtime_log_error(format!("[托盘] 读取对话入口配置失败: {err}"));
+            runtime_log_error(format!("[系统] 读取对话入口配置失败: {err}"));
             "main"
         }
     };
@@ -1557,14 +1557,14 @@ fn dispatch_tray_action(app: &AppHandle, source: &'static str, action: &'static 
     if let Err(err) = std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            runtime_log_info(format!("[托盘] 收到动作：source={}，action={}", source, action));
+            runtime_log_info(format!("[系统] 收到动作 来源={} 动作={}", source, action));
             match run_tray_action(&app_handle, action) {
                 Ok(()) => {
-                    runtime_log_info(format!("[托盘] 动作完成：source={}，action={}", source, action));
+                    runtime_log_info(format!("[系统] 动作完成 来源={} 动作={}", source, action));
                 }
                 Err(err) => {
                     runtime_log_error(format!(
-                        "[托盘] 动作失败：source={}，action={}，error={}",
+                        "[系统] 动作失败 来源={} 动作={} 错误={}",
                         source, action, err
                     ));
                 }
@@ -1572,7 +1572,7 @@ fn dispatch_tray_action(app: &AppHandle, source: &'static str, action: &'static 
         })
     {
         runtime_log_error(format!(
-            "[托盘] 调度动作失败：source={}，action={}，error={}",
+            "[系统] 调度动作失败 来源={} 动作={} 错误={}",
             source, action, err
         ));
     }
@@ -1680,7 +1680,7 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
             } else if id == "runtime-logs" {
                 dispatch_tray_action(app, "menu", "runtime-logs");
             } else if id == "quit" {
-                runtime_log_info(format!("[托盘] 收到动作：source=menu，action=quit"));
+                runtime_log_info(format!("[系统] 收到动作 来源=menu 动作=quit"));
                 graceful_exit_app(app, 0);
             }
         })
@@ -1712,7 +1712,7 @@ fn install_hide_on_close(window: &tauri::WebviewWindow, app: &AppHandle) {
         let app_clone = app.clone();
         let _ = window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                runtime_log_info(format!("[窗口] {label} 关闭请求，非 Windows 平台直接退出应用"));
+                runtime_log_info(format!("[系统] {label} 关闭请求，非 Windows 平台直接退出应用"));
                 graceful_exit_app(&app_clone, 0);
             }
         });

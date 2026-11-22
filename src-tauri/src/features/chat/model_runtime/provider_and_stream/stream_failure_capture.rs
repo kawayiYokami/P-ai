@@ -40,13 +40,12 @@ impl StreamFailureGuard {
         let conversation_id = self.conversation_id.as_deref().unwrap_or("unknown");
         match write_stream_failure_record(data_path, conversation_id, &err.to_string(), &frames) {
             Ok(path) => runtime_log_warn(format!(
-                "[聊天] 流式异常已记录: conversation_id={}，path={}",
-                conversation_id,
+                "[聊天] 流式异常已记录 文件={}",
                 path.display()
             )),
             Err(error) => runtime_log_warn(format!(
-                "[聊天] 流式异常记录保存失败: conversation_id={}，err={}",
-                conversation_id, error
+                "[聊天] 流式异常记录保存失败 原因={}",
+                error
             )),
         }
     }

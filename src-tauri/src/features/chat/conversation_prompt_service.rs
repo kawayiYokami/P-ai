@@ -74,7 +74,7 @@ fn resolve_estimate_tool_definitions(
         ),
         Err(err) => {
             runtime_log_warn(format!(
-                "[估算Token] 读取配置失败，本轮不估算工具开销，error={err}"
+                "[聊天] 读取配置失败，本轮不估算工具开销 原因={err}"
             ));
             Vec::new()
         }
@@ -531,7 +531,7 @@ impl ConversationPromptService {
         }
         total += history_overhead + history_text + history_tool_calls;
         runtime_log_debug(format!(
-            "[估算Token] preamble={:.0} history_count={} overhead={:.0} text={:.0} tool_calls={:.0} total_so_far={:.0}",
+            "[聊天] 前置={:.0} 历史数={} 开销={:.0} 文本={:.0} 工具调用数={:.0} 累计总数={:.0}",
             preamble_tokens,
             prepared.history_messages.len(),
             history_overhead,
@@ -552,14 +552,14 @@ impl ConversationPromptService {
             match serde_json::to_string(tool_definitions) {
                 Ok(serialized) => tool_tokens = estimated_tokens_for_text(&serialized),
                 Err(err) => runtime_log_warn(format!(
-                    "[估算Token] 工具定义序列化失败，工具开销不计入估算，count={} error={err}",
+                    "[聊天] 工具定义序列化失败，工具开销不计入估算 数量={} 原因={err}",
                     tool_definitions.len()
                 )),
             }
         }
         total += tool_tokens;
         runtime_log_debug(format!(
-            "[估算Token] tool_count={} tool_tokens={tool_tokens:.0}",
+            "[聊天] 工具数={} 工具用量={tool_tokens:.0}",
             tool_definitions.len()
         ));
 
@@ -1100,9 +1100,9 @@ impl ConversationPromptService {
             }
         }
         runtime_log_info(format!(
-            "[系统提示词] 开始重建 conversation_id={} agent_id={} reason={}",
-            conversation.id.trim(),
-            agent.id.trim(),
+            "[聊天] 开始重建 会话={} 人格={} 原因={}",
+            conversation.title.trim(),
+            agent.name.trim(),
             rebuild_reason
         ));
         let terminal_block = self.resolve_terminal_block(

@@ -16,8 +16,8 @@ fn resolve_unarchived_conversation_index_with_fallback(
         }) {
             return Ok(idx);
         }
-        runtime_log_warn(format!(
-            "[解析对话索引] 请求的conversation_id不存在，终止本次读取: '{}' (agent_id: '{}')",
+        runtime_log_info(format!(
+            "[存储] 解析对话索引 请求的会话不存在 终止本次读取 会话='{}' 人格='{}'",
             conversation_id, effective_agent_id
         ));
         return Err(format!(
@@ -64,8 +64,8 @@ fn ensure_chat_store_conversation_readable(
     }
     if let Err(err) = &initial_status {
         runtime_log_warn(format!(
-            "[消息存储] 仓库状态首次读取失败，将在会话锁内重试，conversation_id={}，error={}",
-            normalized_conversation_id, err
+            "[存储] 仓库状态首次读取失败，将在会话锁内重试 原因={}",
+            err
         ));
     }
     with_conversation_mutation(
@@ -120,8 +120,8 @@ fn build_foreground_conversation_snapshot_from_meta_view(
     {
         if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
             runtime_log_warn(format!(
-                "[消息存储] 警告，任务=retain_message_store_block_cache_whitelist，conversation_id={}，error={}",
-                conversation_id, err
+                "[存储] 警告 任务=retain_message_store_block_cache_whitelist 原因={}",
+                err
             ));
         }
         (page.messages, page.has_more)
@@ -159,8 +159,9 @@ fn build_foreground_snapshot_recent_messages(
     {
         if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
             runtime_log_warn(format!(
-                "[消息存储] 警告，任务=retain_message_store_block_cache_whitelist，conversation_id={}，error={}",
-                conversation.id, err
+                "[存储] 警告 任务=retain_message_store_block_cache_whitelist 会话={} 原因={}",
+                conversation.title,
+                err
             ));
         }
         return Ok((page.messages, page.has_more));
@@ -195,8 +196,9 @@ fn emit_provider_context_usage_update_from_conversation(
         Ok(value) => value,
         Err(err) => {
             runtime_log_warn(format!(
-                "[聊天用量] 跳过，任务=推送真实上下文用量，conversation_id={}，error={}",
-                conversation.id, err
+                "[聊天] 跳过 任务=推送真实上下文用量 会话={} 原因={}",
+                conversation.title,
+                err
             ));
             return;
         }

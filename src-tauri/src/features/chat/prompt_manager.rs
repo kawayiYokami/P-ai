@@ -119,7 +119,7 @@ fn cache_lock_recover<'a, T>(
         Ok(guard) => guard,
         Err(err) => {
             runtime_log_info(format!(
-                "[系统提示词] 警告: {} 锁已 poison，继续恢复使用 error={:?}",
+                "[聊天] 警告: {} 锁已 poison，继续恢复使用 原因={}",
                 label, err
             ));
             err.into_inner()
@@ -185,8 +185,7 @@ fn get_or_build_agent_system_prompt_snapshot(
         }
     }
     runtime_log_info(format!(
-        "[人格提示词] 开始重建 agent_id={} reason={}",
-        agent.id.trim(),
+        "[聊天] 开始重建 原因={}",
         rebuild_reason
     ));
     let snapshot = build_agent_system_prompt_snapshot_uncached(agent, agents);
@@ -304,8 +303,7 @@ fn get_or_build_conversation_environment_prompt_snapshot(
         }
     }
     runtime_log_info(format!(
-        "[会话环境提示词] 开始重建 conversation_id={} reason={}",
-        conversation.id.trim(),
+        "[聊天] 开始重建 原因={}",
         rebuild_reason
     ));
     let snapshot = build_conversation_environment_prompt_snapshot_uncached(
@@ -807,10 +805,10 @@ fn mark_prompt_cache_rebuild_internal(
     }
 
     runtime_log_debug(format!(
-        "[系统提示词] 标记重建 完成 reason={} agent_ids={:?} conversation_ids={:?} agent_marked={} environment_marked={} final_marked={}",
+        "[聊天] 标记重建 完成 原因={} 人格列表={} 会话列表={} 人格标记={} 环境标记={} 最终标记={}",
         dirty_kind.as_log_reason(),
-        agent_ids,
-        conversation_ids,
+        agent_ids.iter().copied().collect::<Vec<_>>().join("、"),
+        conversation_ids.iter().copied().collect::<Vec<_>>().join("、"),
         agent_marked,
         environment_marked,
         final_marked

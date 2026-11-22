@@ -51,6 +51,16 @@ pub(crate) enum MainSessionState {
     OrganizingContext,
 }
 
+impl MainSessionState {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::AssistantStreaming => "assistant_streaming",
+            Self::OrganizingContext => "organizing_context",
+        }
+    }
+}
+
 /// 消息来源类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -226,7 +236,7 @@ pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
     let state_clone = state.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(err) = process_chat_queue(&state_clone).await {
-            runtime_log_error(format!("[聊天调度] process_chat_queue 失败: {}", err));
+            runtime_log_error(format!("[聊天] process_chat_queue 失败: {}", err));
         }
     });
 }
@@ -240,7 +250,7 @@ pub(crate) fn is_chat_event_queued(state: &AppState, event_id: &str) -> Result<b
 
 pub(crate) async fn process_chat_queue_for_event(state: &AppState, event_id: &str) {
     if let Err(err) = process_chat_queue(state).await {
-        runtime_log_error(format!("[聊天调度] process_chat_queue 失败: {}", err));
+        runtime_log_error(format!("[聊天] process_chat_queue 失败: {}", err));
     }
     if is_chat_event_queued(state, event_id).unwrap_or(false) {
         emit_chat_queue_snapshot(state);
@@ -254,7 +264,7 @@ pub(crate) async fn process_chat_event_after_ingress(state: &AppState, ingress: 
             if let Err(err) =
                 process_claimed_conversation_batch(state, &conversation_id, vec![event]).await
             {
-                runtime_log_error(format!("[聊天调度] 处理直接事件失败: {}", err));
+                runtime_log_error(format!("[聊天] 处理直接事件失败: {}", err));
             }
         }
         ChatEventIngress::Queued { event_id } => {
@@ -377,8 +387,8 @@ fn set_conversation_runtime_state(
     };
 
     runtime_log_info(format!(
-        "[聊天调度] 会话状态转换: conversation_id={}, {} -> {}",
-        conversation_id, old_state_cn, new_state_cn
+        "[聊天] 会话状态转换 {} -> {}",
+        old_state_cn, new_state_cn
     ));
 
     emit_chat_queue_snapshot(state);
@@ -406,8 +416,8 @@ pub(crate) fn set_conversation_runtime_state_and_emit(
             conversation_id,
         ) {
             runtime_log_warn(format!(
-                "[会话概览] 跳过，任务=整理上下文水位，conversation_id={}，error={}",
-                conversation_id, err
+                "[聊天] 跳过 任务=整理上下文水位 原因={}",
+                err
             ));
         }
     }
@@ -592,7 +602,7 @@ pub(crate) async fn process_chat_queue(state: &AppState) -> Result<(), String> {
             if let Err(err) =
                 process_claimed_conversation_batch(&state_clone, &conversation_id, events).await
             {
-                runtime_log_error(format!("[聊天调度] 处理会话失败 {}: {}", conversation_id, err));
+                runtime_log_error(format!("[聊天] 处理会话失败 {}: {}", conversation_id, err));
             }
         });
     }
@@ -649,7 +659,7 @@ async fn process_conversation_batch(
                         name.as_deref(),
                     );
                     if let Some(warning) = warning {
-                        runtime_log_warn(format!("[附件迁移] 历史 flush 降级继续：{warning}"));
+                        runtime_log_warn(format!("[存储] 历史 flush 降级继续：{warning}"));
                     }
                     deferred_image_count += 1;
                     deferred_base64_chars += bytes_base64.len();
@@ -734,9 +744,8 @@ async fn process_conversation_batch(
         && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
         && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
     {
-        runtime_log_warn(format!(
-            "[上下文整理] 跳过补种初始摘要，任务=scheduler_history_flush，conversation_id={}，原因=non_empty_conversation_missing_compaction_marker，message_count={}，body_message_count={}，last_message_at={}",
-            conversation_id,
+        runtime_log_debug(format!(
+            "[聊天] 跳过补种初始摘要 任务=scheduler_history_flush 原因=non_empty_conversation_missing_compaction_marker 消息数={} 正文消息数={} 最后消息时间={}",
             actual_message_count,
             actual_body_message_count,
             last_block
@@ -849,8 +858,8 @@ async fn process_conversation_batch(
                     remote_im_skip_decision = Some("no_reply".to_string());
                     set_conversation_remote_im_assistant_context(state, conversation_id, None)?;
                     runtime_log_warn(format!(
-                        "[入场] 跳过：当前助理上下文非法，contact_id={}，error={}",
-                        contact.id, err
+                        "[聊天] 跳过：当前助理上下文非法 原因={}",
+                        err
                     ));
                     remote_im_append_contact_log(
                         &contact,
@@ -871,8 +880,7 @@ async fn process_conversation_batch(
                     )?;
                     if !follow_up_sources.is_empty() {
                         runtime_log_warn(format!(
-                            "[入场] 跳过：激活被跳过但仍有待办续跑，当前先不续，contact_id={}，待办数={}",
-                            contact.id,
+                            "[聊天] 跳过：激活被跳过但仍有待办续跑，当前先不续 待办数={}",
                             follow_up_sources.len()
                         ));
                     }
@@ -906,8 +914,8 @@ async fn process_conversation_batch(
                 )
                 .unwrap_or_else(|err| {
                     runtime_log_warn(format!(
-                        "[应答判断] 降级：工作账本读取失败，contact_id={}，error={}",
-                        contact.id, err
+                        "[聊天] 降级：工作账本读取失败 原因={}",
+                        err
                     ));
                     "（无）".to_string()
                 });
@@ -915,7 +923,7 @@ async fn process_conversation_batch(
                     remote_im_reply_delegate_active_ids_for_contact(state, &contact.id)?;
                 // 环节 3：应答判断。本批消息交给快速模型；开始与结束各一条，结论不在这里展开。
                 runtime_log_info(format!(
-                    "[应答判断] 开始：联系人={}，方式=快速模型",
+                    "[聊天] 开始 联系人={} 方式=快速模型",
                     remote_im_contact_log_label(&contact)
                 ));
                 let decision = match run_remote_im_secretary_decision(
@@ -932,8 +940,8 @@ async fn process_conversation_batch(
                     Ok(result) => result,
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[应答判断] 降级：快速模型失败，按不回处理，contact_id={}，error={}",
-                            contact.id, err
+                            "[聊天] 降级：快速模型失败，按不回处理 原因={}",
+                            err
                         ));
                         remote_im_append_contact_log(
                             &contact,
@@ -955,7 +963,7 @@ async fn process_conversation_batch(
                 };
                 if decision.emit_log {
                     runtime_log_info(format!(
-                        "[应答判断] 结束：联系人={}，应回={}，模型={}，原因={}",
+                        "[聊天] 结束 联系人={} 应回={} 模型={} 原因={}",
                         remote_im_contact_log_label(&contact),
                         remote_im_yes_no(decision.should_reply),
                         if decision.model_name.trim().is_empty() {
@@ -994,8 +1002,7 @@ async fn process_conversation_batch(
                     )?;
                     if !follow_up_sources.is_empty() {
                         runtime_log_warn(format!(
-                            "[应答判断] 跳过：判定不回复后仍有待办续跑，当前先不续，contact_id={}，待办数={}",
-                            contact.id,
+                            "[聊天] 跳过：判定不回复后仍有待办续跑，当前先不续 待办数={}",
                             follow_up_sources.len()
                         ));
                     }
@@ -1018,14 +1025,13 @@ async fn process_conversation_batch(
                             remote_im_skip_decision =
                                 Some("remote_reply_delegate_guidance".to_string());
                             runtime_log_info(format!(
-                                "[应答委托] 引导已投递：delegate_id={}，联系人={}",
-                                target_delegate_id,
+                                "[聊天] 引导已投递 联系人={}",
                                 remote_im_contact_log_label(&contact)
                             ));
                         }
                         Err(err) => runtime_log_warn(format!(
-                            "[应答委托] 引导投递降级：保留当前批次改走新委托，delegate_id={}，error={}",
-                            target_delegate_id, err
+                            "[聊天] 引导投递降级：保留当前批次改走新委托 原因={}",
+                            err
                         )),
                     }
                 } else if let (Some(source), Some(trigger_message_id)) = (
@@ -1050,8 +1056,8 @@ async fn process_conversation_batch(
                             "应答判断决定发起答复",
                         ) {
                             runtime_log_warn(format!(
-                                "[在场] 降级：应答判断后刷新在场状态、压缩或计时失败，contact_id={}，error={}",
-                                contact.id, err
+                                "[聊天] 降级：应答判断后刷新在场状态、压缩或计时失败 原因={}",
+                                err
                             ));
                         }
                     } else {
@@ -1098,8 +1104,8 @@ async fn process_conversation_batch(
                             should_activate = false;
                             remote_im_skip_decision = Some("remote_reply_delegate_start_failed".to_string());
                             runtime_log_error(format!(
-                                "[应答委托] 失败：创建失败，contact_id={}，error={}",
-                                contact.id, err
+                                "[聊天] 失败：创建失败 原因={}",
+                                err
                             ));
                         }
                     }
@@ -1199,8 +1205,8 @@ async fn process_conversation_batch(
                         Ok(sources) => sources,
                         Err(finalize_err) => {
                             runtime_log_warn(format!(
-                            "[聊天调度] 远程联系人轮次收尾失败（完成分支），conversation_id={}，error={}",
-                            conversation_id, finalize_err
+                            "[聊天] 远程联系人轮次收尾失败（完成分支） 原因={}",
+                            finalize_err
                             ));
                             Vec::new()
                         }
@@ -1233,8 +1239,7 @@ async fn process_conversation_batch(
                             "queue",
                         );
                         runtime_log_info(format!(
-                            "[续跑] 开始：conversation_id={}，待办数={}",
-                            conversation_id,
+                            "[聊天] 开始 待办数={}",
                             follow_up_sources.len()
                         ));
                         match activate_main_assistant(
@@ -1263,8 +1268,8 @@ async fn process_conversation_batch(
                                     Ok(sources) => sources,
                                     Err(finalize_err) => {
                                         runtime_log_warn(format!(
-                                            "[聊天调度] 远程联系人待办续跑收尾失败，conversation_id={}，error={}",
-                                            conversation_id, finalize_err
+                                            "[聊天] 远程联系人待办续跑收尾失败 原因={}",
+                                            finalize_err
                                         ));
                                         Vec::new()
                                     }
@@ -1301,8 +1306,8 @@ async fn process_conversation_batch(
                                     &follow_up_started_at,
                                 ) {
                                     runtime_log_warn(format!(
-                                        "[聊天调度] 远程联系人待办续跑收尾失败（失败分支），conversation_id={}，original_error={}，finalize_error={}",
-                                        conversation_id, err, finalize_err
+                                        "[聊天] 远程联系人待办续跑收尾失败（失败分支） 原始错误={} 收尾错误={}",
+                                        err, finalize_err
                                     ));
                                 }
                                 return Err(err);
@@ -1322,8 +1327,8 @@ async fn process_conversation_batch(
                             &history_flush_time,
                         ) {
                             runtime_log_warn(format!(
-                                "[聊天调度] 远程联系人轮次收尾失败（停止分支），conversation_id={}，error={}",
-                                conversation_id, finalize_err
+                                "[聊天] 远程联系人轮次收尾失败（停止分支） 原因={}",
+                                finalize_err
                             ));
                         }
                         clear_conversation_list_activity_mark(state, conversation_id);
@@ -1347,8 +1352,8 @@ async fn process_conversation_batch(
                         &history_flush_time,
                     ) {
                         runtime_log_warn(format!(
-                            "[聊天调度] 远程联系人轮次收尾失败（失败分支），conversation_id={}，original_error={}，finalize_error={}",
-                            conversation_id, err, finalize_err
+                            "[聊天] 远程联系人轮次收尾失败（失败分支） 原始错误={} 收尾错误={}",
+                            err, finalize_err
                         ));
                     }
                     return Err(err);
@@ -1514,8 +1519,7 @@ async fn activate_main_assistant(
         let removed = remove_queue_events_by_ids(state, conversation_id, event_ids)?;
         emit_chat_queue_snapshot(state);
         runtime_log_info(format!(
-            "[引导投送] 完成，任务=remove_guided_queue_after_busy，conversation_id={}，event_count={}，removed_count={}",
-            conversation_id,
+            "[聊天] 完成 任务=remove_guided_queue_after_busy 事件数={} 移除数={}",
             event_ids.len(),
             removed
         ));
@@ -1527,7 +1531,7 @@ async fn activate_main_assistant(
         let config = match config {
             Ok(c) => c,
             Err(err) => {
-                runtime_log_warn(format!("[聊天调度] 读取配置失败，跳过 typing 启动: error={}", err));
+                runtime_log_warn(format!("[聊天] 读取配置失败，跳过 typing 启动 原因={}", err));
                 AppConfig::default()
             }
         };
@@ -1540,9 +1544,9 @@ async fn activate_main_assistant(
                     remote_im_channel_with_effective_credentials(state, channel).ok()?;
                 let credentials = WeixinOcCredentials::from_value(&effective_channel.credentials);
                 if credentials.token.trim().is_empty() {
-                    runtime_log_warn(format!(
-                        "[聊天调度] 跳过个人微信 typing: 缺少有效 token, channel_id={}, remote_contact_id={}",
-                        src.channel_id, src.remote_contact_id
+                    runtime_log_info(format!(
+                        "[聊天] 跳过个人微信 typing: 缺少有效 token 渠道={}",
+                        src.channel_id
                     ));
                     return None;
                 }
@@ -1570,7 +1574,7 @@ async fn activate_main_assistant(
             Ok(c) => c,
             Err(err) => {
                 runtime_log_warn(format!(
-                    "[聊天调度] 读取配置失败，跳过 QQ 官方机器人 typing 启动: error={}",
+                    "[聊天] 读取配置失败，跳过 QQ 官方机器人 typing 启动 原因={}",
                     err
                 ));
                 AppConfig::default()
@@ -1587,9 +1591,9 @@ async fn activate_main_assistant(
                 if credentials.normalized_app_id().is_empty()
                     || credentials.normalized_app_secret().is_empty()
                 {
-                    runtime_log_warn(format!(
-                        "[聊天调度] 跳过 QQ 官方机器人 typing: 缺少有效凭证, channel_id={}, remote_contact_id={}",
-                        src.channel_id, src.remote_contact_id
+                    runtime_log_info(format!(
+                        "[聊天] 跳过 QQ 官方机器人 typing: 缺少有效凭证 渠道={}",
+                        src.channel_id
                     ));
                     return None;
                 }
@@ -1663,8 +1667,7 @@ async fn activate_main_assistant(
                     Ok(None) => {}
                     Err(err) => {
                         runtime_log_warn(format!(
-                            "[聊天流式缓存] 更新失败，conversation_id={}，kind={}，error={}",
-                            conversation_id_for_emit.trim(),
+                            "[聊天] 更新失败 类型={} 原因={}",
                             event.kind.as_deref().unwrap_or("delta"),
                             err
                         ));
@@ -1703,8 +1706,7 @@ async fn activate_main_assistant(
                         if let Some(channel) = activation_delta_channel_for_emit.as_ref() {
                             if let Err(err) = channel.send(event.clone()) {
                                 runtime_log_warn(format!(
-                                    "[聊天流式订阅] 降级，任务=投递本次发送通道，conversation_id={}，kind={}，error={}",
-                                    conversation_id_for_emit.trim(),
+                                    "[聊天] 降级 任务=投递本次发送通道 类型={} 原因={}",
                                     event.kind.as_deref().unwrap_or("delta"),
                                     err
                                 ));
@@ -1729,22 +1731,22 @@ async fn activate_main_assistant(
         set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new())
     {
         runtime_log_error(format!(
-            "[聊天调度] 清理远程IM激活来源失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] 清理远程IM激活来源失败 原因={}",
+            err
         ));
     }
     if let Err(err) = set_conversation_remote_im_assistant_context(state, conversation_id, None) {
         runtime_log_error(format!(
-            "[聊天调度] 清理远程IM当前助理失败: conversation_id={}, error={}",
-            conversation_id, err
+            "[聊天] 清理远程IM当前助理失败 原因={}",
+            err
         ));
     }
 
     set_conversation_runtime_state_and_emit(state, conversation_id, MainSessionState::Idle)?;
     if let Err(err) = clear_conversation_stream_runtime_cache(state, conversation_id) {
         runtime_log_warn(format!(
-            "[聊天流式缓存] 清理失败，conversation_id={}，error={}",
-            conversation_id, err
+            "[聊天] 清理失败 原因={}",
+            err
         ));
     }
 
@@ -1796,9 +1798,9 @@ async fn activate_main_assistant(
         state,
         conversation_id,
     ) {
-        runtime_log_warn(format!(
-            "[会话概览] 跳过，任务=活动标记更新后推送，conversation_id={}，error={}",
-            conversation_id, err
+        runtime_log_debug(format!(
+            "[聊天] 跳过 任务=活动标记更新后推送 原因={}",
+            err
         ));
     }
 
@@ -1845,8 +1847,8 @@ fn collect_active_chat_view_activations(
         })
         .collect::<Vec<_>>();
     runtime_log_debug(format!(
-        "[聊天调度] 绑定快照: conversation_id={}, bindings={:?}",
-        conversation_id, binding_snapshot
+        "[聊天] 绑定快照 绑定={}",
+        binding_snapshot.join("、")
     ));
     let exact = bindings
         .iter()
@@ -1862,16 +1864,14 @@ fn collect_active_chat_view_activations(
         .collect::<Vec<_>>();
     if !exact.is_empty() {
         runtime_log_info(format!(
-            "[聊天调度] 绑定筛选命中(exact): conversation_id={}, hit={}",
-            conversation_id,
+            "[聊天] 绑定筛选命中(exact) 命中={}",
             exact.len()
         ));
         return Ok(exact);
     }
 
     runtime_log_info(format!(
-        "[聊天调度] 绑定筛选未命中: conversation_id={}, bindings_count={}",
-        conversation_id,
+        "[聊天] 绑定筛选未命中 绑定数={}",
         bindings.len()
     ));
     Ok(Vec::new())

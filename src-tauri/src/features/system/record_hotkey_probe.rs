@@ -33,7 +33,7 @@ fn handle_global_shortcut_probe(app: &AppHandle, shortcut: &Shortcut, state: Sho
     let config = match state_read_config_cached(app_state.inner()) {
         Ok(config) => config,
         Err(err) => {
-            runtime_log_error(format!("[快捷键] 读取配置失败：error={err}"));
+            runtime_log_error(format!("[系统] 读取配置失败 错误={err}"));
             return;
         }
     };
@@ -42,14 +42,14 @@ fn handle_global_shortcut_probe(app: &AppHandle, shortcut: &Shortcut, state: Sho
         if let Err(err) = std::thread::Builder::new()
             .name("global-shortcut-chat-toggle".to_string())
             .spawn(move || {
-                runtime_log_info(format!("[快捷键] 收到召唤热键，开始切换聊天窗口"));
+                runtime_log_info(format!("[系统] 收到召唤热键，开始切换聊天窗口"));
                 match toggle_window(&app_handle, "chat") {
-                    Ok(()) => runtime_log_info(format!("[快捷键] 聊天窗口切换完成")),
-                    Err(err) => runtime_log_error(format!("[快捷键] 聊天窗口切换失败：error={err}")),
+                    Ok(()) => runtime_log_info(format!("[系统] 聊天窗口切换完成")),
+                    Err(err) => runtime_log_error(format!("[系统] 聊天窗口切换失败 错误={err}")),
                 }
             })
         {
-            runtime_log_error(format!("[快捷键] 调度聊天窗口切换失败：error={err}"));
+            runtime_log_error(format!("[系统] 调度聊天窗口切换失败 错误={err}"));
         }
     }
 }
@@ -350,7 +350,7 @@ fn emit_record_hotkey_probe_event(app: &AppHandle, state: &'static str) {
     let seq_counter = RECORD_HOTKEY_PROBE_EVENT_SEQ
         .get_or_init(|| std::sync::atomic::AtomicU64::new(0));
     let seq = seq_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
-    runtime_log_debug(format!("[录音热键] 上报 {state}，seq={seq}"));
+    runtime_log_debug(format!("[系统] 上报 {state} 序号={seq}"));
     let payload = RecordHotkeyProbeEventPayload { state, seq };
     let _ = app.emit("easy-call:record-hotkey-probe", payload);
 }
@@ -663,7 +663,7 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
             _ => {}
         };
         if let Err(err) = rdev::listen(callback) {
-            runtime_log_error(format!("[RDEV-RECORD-PROBE] listen failed: {err:?}"));
+            runtime_log_error(format!("[系统] listen 失败: {err}"));
         }
     });
     Ok(())
@@ -712,7 +712,7 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
             }
             CallbackResult::Keep
         }, CFRunLoop::run_current);
-        if install.is_err() { runtime_log_error("[录音热键] macOS Event Tap 创建失败，请授予辅助功能权限".to_string()); }
+        if install.is_err() { runtime_log_error("[系统] macOS Event Tap 创建失败，请授予辅助功能权限".to_string()); }
     }).map_err(|err| format!("启动 macOS 录音热键监听失败：{err}"))?;
     Ok(())
 }
