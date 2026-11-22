@@ -41,36 +41,49 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
     patience_seconds: u64,
     reason: &str,
 ) -> Result<bool, String> {
+    // 主动压缩只有一次：只在离场转在场的那一瞬间做。已经在场时只刷新耐心与计时，
+    // 在场期间历史只追加，绝不周期性压缩。
+    let was_away = remote_im_contact_is_away(state, contact_id)?;
     remote_im_mark_contact_present(state, contact_id, patience_seconds, reason)?;
+    if !was_away {
+        remote_im_schedule_presence_timeout(state, contact_id, patience_seconds)?;
+        return Ok(false);
+    }
+    // 压缩边界严格止步于已处理游标：游标之后是前台还没看过的新鲜消息，一条都不许压。
+    let cursor = remote_im_contact_processed_cursor(state, contact_id)?;
     runtime_log_info(format!(
-        "[远程唤醒压缩] 开始，任务=入场原子压缩，conversation_id={}，contact_id={}，trigger_message_id={}",
-        conversation_id, contact_id, trigger_message_id
+        "[库房] 压缩开始，任务=入场整理，conversation_id={}，contact_id={}，trigger_message_id={}，cursor={}",
+        conversation_id,
+        contact_id,
+        trigger_message_id,
+        cursor.as_deref().unwrap_or("")
     ));
     let mut force_memory_prompt_snapshot = false;
     match conversation_service_v2().remote_im_apply_dynamic_wake_compaction(
         state,
         conversation_id,
         trigger_message_id,
+        cursor.as_deref(),
         true,
     ) {
         Ok(RemoteImDynamicWakeCompactionOutcome::Applied) => {
             runtime_log_info(format!(
-                "[远程唤醒压缩] 完成，任务=入场原子压缩，conversation_id={}，contact_id={}，trigger_message_id={}",
-                conversation_id, contact_id, trigger_message_id
+                "[库房] 压缩完成，任务=入场整理，conversation_id={}，contact_id={}",
+                conversation_id, contact_id
             ));
         }
         Ok(RemoteImDynamicWakeCompactionOutcome::SkippedLowFrequency {
             block_message_count,
         }) => {
             runtime_log_info(format!(
-                "[远程唤醒压缩] 完成，任务=低频群跳过，conversation_id={}，contact_id={}，trigger_message_id={}，block_message_count={}",
-                conversation_id, contact_id, trigger_message_id, block_message_count
+                "[库房] 压缩跳过，任务=低频群，conversation_id={}，contact_id={}，block_message_count={}",
+                conversation_id, contact_id, block_message_count
             ));
         }
         Err(primary_err) => {
             runtime_log_error(format!(
-                "[远程唤醒压缩] 失败，任务=历史摘要，conversation_id={}，contact_id={}，trigger_message_id={}，error={}",
-                conversation_id, contact_id, trigger_message_id, primary_err
+                "[库房] 压缩失败，任务=入场整理，conversation_id={}，contact_id={}，error={}",
+                conversation_id, contact_id, primary_err
             ));
             force_memory_prompt_snapshot = true;
             if let Err(fallback_err) = conversation_service_v2()
@@ -78,17 +91,19 @@ fn remote_im_mark_contact_present_and_schedule_after_entry_compaction(
                     state,
                     conversation_id,
                     trigger_message_id,
+                    cursor.as_deref(),
                     false,
                 )
             {
                 runtime_log_error(format!(
-                    "[远程唤醒压缩] 失败，任务=空摘要降级，conversation_id={}，contact_id={}，trigger_message_id={}，error={}",
-                    conversation_id, contact_id, trigger_message_id, fallback_err
+                    "[库房] 压缩失败，任务=空摘要降级，conversation_id={}，contact_id={}，error={}",
+                    conversation_id, contact_id, fallback_err
                 ));
             } else {
+                // 空摘要兜底成功：上下文已重置，内存提示词快照也就不必强制刷新。
                 runtime_log_warn(format!(
-                    "[远程唤醒压缩] 完成，任务=空摘要降级，conversation_id={}，contact_id={}，trigger_message_id={}",
-                    conversation_id, contact_id, trigger_message_id
+                    "[库房] 压缩降级，任务=空摘要兜底，conversation_id={}，contact_id={}",
+                    conversation_id, contact_id
                 ));
                 force_memory_prompt_snapshot = false;
             }

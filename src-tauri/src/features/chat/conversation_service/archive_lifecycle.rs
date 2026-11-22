@@ -389,6 +389,7 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_id: &str,
         trigger_message_id: &str,
+        boundary_message_id: Option<&str>,
         include_history: bool,
     ) -> Result<RemoteImDynamicWakeCompactionOutcome, String> {
         let conversation_id = conversation_id.trim();
@@ -409,16 +410,36 @@ impl ConversationServiceV2 {
         }
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
         ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
-        let trigger = message_store::chat_store_read_message_by_id(
-            &store_paths,
-            trigger_message_id,
-        )?
-        .ok_or_else(|| format!("远程唤醒压缩失败：触发消息不存在，message_id={trigger_message_id}"))?;
-        let trigger_index = message_store::chat_store_read_message_sequence(
-            &store_paths,
-            trigger_message_id,
-        )?
-        .ok_or_else(|| format!("远程唤醒压缩失败：触发消息缺少序号，message_id={trigger_message_id}"))?;
+        // 压缩边界严格止步于已处理游标：游标之后是前台还没看过的新鲜消息，一条都不许压进摘要。
+        // 游标为空（首次入场）或游标消息已被更早的压缩吃掉时，退回触发消息，不让整理因此失败。
+        let boundary_message_id = match boundary_message_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(cursor)
+                if message_store::chat_store_read_message_by_id(&store_paths, cursor)?.is_some() =>
+            {
+                cursor
+            }
+            Some(cursor) => {
+                runtime_log_warn(format!(
+                    "[库房] 压缩降级，任务=压缩边界，conversation_id={conversation_id}，reason=游标消息已不存在，处理=退回触发消息，cursor={cursor}"
+                ));
+                trigger_message_id
+            }
+            None => trigger_message_id,
+        };
+        let boundary = message_store::chat_store_read_message_by_id(&store_paths, boundary_message_id)?
+            .ok_or_else(|| {
+                format!("远程唤醒压缩失败：压缩边界消息不存在，message_id={boundary_message_id}")
+            })?;
+        let boundary_index =
+            message_store::chat_store_read_message_sequence(&store_paths, boundary_message_id)?
+                .ok_or_else(|| {
+                    format!(
+                        "远程唤醒压缩失败：压缩边界消息缺少序号，message_id={boundary_message_id}"
+                    )
+                })?;
         if include_history {
             match message_store::chat_store_read_block_message_count(
                 &store_paths,
@@ -462,12 +483,12 @@ impl ConversationServiceV2 {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "助手".to_string());
         let preserved_dialogue = if include_history {
-            // 触发消息作为结束锚点但不纳入保留对话；触发后新消息留在当前 block。
+            // 边界消息作为结束锚点但不纳入保留对话；边界之后的新鲜消息留在当前 block。
             self.read_block_preserved_dialogue(
                 state,
                 conversation_id,
                 None,
-                Some(trigger_message_id),
+                Some(boundary_message_id),
                 "远程联系人",
                 &assistant_name,
                 ACTIVE_COMPACTION_PRESERVED_DIALOGUE_BUDGET,
@@ -499,15 +520,15 @@ impl ConversationServiceV2 {
         let persist_meta = message_store::ConversationPersistMeta::from_conversation_with_spliced_messages(
             &persisted_conversation,
             &cached_metadata,
-            std::slice::from_ref(&trigger),
-            &[summary.clone(), trigger.clone()],
+            std::slice::from_ref(&boundary),
+            &[summary.clone(), boundary.clone()],
         );
         message_store::chat_store_splice_messages(
             &store_paths,
             &persist_meta,
-            trigger_index,
+            boundary_index,
             1,
-            &[summary.clone(), trigger.clone()],
+            &[summary.clone(), boundary.clone()],
         )?;
         state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
         let next_messages = message_store::chat_store_read_messages_after(
@@ -517,9 +538,9 @@ impl ConversationServiceV2 {
         )?
         .map(|page| page.messages)
         .unwrap_or_default();
-        if next_messages.first().map(|message| message.id.as_str()) != Some(trigger_message_id) {
+        if next_messages.first().map(|message| message.id.as_str()) != Some(boundary_message_id) {
             return Err(format!(
-                "远程唤醒压缩写入校验失败：摘要和触发消息顺序错误，conversation_id={conversation_id}"
+                "远程唤醒压缩写入校验失败：摘要和边界消息顺序错误，conversation_id={conversation_id}"
             ));
         }
         runtime_log_info(format!(
