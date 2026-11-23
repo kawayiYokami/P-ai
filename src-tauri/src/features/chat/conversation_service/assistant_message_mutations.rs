@@ -438,6 +438,77 @@ impl ConversationServiceV2 {
             Ok(())
         })
     }
+    /// 按 assistant_message_id 写入打断时的流式正文：走正常完成写入（读已有消息、填正文、
+    /// 单条直写），不重建消息、不覆盖工具链，因此流式缓存里的工具事件不会回流覆盖已落盘结果。
+    fn persist_stop_chat_final_text_for_id(
+        &self,
+        state: &AppState,
+        agent_id: &str,
+        conversation_id: &str,
+        target: &StopChatConversationTarget,
+        assistant_message_id: &str,
+        partial_assistant_text: &str,
+        partial_activity_reasoning_text: &str,
+    ) -> Result<ChatMessage, String> {
+        let has_final_text = !partial_assistant_text.trim().is_empty()
+            || !partial_activity_reasoning_text.trim().is_empty();
+        if !has_final_text {
+            // 只有工具事件、没有正文：工具事件运行时已经按 id 追加落盘，这里不再写空正文，
+            // 否则会把已有内容整段清空。
+            return match target {
+                StopChatConversationTarget::Runtime(conversation) => conversation
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.id.trim() == assistant_message_id.trim())
+                    .cloned()
+                    .ok_or_else(|| stop_chat_target_missing_error(assistant_message_id)),
+                StopChatConversationTarget::PersistedRef { .. } => {
+                    self.get_raw_message_by_id(state, conversation_id, assistant_message_id)
+                }
+            };
+        }
+        let reasoning_text = (!partial_activity_reasoning_text.trim().is_empty())
+            .then(|| partial_activity_reasoning_text.to_string());
+        let meme_annotations =
+            populate_assistant_meme_annotations(state, agent_id, partial_assistant_text)?;
+        match target {
+            StopChatConversationTarget::Runtime(conversation) => {
+                let mut conversation = conversation.clone();
+                apply_stop_chat_final_text_in_place(
+                    &mut conversation,
+                    assistant_message_id,
+                    partial_assistant_text,
+                    reasoning_text.as_deref(),
+                    meme_annotations,
+                )?;
+                let target_message = conversation
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.id.trim() == assistant_message_id.trim())
+                    .cloned()
+                    .ok_or_else(|| stop_chat_target_missing_error(assistant_message_id))?;
+                delegate_runtime_thread_conversation_update(state, conversation_id, conversation)?;
+                Ok(target_message)
+            }
+            StopChatConversationTarget::PersistedRef { .. } => {
+                self.append_final_text_to_assistant_message(
+                    state,
+                    &AssistantMessageFinalTextAppendInput {
+                        conversation_id: conversation_id.to_string(),
+                        assistant_message_id: assistant_message_id.to_string(),
+                        final_text: partial_assistant_text.to_string(),
+                        reasoning_text,
+                        provider_meta_patch: None,
+                        meme_annotations,
+                    },
+                )?;
+                self.get_raw_message_by_id(state, conversation_id, assistant_message_id)
+            }
+        }
+    }
+
     fn persist_stop_chat_partial_message(
         &self,
         state: &AppState,
@@ -487,65 +558,43 @@ impl ConversationServiceV2 {
         }
 
         let conversation_id = target.conversation_id().to_string();
-        let mut assistant_message = if let Some(assistant_message_id) = target_assistant_message_id.as_deref()
-        {
-            match &target {
-                StopChatConversationTarget::Runtime(conversation) => {
-                    let existing = conversation
-                        .messages
-                        .iter()
-                        .rev()
-                        .find(|message| message.id.trim() == assistant_message_id)
-                        .ok_or_else(|| {
-                            format!(
-                                "目标 assistant message 不存在，assistantMessageId={assistant_message_id}"
-                            )
-                        })?;
-                    if existing.role.trim() != "assistant" {
-                        return Err(format!(
-                            "目标消息不是 assistant，assistantMessageId={assistant_message_id}"
-                        ));
-                    }
-                    build_stop_chat_partial_assistant_message_for_id(
-                        assistant_message_id,
-                        agent_id,
-                        &existing.created_at,
-                        existing.speaker_agent_id.clone(),
-                        existing.tool_call.clone(),
-                        existing.provider_meta.clone(),
-                        partial_assistant_text,
-                        partial_activity_reasoning_text,
-                        completed_tool_history,
-                    )
-                }
-                StopChatConversationTarget::PersistedRef { .. } => {
-                    let existing = self.read_current_writable_assistant_message(
-                        state,
-                        &conversation_id,
-                        assistant_message_id,
-                    )?;
-                    build_stop_chat_partial_assistant_message_for_id(
-                        assistant_message_id,
-                        agent_id,
-                        &existing.created_at,
-                        existing.speaker_agent_id.clone(),
-                        existing.tool_call.clone(),
-                        existing.provider_meta.clone(),
-                        partial_assistant_text,
-                        partial_activity_reasoning_text,
-                        completed_tool_history,
-                    )
-                }
-            }
-        } else {
-            build_stop_chat_partial_assistant_message(
+
+        // 已经有 assistant_message_id：这一轮的流式内容按正常完成写入 —— 读已有消息、
+        // 填正文、单条直写，与 append_final_text 同一条路径。不重建消息、不覆盖工具链。
+        if let Some(assistant_message_id) = target_assistant_message_id.as_deref() {
+            let persisted_message = self.persist_stop_chat_final_text_for_id(
+                state,
                 agent_id,
+                &conversation_id,
+                &target,
+                assistant_message_id,
                 partial_assistant_text,
                 partial_activity_reasoning_text,
-                partial_inline_activity_text,
-                completed_tool_history,
-            )
-        };
+            )?;
+            if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
+                state,
+                &conversation_id,
+            ) {
+                runtime_log_debug(format!(
+                    "[聊天] 跳过 任务=停止生成持久化后推送单会话 原因={}",
+                    err
+                ));
+            }
+            return Ok(StopChatPersistResult {
+                persisted: true,
+                conversation_id: Some(conversation_id),
+                assistant_message: Some(persisted_message),
+            });
+        }
+
+        // 还没有 assistant_message_id：本轮没有落过工具结果，新建一条后正常追加。
+        let mut assistant_message = build_stop_chat_partial_assistant_message(
+            agent_id,
+            partial_assistant_text,
+            partial_activity_reasoning_text,
+            partial_inline_activity_text,
+            completed_tool_history,
+        );
         assistant_message.meme_annotations = populate_assistant_meme_annotations(
             state,
             agent_id,
@@ -560,17 +609,10 @@ impl ConversationServiceV2 {
         )?;
         let conversation_id = match target {
             StopChatConversationTarget::Runtime(mut conversation) => {
-                if target_assistant_message_id.is_some() {
-                    let target_id =
-                        apply_stop_chat_partial_message_by_id(&mut conversation, &assistant_message)?;
-                    delegate_runtime_thread_conversation_update(state, &target_id, conversation)
-                        .map(|_| target_id)?
-                } else {
-                    let target_id =
-                        apply_stop_chat_partial_message(&mut conversation, &assistant_message);
-                    delegate_runtime_thread_conversation_update(state, &target_id, conversation)
-                        .map(|_| target_id.to_string())?
-                }
+                let target_id =
+                    apply_stop_chat_partial_message(&mut conversation, &assistant_message);
+                delegate_runtime_thread_conversation_update(state, &target_id, conversation)
+                    .map(|_| target_id.to_string())?
             }
             StopChatConversationTarget::PersistedRef { conversation_id, .. } => {
                 let target_id = conversation_id.to_string();
@@ -578,18 +620,7 @@ impl ConversationServiceV2 {
                     state,
                     &target_id,
                     "persist_stop_chat_partial_message",
-                    || {
-                        if target_assistant_message_id.is_some() {
-                            self.persist_replaced_ready_message_locked(
-                                state,
-                                &target_id,
-                                &assistant_message,
-                            )?;
-                        } else {
-                            self.append_message_locked(state, &target_id, &assistant_message)?;
-                        }
-                        Ok(())
-                    },
+                    || self.append_message_locked(state, &target_id, &assistant_message),
                 )?;
                 target_id
             }

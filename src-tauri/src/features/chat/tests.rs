@@ -1823,77 +1823,6 @@
     }
 
     #[test]
-    fn stop_partial_message_should_merge_cached_tools_with_already_persisted_formal_message() {
-        let existing_tool_history = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": Value::Null,
-                "reasoning_content": "先读取配置文件。",
-                "tool_calls": [{
-                    "id": "call_existing",
-                    "type": "function",
-                    "function": {
-                        "name": "read_file",
-                        "arguments": "{\"path\":\"app.toml\"}"
-                    }
-                }]
-            }),
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": "call_existing",
-                "content": "已有工具结果"
-            }),
-        ];
-        let cached_tool_history = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": Value::Null,
-                "reasoning_content": "再检查运行日志。",
-                "tool_calls": [{
-                    "id": "call_cached",
-                    "type": "function",
-                    "function": {
-                        "name": "read_file",
-                        "arguments": "{\"path\":\"runtime.log\"}"
-                    }
-                }]
-            }),
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": "call_cached",
-                "content": "缓存中的工具结果"
-            }),
-        ];
-
-        let message = build_stop_chat_partial_assistant_message_for_id(
-            "assistant-formal",
-            "agent-a",
-            "2026-07-28T10:00:00Z",
-            Some("agent-a".to_string()),
-            Some(existing_tool_history),
-            None,
-            "",
-            "",
-            &cached_tool_history,
-        );
-        let tool_history = message.tool_call.expect("merged tool history");
-
-        assert!(tool_history.iter().any(|event| {
-            event.get("tool_call_id").and_then(Value::as_str) == Some("call_existing")
-        }));
-        assert!(tool_history.iter().any(|event| {
-            event.get("tool_call_id").and_then(Value::as_str) == Some("call_cached")
-        }));
-        assert_eq!(
-            tool_history
-                .iter()
-                .filter(|event| event.get("tool_call_id").and_then(Value::as_str) == Some("call_existing"))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
     fn build_prompt_should_prefix_latest_user_text_with_mentions() {
         let now = now_iso();
         let agent = default_agent();
@@ -6364,6 +6293,108 @@
             meta.as_ref().and_then(|m| m.get("providerPromptTokens")).is_none(),
             "缺 contextWindowTokens 时不写入 providerPromptTokens"
         );
+    }
+
+    #[test]
+    fn stop_chat_partial_should_append_final_text_and_keep_persisted_tool_events() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation = test_chat_conversation("conversation-stop-append-final", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        conversation_service_v2()
+            .bootstrap_streaming_assistant_message(
+                &state,
+                &AssistantMessageBootstrapInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-stop-append".to_string(),
+                    speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                    created_at: Some(now.clone()),
+                    provider_meta_patch: None,
+                    compaction_preserved_messages: None,
+                },
+            )
+            .expect("bootstrap assistant should succeed");
+
+        let (assistant_tool_event, mut tool_result_event) =
+            test_v2_single_tool_group_result("call-stop-append", "apply_patch");
+        // 工具结果落盘时带备份记录号：打断不得把它覆盖掉。
+        tool_result_event["metadata"] = serde_json::json!({
+            "backup_record_id": "backup-stop-append",
+            "changed_files": ["README.md"]
+        });
+        conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-stop-append".to_string(),
+                    assistant_tool_event,
+                    tool_result_event,
+                },
+            )
+            .expect("tool append should succeed");
+
+        let before = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-stop-append")
+            .expect("read message before stop");
+        let before_tool_call = before.tool_call.clone().expect("tool call present");
+        assert_eq!(before_tool_call.len(), 2, "落库工具事件应为调用行加结果行");
+
+        // 流式缓存里的工具事件是展示副本，不带 metadata。打断只写正文，
+        // 不得用它回头覆盖已经按 id 落盘的工具结果。
+        let stream_cached_tool_history = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call-stop-append",
+                    "type": "function",
+                    "function": { "name": "apply_patch", "arguments": "{\"path\":\"README.md\"}" }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-stop-append",
+                "content": "tool result"
+            }),
+        ];
+        let partial_text = "先看看这个文件：";
+        let stop_result = conversation_service_v2()
+            .persist_stop_chat_partial_message(
+                &state,
+                Some(conversation.id.as_str()),
+                DEFAULT_AGENT_ID,
+                partial_text,
+                "",
+                "",
+                &stream_cached_tool_history,
+                Some("assistant-stop-append"),
+            )
+            .expect("stop chat partial should succeed");
+        assert!(stop_result.persisted, "打断应当落盘");
+        assert_eq!(
+            stop_result
+                .assistant_message
+                .as_ref()
+                .map(|message| message.id.as_str()),
+            Some("assistant-stop-append"),
+            "落盘仍写在原来那条 assistant 消息上"
+        );
+
+        let after = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-stop-append")
+            .expect("read message after stop");
+        assert_eq!(
+            after.tool_call.as_ref(),
+            Some(&before_tool_call),
+            "打断不得改动已落盘的工具事件：数量、tool_call_id、metadata 都要保持不变"
+        );
+        let after_text = after.parts.iter().find_map(|part| match part {
+            MessagePart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        });
+        assert_eq!(after_text, Some(partial_text), "正文取自流式缓存那部分");
     }
 
     #[test]

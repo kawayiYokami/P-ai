@@ -162,96 +162,6 @@ fn build_stop_chat_partial_assistant_message(
     )
 }
 
-fn build_stop_chat_partial_assistant_message_for_id(
-    assistant_message_id: &str,
-    agent_id: &str,
-    created_at: &str,
-    speaker_agent_id: Option<String>,
-    existing_tool_call: Option<Vec<Value>>,
-    existing_provider_meta: Option<Value>,
-    partial_assistant_text: &str,
-    partial_activity_reasoning_text: &str,
-    completed_tool_history: &[Value],
-) -> ChatMessage {
-    let request_messages = assistant_request_sequence_from_tool_history(
-        completed_tool_history,
-        partial_assistant_text,
-        partial_activity_reasoning_text,
-    );
-    let mut message = build_assistant_message_from_request_sequence(
-        assistant_message_id.trim().to_string(),
-        agent_id,
-        if created_at.trim().is_empty() {
-            now_iso()
-        } else {
-            created_at.to_string()
-        },
-        &request_messages,
-        existing_provider_meta,
-    );
-    message.speaker_agent_id = speaker_agent_id
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .or_else(|| Some(agent_id.trim().to_string()));
-    // 工具结果可能已按 ID 提前写入正式消息。停止收尾只能补充缓存中
-    // 尚未写入的事件，绝不能以不完整缓存覆盖既有工具链。
-    message.tool_call = merge_stop_chat_tool_history(
-        existing_tool_call,
-        message.tool_call.as_deref().unwrap_or_default(),
-    );
-    message
-}
-
-fn merge_stop_chat_tool_history(
-    existing_tool_call: Option<Vec<Value>>,
-    partial_tool_history: &[Value],
-) -> Option<Vec<Value>> {
-    let mut merged = existing_tool_call.unwrap_or_default();
-    for event in partial_tool_history {
-        let role = event
-            .get("role")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or_default();
-        if role.eq_ignore_ascii_case("tool") {
-            let tool_call_id = event
-                .get("tool_call_id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .unwrap_or_default();
-            // 同一调用可能已有预写占位：用停止时拿到的真实结果替换它，而不是跳过。
-            if !tool_call_id.is_empty() {
-                let existing = merged.iter_mut().rev().find(|existing| {
-                    existing
-                        .get("role")
-                        .and_then(Value::as_str)
-                        .is_some_and(|role| role.trim().eq_ignore_ascii_case("tool"))
-                        && existing
-                            .get("tool_call_id")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            == Some(tool_call_id)
-                });
-                if let Some(existing) = existing {
-                    *existing = event.clone();
-                    continue;
-                }
-            }
-        } else if role.eq_ignore_ascii_case("assistant") {
-            let tool_call_ids = tool_call_ids_from_assistant_tool_event_v2(event);
-            if !tool_call_ids.is_empty()
-                && tool_history_contains_assistant_tool_group_v2(&merged, &tool_call_ids)
-            {
-                continue;
-            }
-        }
-        if !merged.iter().any(|existing| existing == event) {
-            merged.push(event.clone());
-        }
-    }
-    (!merged.is_empty()).then_some(merged)
-}
-
 fn apply_stop_chat_partial_message(
     conversation: &mut Conversation,
     assistant_message: &ChatMessage,
@@ -262,11 +172,20 @@ fn apply_stop_chat_partial_message(
     conversation.id.clone()
 }
 
-fn apply_stop_chat_partial_message_by_id(
+fn stop_chat_target_missing_error(assistant_message_id: &str) -> String {
+    format!("目标 assistant message 不存在，assistantMessageId={assistant_message_id}")
+}
+
+/// 打断收尾就地写入内存态 assistant 消息的正文：只填 Text part 与对话时间戳，
+/// 不重建消息、不动工具链，与 append_final_text 的写入语义一致。
+fn apply_stop_chat_final_text_in_place(
     conversation: &mut Conversation,
-    assistant_message: &ChatMessage,
-) -> Result<String, String> {
-    let target_id = assistant_message.id.trim();
+    assistant_message_id: &str,
+    final_text: &str,
+    reasoning_text: Option<&str>,
+    meme_annotations: Option<Vec<MemeAnnotation>>,
+) -> Result<(), String> {
+    let target_id = assistant_message_id.trim();
     if target_id.is_empty() {
         return Err("assistantMessageId is required.".to_string());
     }
@@ -274,28 +193,45 @@ fn apply_stop_chat_partial_message_by_id(
         .messages
         .iter()
         .rposition(|message| message.id.trim() == target_id)
-        .ok_or_else(|| {
-            format!("目标 assistant message 不存在，assistantMessageId={target_id}")
-        })?;
-    let existing = conversation
-        .messages
-        .get_mut(target_idx)
-        .ok_or_else(|| {
-            format!("目标 assistant message 不存在，assistantMessageId={target_id}")
-        })?;
-    if existing.role.trim() != "assistant" {
-        return Err(format!(
-            "目标消息不是 assistant，assistantMessageId={target_id}"
-        ));
-    }
-    let existing_id = existing.id.clone();
-    let existing_created_at = existing.created_at.clone();
-    *existing = assistant_message.clone();
-    existing.id = existing_id;
-    existing.created_at = existing_created_at;
-    conversation.updated_at = assistant_message.created_at.clone();
-    conversation.last_assistant_at = Some(assistant_message.created_at.clone());
-    Ok(conversation.id.clone())
+        .ok_or_else(|| stop_chat_target_missing_error(target_id))?;
+    let created_at = {
+        let existing = conversation
+            .messages
+            .get_mut(target_idx)
+            .ok_or_else(|| stop_chat_target_missing_error(target_id))?;
+        if existing.role.trim() != "assistant" {
+            return Err(format!(
+                "目标消息不是 assistant，assistantMessageId={target_id}"
+            ));
+        }
+        let mut text_part_updated = false;
+        for part in &mut existing.parts {
+            if let MessagePart::Text {
+                text,
+                reasoning_content,
+            } = part
+            {
+                *text = final_text.to_string();
+                merge_optional_text_block_v2(
+                    reasoning_content,
+                    reasoning_text.map(ToOwned::to_owned),
+                );
+                text_part_updated = true;
+                break;
+            }
+        }
+        if !text_part_updated {
+            existing.parts.push(MessagePart::Text {
+                text: final_text.to_string(),
+                reasoning_content: reasoning_text.map(ToOwned::to_owned),
+            });
+        }
+        existing.meme_annotations = meme_annotations;
+        existing.created_at.clone()
+    };
+    conversation.updated_at = created_at.clone();
+    conversation.last_assistant_at = Some(created_at);
+    Ok(())
 }
 
 #[allow(dead_code)]
