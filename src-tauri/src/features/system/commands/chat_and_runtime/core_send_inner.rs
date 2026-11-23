@@ -3101,12 +3101,37 @@ async fn send_chat_message_inner(
                 .as_ref()
                 .map(|(_, agent_id)| agent_id.as_str())
                 .unwrap_or(effective_agent_id_for_failure_persist.as_str());
-            match persist_aborted_chat_partial_result(
-                state,
-                interrupted_conversation_id,
-                interrupted_agent_id,
-                &chat_key,
-            ) {
+            // 这一轮若已被停止命令当场收走（内容已写库、会话已置就绪），收尾一律短路：
+            // 再落一次是二次写库，再发一次终态会让前端收到两个收口。
+            let collected_by_stop = interrupted_conversation_id.is_some_and(|conversation_id| {
+                match conversation_interrupt_persisted(state, conversation_id) {
+                    Ok(value) => value,
+                    Err(lock_err) => {
+                        runtime_log_warn(format!(
+                            "[聊天] 跳过 任务=打断收走判定 原因=读取会话槽失败 错误={}",
+                            lock_err
+                        ));
+                        false
+                    }
+                }
+            });
+            let interrupted_persist_outcome: Result<Option<SendChatResult>, String> =
+                if collected_by_stop {
+                    Ok(None)
+                } else {
+                    persist_aborted_chat_partial_result(
+                        state,
+                        interrupted_conversation_id,
+                        interrupted_agent_id,
+                        &chat_key,
+                    )
+                };
+            match interrupted_persist_outcome {
+                _ if collected_by_stop => {
+                    runtime_log_info(
+                        "[聊天] 跳过 任务=中止后二次落盘 原因=已由停止命令就地收走".to_string(),
+                    );
+                }
                 Ok(Some(interrupted_result)) => {
                     // 轮次身份用中断结果里携带的实时 request_id，而不是函数开头捕获的 trace_id：
                     // 生成途中若发生上下文压缩重启，轮次身份会被换成新的 request_id 广播，

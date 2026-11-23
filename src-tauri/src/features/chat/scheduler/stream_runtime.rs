@@ -896,6 +896,9 @@ fn reset_conversation_stream_runtime_cache(
         scheduling_state: "preparing_context".to_string(),
         ..ConversationStreamRuntimeCache::default()
     };
+    // 新一轮（或同一轮压缩重启后的新一次）开始：上一轮留下的打断落盘凭据作废，
+    // 否则这一轮被中止时会被误判成「已由停止命令收走」而跳过兜底落盘。
+    slot.stop_persisted_at_ms = None;
     Ok(())
 }
 
@@ -930,6 +933,188 @@ fn clear_conversation_stream_runtime_cache(
         slot.stream_cache = cleared;
     }
     Ok(())
+}
+
+// ==================== 轮次所有权与打断就地落盘 ====================
+//
+// 一轮调度的收尾权归「持有会话槽所有权的那一方」。停止命令的工作是当场把这一轮收走：
+// 读走容器内容、写库、把会话置回就绪，然后交还所有权。此后旧协程再怎么退都认不出这一轮
+// 是自己的，于是既不会二次写库，也不会把用户紧接着发起的新一轮当成自己的收尾对象。
+
+/// 开启一轮：把会话槽的所有权换成新令牌，返回给收尾环节认领。
+fn begin_conversation_round_owner(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<String, String> {
+    let owner = Uuid::new_v4().to_string();
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, conversation_id);
+    slot.round_owner = owner.clone();
+    Ok(owner)
+}
+
+/// 收尾：只有会话仍属于这一轮令牌时，才置 Idle、清流式缓存、交还所有权。
+///
+/// 返回 `false` 表示令牌对不上——这一轮已被停止命令收走，或已被新一轮接管。
+/// 无论哪种，这里都必须什么都不动。
+fn finish_conversation_round(
+    state: &AppState,
+    conversation_id: &str,
+    round_owner: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    let round_owner = round_owner.trim();
+    if conversation_id.is_empty() || round_owner.is_empty() {
+        return Ok(false);
+    }
+    let old_state = {
+        let mut slots = lock_conversation_runtime_slots(state)?;
+        let Some(slot) = slots.get_mut(conversation_id) else {
+            return Ok(false);
+        };
+        if slot.round_owner.trim() != round_owner {
+            return Ok(false);
+        }
+        slot.round_owner.clear();
+        slot.last_activity_at = now_iso();
+        let mut cleared = ConversationStreamRuntimeCache::default();
+        cleared.scheduling_state = "idle".to_string();
+        slot.stream_cache = cleared;
+        std::mem::replace(&mut slot.state, MainSessionState::Idle)
+    };
+    runtime_log_info(format!(
+        "[聊天] 会话状态转换 {} -> 空闲",
+        match &old_state {
+            MainSessionState::Idle => "空闲",
+            MainSessionState::AssistantStreaming => "助理流式输出",
+            MainSessionState::OrganizingContext => "整理上下文",
+        }
+    ));
+    broadcast_conversation_idle(state, conversation_id, &old_state);
+    Ok(true)
+}
+
+/// 停止时把这一轮从会话槽上认领走。
+///
+/// 一次加锁内做两件事：清空这一轮的所有权、写下打断落盘凭据。认领之后旧协程再也
+/// 认不出这一轮是自己的，随它退到哪、退多久；容器内容由调用方按现成快照读取落盘。
+///
+/// 认领成立要求两件事**同时**为真：槽上确实压着一轮在跑（所有权在），且这次停止带的
+/// 身份就是它。缺一条都不许动容器：
+/// - 所有权在、身份对不上：要停的是别的调度，认领就是误夺别人的轮次；
+/// - 所有权不在（这一轮已收完）、只是残留缓存身份恰好命中：认领就是把旧内容当新的再写一遍。
+fn claim_conversation_round_for_interrupt(
+    state: &AppState,
+    conversation_id: &str,
+    identity: &StopDispatchIdentity,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let Some(slot) = slots.get_mut(conversation_id) else {
+        return Ok(false);
+    };
+    let cache = &slot.stream_cache;
+    let owns_round = !slot.round_owner.trim().is_empty();
+    let identity_matches = identity.matches_running(
+        cache.request_id.as_str(),
+        cache.persisted_assistant_message_id.as_str(),
+    ) || identity.matches_running(
+        cache.activation_id.as_str(),
+        cache.persisted_assistant_message_id.as_str(),
+    );
+    if !owns_round || !identity_matches {
+        return Ok(false);
+    }
+    // 所有权当场交还：旧协程的收尾从这里开始就认不上号了。
+    slot.round_owner.clear();
+    slot.stop_persisted_at_ms = Some(now_unix_ms());
+    Ok(true)
+}
+
+/// 落盘失败时撤掉认领凭据，让旧协程退出去时的兜底落盘照旧生效。
+fn clear_conversation_interrupt_record(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<(), String> {
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    if let Some(slot) = slots.get_mut(conversation_id.trim()) {
+        slot.stop_persisted_at_ms = None;
+    }
+    Ok(())
+}
+
+/// 这一轮是否已被停止命令当场收走（内容已写库、会话已置就绪）。
+fn conversation_interrupt_persisted(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .and_then(|slot| slot.stop_persisted_at_ms)
+        .is_some())
+}
+
+/// 打断落盘后让会话当场就绪：置 Idle、清流式缓存、通知前端。
+///
+/// 只在这一轮确实还压着会话时动手：用户停完立刻发下一条时，新一轮可能已经接管了槽，
+/// 这时再置 Idle、清缓存就是把它误杀。新一轮接管一定会先拿到所有权令牌，
+/// 所以「所有权仍空着」就是「这一轮还是最后一个」。
+fn release_conversation_after_interrupt(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let old_state = {
+        let mut slots = lock_conversation_runtime_slots(state)?;
+        let Some(slot) = slots.get_mut(conversation_id) else {
+            return Ok(false);
+        };
+        if !slot.round_owner.trim().is_empty() {
+            return Ok(false);
+        }
+        slot.last_activity_at = now_iso();
+        let mut cleared = ConversationStreamRuntimeCache::default();
+        cleared.scheduling_state = "idle".to_string();
+        slot.stream_cache = cleared;
+        std::mem::replace(&mut slot.state, MainSessionState::Idle)
+    };
+    // 与 set_conversation_runtime_state_and_emit 同一套广播；区别只在于上面那一步
+    // 必须和所有权检查在同一次加锁内完成——不然新一轮刚好在这两步之间起来就会被误杀。
+    broadcast_conversation_idle(state, conversation_id, &old_state);
+    Ok(true)
+}
+
+/// 会话回到空闲后的统一广播：队列快照、运行态、整理上下文水位。
+fn broadcast_conversation_idle(
+    state: &AppState,
+    conversation_id: &str,
+    old_state: &MainSessionState,
+) {
+    emit_chat_queue_snapshot(state);
+    emit_conversation_runtime_state_updated_payload(
+        state,
+        &ConversationRuntimeStateUpdatedPayload {
+            conversation_id: conversation_id.to_string(),
+            runtime_state: MainSessionState::Idle,
+        },
+    );
+    if *old_state == MainSessionState::OrganizingContext {
+        if let Err(err) =
+            emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)
+        {
+            runtime_log_warn(format!(
+                "[聊天] 跳过 任务=整理上下文水位 原因={}",
+                err
+            ));
+        }
+    }
 }
 
 fn conversation_stream_runtime_cache_snapshot(

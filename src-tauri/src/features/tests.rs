@@ -184,6 +184,174 @@
         });
     }
 
+    /// 打断必须当场把半成品收走落盘，不等生成协程收口。
+    ///
+    /// 构造的是「这一轮正在流式输出、容器里已有正文」的状态。停止命令返回时：
+    /// 内容必须已经写进会话（persisted = true 并带回助理消息）、会话当场回到空闲，
+    /// 并且这一轮的所有权已经被停止方收走——旧协程退出时认不上号，不会再二次落盘复位。
+    #[test]
+    fn stop_chat_message_should_persist_partial_content_immediately() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let now = now_iso();
+            let conversation = test_chat_conversation("conversation-stop-persist", "active", &now);
+            state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+            conversation_service_v2()
+                .bootstrap_streaming_assistant_message(
+                    &state,
+                    &AssistantMessageBootstrapInput {
+                        conversation_id: conversation.id.clone(),
+                        assistant_message_id: "assistant-stop-persist".to_string(),
+                        speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                        created_at: Some(now.clone()),
+                        provider_meta_patch: None,
+                        compaction_preserved_messages: None,
+                    },
+                )
+                .expect("bootstrap assistant message");
+
+            let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation.id.as_str()));
+            state
+                .inflight_chat_abort_handles
+                .lock()
+                .expect("lock inflight chat abort handles")
+                .insert(
+                    chat_key,
+                    InflightChatAbortEntry::Running {
+                        handle: new_inflight_abort_handle(),
+                        request_id: "req-stop-persist".to_string(),
+                        assistant_message_id: "assistant-stop-persist".to_string(),
+                        retired_identities: Vec::new(),
+                    },
+                );
+            {
+                let mut slots =
+                    lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+                let slot = slots.entry(conversation.id.clone()).or_default();
+                slot.state = MainSessionState::AssistantStreaming;
+                slot.round_owner = "owner-stop-persist".to_string();
+                slot.stream_cache.activation_id = "req-stop-persist".to_string();
+                slot.stream_cache.request_id = "req-stop-persist".to_string();
+                slot.stream_cache.agent_id = DEFAULT_AGENT_ID.to_string();
+                slot.stream_cache.persisted_assistant_message_id =
+                    "assistant-stop-persist".to_string();
+                slot.stream_cache.assistant_text = "流到一半的正文".to_string();
+            }
+
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation.id.clone()),
+                },
+                request_id: Some("req-stop-persist".to_string()),
+                activation_id: Some("req-stop-persist".to_string()),
+                assistant_message_id: Some("assistant-stop-persist".to_string()),
+            };
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("停止不应失败");
+
+            assert!(result.aborted, "应当中止到这一轮");
+            assert!(result.persisted, "打断必须当场落盘，而不是等协程收口");
+            assert_eq!(result.assistant_text, "流到一半的正文");
+            assert_eq!(
+                result
+                    .assistant_message
+                    .as_ref()
+                    .map(|message| message.id.as_str()),
+                Some("assistant-stop-persist"),
+                "落盘写在本轮那条助理消息上"
+            );
+
+            // 内容真的进了会话存储：同一 id 上读回来就是这段半成品正文。
+            let stored = conversation_service_v2()
+                .read_message_by_id(&state, &conversation.id, "assistant-stop-persist")
+                .expect("read stored message");
+            let stored_text = stored.parts.iter().find_map(|part| match part {
+                MessagePart::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            });
+            assert_eq!(stored_text, Some("流到一半的正文"));
+
+            // 会话当场就绪，所有权已交还：旧协程退出时不得再复位这一轮。
+            assert_eq!(
+                get_conversation_runtime_state(&state, &conversation.id).expect("read state"),
+                MainSessionState::Idle
+            );
+            assert!(
+                conversation_interrupt_persisted(&state, &conversation.id)
+                    .expect("read interrupt record"),
+                "应当留下「已就地落盘」的凭据"
+            );
+            assert!(
+                !finish_conversation_round(&state, &conversation.id, "owner-stop-persist")
+                    .expect("finish round"),
+                "旧协程的收尾必须短路，不能再复位会话"
+            );
+        });
+    }
+
+    /// 认领只允许发生在「槽位持有运行中所有权」且「身份对得上」同时成立时。
+    ///
+    /// 两条边都不能松：所有权在、身份不对，认领就是误夺别人的轮次；
+    /// 所有权不在、只是残留缓存身份恰好命中，认领就是把早就收完的旧内容再写一遍。
+    #[test]
+    fn claim_conversation_round_should_require_both_ownership_and_identity() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-claim-guard";
+
+        // 情况一：这一轮在跑（所有权在），但停止身份对不上。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.entry(conversation_id.to_string()).or_default();
+            slot.round_owner = "owner-running".to_string();
+            slot.stream_cache.activation_id = "req-running".to_string();
+            slot.stream_cache.request_id = "req-running".to_string();
+            slot.stream_cache.persisted_assistant_message_id = "assistant-running".to_string();
+        }
+        let claimed = claim_conversation_round_for_interrupt(
+            &state,
+            conversation_id,
+            &stop_identity("req-other", ""),
+        )
+        .expect("claim round");
+        assert!(!claimed, "身份对不上时不许认领");
+        {
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(conversation_id).expect("slot");
+            assert_eq!(slot.round_owner, "owner-running", "所有权不得被动");
+            assert!(slot.stop_persisted_at_ms.is_none(), "不得留下落盘凭据");
+        }
+
+        // 情况二：这一轮已经收完（所有权已交还），残留缓存身份恰好命中。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            slots
+                .get_mut(conversation_id)
+                .expect("slot")
+                .round_owner
+                .clear();
+        }
+        let claimed = claim_conversation_round_for_interrupt(
+            &state,
+            conversation_id,
+            &stop_identity("req-running", "assistant-running"),
+        )
+        .expect("claim round");
+        assert!(!claimed, "没有运行中的所有权时不许认领");
+        assert!(
+            lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .get(conversation_id)
+                .expect("slot")
+                .stop_persisted_at_ms
+                .is_none(),
+            "不得留下落盘凭据"
+        );
+    }
+
     /// 构造一次停止请求要终止的调度身份。
     fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
         StopDispatchIdentity {
