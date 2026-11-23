@@ -29,22 +29,29 @@
       </GalleryControls>
       </div>
 
-      <div class="mb-3 rounded-box border border-base-300 bg-base-100 p-3">
-        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
-          <span>议题引用入口：点磁贴上的编号，或在输入框里打 <kbd class="kbd kbd-xs">#</kbd></span>
-          <span v-if="kanbanIssueReferences.length === 0" class="text-base-content/40">当前没有挂上的议题</span>
-          <span v-else class="text-primary">已挂上 {{ kanbanIssueReferences.length }} 条</span>
+      <!-- 假消息：模拟 ChatView 里输入面板上方那段会话 -->
+      <div class="w-full overflow-hidden border border-base-300">
+      <div class="w-full space-y-3 p-4">
+          <div class="chat chat-start">
+            <div class="chat-image avatar placeholder">
+              <div class="w-8 rounded-full bg-base-300"></div>
+            </div>
+            <div class="chat-bubble text-sm">帮我看一下这个输入面板的间距对不对。</div>
+          </div>
+          <div class="chat chat-end">
+            <div class="chat-bubble chat-bubble-primary text-sm">间距没问题，露头和面卡的层次也正常。</div>
+          </div>
+          <div class="chat chat-start">
+            <div class="chat-image avatar placeholder">
+              <div class="w-8 rounded-full bg-base-300"></div>
+            </div>
+            <div class="chat-bubble text-sm">那我把附件和指令都挂上去试试。</div>
+          </div>
+          <div class="chat chat-end">
+            <div class="chat-bubble chat-bubble-primary text-sm">好，挂上之后再看一眼底卡颜色。</div>
+          </div>
         </div>
-        <div class="h-72 w-full max-w-sm">
-          <HomeKanbanCard
-            :issues="demoKanbanIssues"
-            leader-name="纳西妲"
-            :approving-number="null"
-            @reference="attachKanbanIssueReference"
-          />
-        </div>
-      </div>
-
+        <div class="shrink-0 bg-base-200 p-0">
       <InputPanelCanvas :bg="demoContainerBg" :is-rounded="false">
         <!-- 演示与生产共用同一块生产面板，只换假数据源 -->
         <ChatComposerPanel
@@ -116,6 +123,8 @@
           @queue-mark-guided="handleDemoMarkGuided"
         />
       </InputPanelCanvas>
+        </div>
+      </div>
       <p class="mt-2 text-xs text-base-content/50">生产与演示共用同一块面板，只差数据源。@提及 / 指令 / 计划 / 目标都在输入卡内直接交互。</p>
     </div>
   </div>
@@ -124,9 +133,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ChatComposerPanel from "./ChatComposerPanel.vue";
-import HomeKanbanCard from "./chat-home/HomeKanbanCard.vue";
 import InputPanelCanvas from "./input-panel/InputPanelCanvas.vue";
 import GalleryControls from "../../dev-gallery/GalleryControls.vue";
+import AppIcon from "../../shared/components/AppIcon.vue";
 import { useKanbanIssueReferences } from "../composables/use-kanban-issue-references";
 import type { KanbanIssue } from "../composables/use-kanban-board";
 import type {

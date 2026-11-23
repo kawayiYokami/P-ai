@@ -12,7 +12,7 @@
       <div
         v-if="isOpen && !teleport"
         ref="inlinePanelRef"
-        class="absolute z-30 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+        class="absolute z-30 overflow-hidden rounded-box border border-base-300 bg-base-100/70 shadow-xl backdrop-blur-md"
         :class="[panelClass, direction === 'up' ? 'bottom-full mb-2' : 'top-full mt-2']"
         :style="inlinePanelStyle"
         @mouseenter="handlePanelMouseEnter"
@@ -28,7 +28,7 @@
         <div
           v-if="isOpen"
           ref="teleportedPanelRef"
-          class="fixed z-[1300] overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+          class="fixed z-[1300] overflow-hidden rounded-box border border-base-300 bg-base-100/70 shadow-xl backdrop-blur-md"
           :class="panelClass"
           :style="teleportedStyle"
           :data-theme="teleportTheme"
@@ -62,6 +62,8 @@ const props = withDefaults(defineProps<{
   hoverOpenDelay?: number;
   /** 鼠标移出后关闭延迟毫秒数，默认 200ms */
   hoverCloseDelay?: number;
+  /** 弹层主题，Teleport 到 body 后需要显式带上 */
+  theme?: string;
 }>(), {
   disabled: false,
   teleport: false,
@@ -74,6 +76,7 @@ const props = withDefaults(defineProps<{
   openOnHover: false,
   hoverOpenDelay: 50,
   hoverCloseDelay: 200,
+  theme: undefined,
 });
 
 const emit = defineEmits<{
@@ -93,9 +96,16 @@ const inlinePanelStyle = ref<Record<string, string>>({});
 const isOpen = computed(() => Boolean(props.modelValue));
 const transitionName = computed(() => direction.value === "up" ? "ecall-dropdown-up" : "ecall-dropdown");
 
+/** documentElement 上的 data-theme 不是响应式的，靠 MutationObserver 同步成 ref */
+const documentTheme = ref("");
+let themeObserver: MutationObserver | null = null;
+
 const teleportTheme = computed(() => {
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.getAttribute("data-theme") || "light";
+  // 优先用调用方传进来的主题：它是响应式的，切主题能立刻跟着变；
+  // 直接读 documentElement 拿不到响应式依赖，computed 只会算一次然后永远缓存。
+  const fromProp = String(props.theme || "").trim();
+  if (fromProp) return fromProp;
+  return documentTheme.value || "light";
 });
 
 let hoverOpenTimer: ReturnType<typeof setTimeout> | null = null;
@@ -272,6 +282,14 @@ watch(() => [props.teleport, props.teleportTo, props.maxHeight, props.placement]
 });
 
 onMounted(() => {
+  documentTheme.value = document.documentElement.getAttribute("data-theme") || "";
+  themeObserver = new MutationObserver(() => {
+    documentTheme.value = document.documentElement.getAttribute("data-theme") || "";
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
   document.addEventListener("pointerdown", handleDocumentPointerDown);
   document.addEventListener("keydown", handleKeydown);
   window.addEventListener("resize", refreshPosition, { passive: true });
@@ -280,6 +298,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearHoverTimers();
+  themeObserver?.disconnect();
+  themeObserver = null;
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   document.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("resize", refreshPosition);

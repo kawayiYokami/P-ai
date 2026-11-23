@@ -16,6 +16,7 @@
       <div v-if="$slots.attachments">
         <slot name="attachments" />
       </div>
+      <slot name="deck-top" />
       <div>
         <slot name="body" />
       </div>

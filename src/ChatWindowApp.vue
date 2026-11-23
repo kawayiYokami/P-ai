@@ -313,6 +313,7 @@
       :on-jump-to-conversation-bottom="ensureLatestForegroundTailThenScrollToBottom"
       :on-create-conversation-branch-from-turn="handleCreateConversationBranchFromTurn"
       :open-goal-task-dialog="openGoalTaskDialog"
+      :start-goal-task-with-objective="startGoalTaskWithObjective"
       :close-goal-task-dialog="closeGoalTaskDialog"
       :save-goal-task="saveGoalTask"
       :stop-goal-task="stopGoalTask"

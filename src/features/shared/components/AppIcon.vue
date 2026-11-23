@@ -12,11 +12,13 @@
  *
  * - 颜色跟随 currentColor，不写死色值，DaisyUI 主题切换自然生效
  * - 尺寸默认 16；仍可继续用 class="h-4 w-4" 这种写法压覆盖，宽度高度以 CSS 为准
- * - 线条粗细默认 2，与换库前 lucide 的默认值一致；个别地方要更粗就传 stroke-width
+ * - 线条粗细默认 1.75，比 lucide 的 2 略细；个别地方要更粗就传 stroke-width
  */
 import { computed } from "vue";
 import { HugeiconsIcon } from "@hugeicons/vue";
 import { APP_ICON_MAP, type AppIconName } from "../icons/icon-map";
+
+const DEFAULT_STROKE_WIDTH = 2;
 
 const props = withDefaults(
   defineProps<{
@@ -26,7 +28,7 @@ const props = withDefaults(
   }>(),
   {
     size: 16,
-    strokeWidth: 2,
+    strokeWidth: DEFAULT_STROKE_WIDTH,
   },
 );
 
@@ -34,6 +36,6 @@ const icon = computed(() => APP_ICON_MAP[props.name]);
 
 const strokeWidthNumber = computed(() => {
   const value = typeof props.strokeWidth === "string" ? Number.parseFloat(props.strokeWidth) : props.strokeWidth;
-  return Number.isFinite(value) && value > 0 ? value : 2;
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_STROKE_WIDTH;
 });
 </script>

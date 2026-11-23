@@ -34,7 +34,7 @@ export function useChatAttachmentPickerFlow(options: UseChatAttachmentPickerFlow
     if (index >= 0) list.splice(index, 1);
   }
 
-  async function pickChatAttachments() {
+  async function pickChatAttachments(kind?: "image" | "file") {
     // Product rule: 流式回复进行中不锁定输入工具栏（与粘贴/拖拽图片一致），
     // 仅压缩整理（trimming）期间禁止新增附件。
     if (options.trimming.value) return;
@@ -42,7 +42,11 @@ export function useChatAttachmentPickerFlow(options: UseChatAttachmentPickerFlow
       const sources = await pickTransportAttachmentSources({
         multiple: true,
         directory: false,
-        title: "选择附件",
+        title: kind === "image" ? "选择图片" : "选择附件",
+        filters:
+          kind === "image"
+            ? [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] }]
+            : undefined,
       });
       if (sources.length === 0) return;
       // 先占位，再逐个读取替换，避免大文件读取期间界面无反馈。

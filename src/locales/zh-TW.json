@@ -2026,6 +2026,10 @@
     "stopReplying": "停止回覆",
     "dropImageOrPdf": "拖放檔案（圖片/PDF 可直接多模態）",
     "attach": "新增附件",
+    "moreActions": "更多",
+    "openImage": "新增圖片",
+    "openFile": "新增檔案",
+    "referenceIssue": "新增議題",
     "send": "發送",
     "sendModeEnter": "按 Enter 鍵發送訊息",
     "sendModeCtrlEnter": "按 Ctrl + Enter 鍵發送訊息",
@@ -2318,10 +2322,14 @@
         "noConversation": "目前沒有會話，無法建立任務。"
       }
     },
+    "mode": {
+      "buttonTitle": "模式"
+    },
     "plan": {
-      "mode": "計劃",
+      "mode": "計劃模式",
+      "modeHint": "「{personaName}」將會與你互相拷問後制定計劃",
       "enterMode": "切換到計劃模式",
-      "exitMode": "退出計劃",
+      "exitMode": "退出",
       "enabled": "計劃模式已開啟",
       "modeOff": "未開啟",
       "confirmAction": "我同意，並執行計劃",
@@ -2330,9 +2338,10 @@
       "linkLabel": "計劃："
     },
     "wheelchair": {
-      "mode": "護航",
+      "mode": "護航模式",
+      "modeHint": "pai 將會推測你的想法並主動推進進度",
       "enterMode": "開啟護航",
-      "exitMode": "關閉",
+      "exitMode": "退出",
       "enabled": "護航已開啟",
       "modeOff": "未開啟",
       "costHint": "每輪都會發起唯讀委託，會明顯增加 token 消耗"
@@ -2346,13 +2355,15 @@
       "createTitle": "啟動目標",
       "updateTitle": "重新啟動目標",
       "activeHint": "目前會話已有一個啟用中的目標：{goal}",
-      "goalLabel": "目標",
+      "goalLabel": "目標模式",
+      "modeHint": "pai 將會要求「{personaName}」達成目標前持續作業",
       "goalPlaceholder": "輸入你希望持續推進的目標",
       "defaultGoal": "",
       "recentTitle": "最近目標",
       "createAction": "啟動目標",
       "updateAction": "重新啟動",
-      "stopAction": "停止目標",
+      "stopAction": "退出",
+      "activeBadge": "進行中",
       "createdStatus": "目標已啟動。",
       "updatedStatus": "目標已重新啟動。",
       "stoppedStatus": "目標已停止。",

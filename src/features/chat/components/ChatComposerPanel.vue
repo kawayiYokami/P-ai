@@ -123,6 +123,29 @@
             </button>
           </div>
         </template>
+        <template #deck-top>
+          <div v-if="showLegacyActionRow" class="flex items-center gap-1 pb-1 pl-1">
+            <button type="button" class="btn btn-sm btn-ghost h-7 min-h-7 w-7 rounded-md px-0" title="@ 提及">
+              <AppIcon name="at-sign" class="h-4 w-4" />
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost h-7 min-h-7 w-7 rounded-md px-0" title="# 引用">
+              <AppIcon name="hash" class="h-4 w-4" />
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost h-7 min-h-7 w-7 rounded-md px-0" title="图片">
+              <AppIcon name="image" class="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost h-7 min-h-7 w-7 rounded-md px-0"
+              :title="t('chat.attach')"
+              @pointerdown.prevent
+              @mousedown.prevent
+              @click="emit('pickAttachments')"
+            >
+              <AppIcon name="folder" class="h-4 w-4" />
+            </button>
+          </div>
+        </template>
         <template #attachments>
           <div v-if="attachedIssueReferences.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
@@ -173,45 +196,6 @@
                 v-if="instructionPanelOpen"
                 class="absolute bottom-full left-0 right-0 z-30 mb-1.5 overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
               >
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors"
-                  :class="planModeEnabled ? 'bg-info/10' : 'hover:bg-base-200'"
-                  :title="`Shift+Tab ${planModeEnabled ? t('chat.plan.exitMode') : t('chat.plan.enterMode')}`"
-                  @click="togglePlanMode()"
-                >
-                  <span class="flex min-w-0 items-center gap-2">
-                    <AppIcon name="clipboard-list" class="h-4 w-4 shrink-0" :class="planModeEnabled ? 'text-info' : 'opacity-60'" />
-                    <span class="truncate">{{ planModeEnabled ? t("chat.plan.enabled") : t("chat.plan.enterMode") }}</span>
-                    <kbd class="kbd kbd-xs shrink-0 opacity-60">Shift+Tab</kbd>
-                  </span>
-                  <span
-                    class="badge badge-sm shrink-0"
-                    :class="planModeEnabled ? 'badge-info' : 'badge-ghost'"
-                  >{{ planModeEnabled ? t("chat.plan.exitMode") : t("chat.plan.modeOff") }}</span>
-                </button>
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors"
-                  :class="wheelchairModeEnabled ? 'bg-warning/10' : 'hover:bg-base-200'"
-                  :title="wheelchairModeEnabled ? t('chat.wheelchair.exitMode') : t('chat.wheelchair.enterMode')"
-                  @click="toggleWheelchairMode()"
-                >
-                  <span class="flex min-w-0 items-center gap-2">
-                    <AppIcon name="life-buoy" class="h-4 w-4 shrink-0" :class="wheelchairModeEnabled ? 'text-warning' : 'opacity-60'" />
-                    <span class="flex min-w-0 flex-col">
-                      <span class="truncate">{{ wheelchairModeEnabled ? t("chat.wheelchair.enabled") : t("chat.wheelchair.enterMode") }}</span>
-                      <span v-if="!wheelchairModeEnabled" class="truncate text-caption text-base-content/50">
-                        {{ t("chat.wheelchair.costHint") }}
-                      </span>
-                    </span>
-                  </span>
-                  <span
-                    class="badge badge-sm shrink-0"
-                    :class="wheelchairModeEnabled ? 'badge-warning' : 'badge-ghost'"
-                  >{{ wheelchairModeEnabled ? t("chat.wheelchair.exitMode") : t("chat.wheelchair.modeOff") }}</span>
-                </button>
-                <div class="border-t border-base-300" />
                 <div class="flex flex-wrap content-start gap-2 max-h-48 overflow-y-auto p-2">
                   <button
                     v-for="(item, index) in normalizedInstructionPresets"
@@ -347,72 +331,178 @@
         <template #footer>
           <InputPanelToolbar>
             <template #left>
-              <button
-                type="button"
-                class="btn btn-sm btn-circle shrink-0 transition-transform duration-150 ease-out active:scale-90"
-                :class="goalActive ? 'btn-primary' : 'btn-ghost'"
-                :disabled="frozen || goalDisabled"
-                :title="goalTitle || t('chat.goal.buttonTitle')"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="emit('openGoalTask')"
-              >
-                <AppIcon name="target" class="h-3.5 w-3.5" />
-              </button>
-              <button
-                v-if="showAttachAction"
-                type="button"
-                class="btn btn-sm btn-circle btn-ghost shrink-0 transition-transform duration-150 ease-out active:scale-90"
-                :title="t('chat.attach')"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="emit('pickAttachments')"
-              >
-                <AppIcon name="paperclip" class="h-3.5 w-3.5" />
-              </button>
-              <ChatModelPicker
-                variant="chip"
-                class="min-w-0 max-w-full"
-                :model-value="activeModelDisplayId"
-                :api-configs="chatModelOptions"
-                :theme="teleportTheme"
-                @update:model-value="selectConversationPreferredModel"
-              />
+              <div class="flex min-w-0 items-center gap-1">
+                <EcallDropdown
+                  v-model="plusPanelOpen"
+                  teleport
+                  placement="top"
+                  :match-trigger-width="false"
+                  root-class="w-auto min-w-0"
+                  panel-class="w-48"
+                >
+                  <template #trigger="{ toggle }">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-ghost h-7 min-h-7 w-7 rounded-md px-0"
+                      :title="t('chat.moreActions')"
+                      @click="toggle"
+                    >
+                      <AppIcon name="plus" class="h-4 w-4" />
+                    </button>
+                  </template>
+                  <template #default="{ close }">
+                    <ul class="menu w-full p-1">
+                      <li>
+                        <button type="button" @click="close(); emit('pickAttachments', 'image')">
+                          <AppIcon name="image" class="h-4 w-4 shrink-0" />
+                          <span class="min-w-0 flex-1 truncate">{{ t("chat.openImage") }}</span>
+                        </button>
+                      </li>
+                      <li>
+                        <button type="button" @click="close(); emit('pickAttachments')">
+                          <AppIcon name="folder" class="h-4 w-4 shrink-0" />
+                          <span class="min-w-0 flex-1 truncate">{{ t("chat.openFile") }}</span>
+                        </button>
+                      </li>
+                      <li>
+                        <button type="button" @click="close(); insertChatInputTrigger('#')">
+                          <AppIcon name="hash" class="h-4 w-4 shrink-0" />
+                          <span class="min-w-0 flex-1 truncate">{{ t("chat.referenceIssue") }}</span>
+                        </button>
+                      </li>
+                    </ul>
+                  </template>
+                </EcallDropdown>
+                <EcallDropdown
+                  v-model="modePanelOpen"
+                  teleport
+                  placement="top"
+                  :match-trigger-width="false"
+                  root-class="w-auto min-w-0"
+                  panel-class="w-56 overflow-visible!"
+                >
+                  <template #trigger="{ toggle }">
+                    <button
+                      type="button"
+                      class="btn btn-sm h-7 min-h-7 w-7 rounded-md px-0"
+                      :class="modeButtonClass"
+                      :title="t('chat.mode.buttonTitle')"
+                      @click="toggle"
+                    >
+                      <AppIcon :name="modeButtonIcon" class="h-4 w-4" />
+                    </button>
+                  </template>
+                  <template #default="{ close }">
+                  <ul class="menu w-full p-1">
+                    <li>
+                      <button
+                        type="button"
+                        class="tooltip tooltip-right"
+                        :data-tip="t('chat.plan.modeHint', { personaName })"
+                        @click="close(); togglePlanMode()"
+                      >
+                        <AppIcon
+                          name="quill-write-02"
+                          class="h-4 w-4 shrink-0"
+                          :class="planModeEnabled ? 'text-info' : ''"
+                        />
+                        <span class="min-w-0 flex-1 truncate">{{ t("chat.plan.mode") }}</span>
+                        <span v-if="planModeEnabled" class="badge badge-sm shrink-0 badge-info">
+                          {{ t("chat.plan.exitMode") }}
+                        </span>
+                      </button>
+                    </li>
+                    <li>
+                      <button
+                        type="button"
+                        class="tooltip tooltip-right"
+                        :data-tip="t('chat.wheelchair.modeHint')"
+                        @click="close(); toggleWheelchairMode()"
+                      >
+                        <AppIcon
+                          name="wheelchair"
+                          class="h-4 w-4 shrink-0"
+                          :class="wheelchairModeEnabled ? 'text-warning' : ''"
+                        />
+                        <span class="min-w-0 flex-1 truncate">{{ t("chat.wheelchair.mode") }}</span>
+                        <span v-if="wheelchairModeEnabled" class="badge badge-sm shrink-0 badge-warning">
+                          {{ t("chat.wheelchair.exitMode") }}
+                        </span>
+                      </button>
+                    </li>
+                  </ul>
+                  <div class="my-1 border-t border-base-300" />
+                  <ul class="menu w-full p-1">
+                    <li>
+                      <button
+                        type="button"
+                        class="tooltip tooltip-right"
+                        :data-tip="t('chat.goal.modeHint', { personaName })"
+                        @click="toggleGoalSection()"
+                      >
+                        <AppIcon
+                          name="target"
+                          class="h-4 w-4 shrink-0"
+                          :class="goalActive ? 'text-primary' : ''"
+                        />
+                        <span class="min-w-0 flex-1 truncate">{{ t("chat.goal.goalLabel") }}</span>
+                        <span v-if="goalActive" class="badge badge-sm shrink-0 badge-primary">
+                          {{ t("chat.goal.activeBadge") }}
+                        </span>
+                        <AppIcon
+                          name="chevron-down"
+                          class="h-3.5 w-3.5 shrink-0 transition-transform"
+                          :class="goalSectionOpen ? 'rotate-180' : ''"
+                        />
+                      </button>
+                    </li>
+                  </ul>
+                  <div
+                    class="grid transition-[grid-template-rows] duration-200 ease-out"
+                    :class="goalSectionOpen || goalActive ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
+                  >
+                    <div class="min-h-0 overflow-hidden">
+                      <div class="px-2 pb-2">
+                        <div v-if="goalActive" class="flex items-center gap-2">
+                          <span class="min-w-0 flex-1 truncate text-caption text-base-content/70">{{ goalTitle }}</span>
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-error shrink-0"
+                            :disabled="frozen"
+                            @click="emit('stopGoalTask')"
+                          >{{ t("chat.goal.stopAction") }}</button>
+                        </div>
+                        <template v-else>
+                          <textarea
+                            v-model="goalObjectiveDraft"
+                            class="textarea textarea-bordered w-full text-sm"
+                            rows="3"
+                            :placeholder="t('chat.goal.goalPlaceholder')"
+                            @keydown.enter.exact.prevent="submitGoalObjective"
+                          ></textarea>
+                          <button
+                            type="button"
+                            class="btn btn-sm btn-primary mt-2 w-full"
+                            :disabled="!goalObjectiveDraft.trim() || frozen || goalDisabled"
+                            @click="submitGoalObjective"
+                          >{{ t("chat.goal.createAction") }}</button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                  </template>
+                </EcallDropdown>
+                <ChatModelPicker
+                  variant="chip"
+                  class="min-w-0 max-w-full"
+                  :model-value="activeModelDisplayId"
+                  :api-configs="chatModelOptions"
+                  :theme="teleportTheme"
+                  @update:model-value="selectConversationPreferredModel"
+                />
+              </div>
             </template>
             <template #right>
-              <button
-                v-if="wheelchairModeEnabled"
-                type="button"
-                class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-warning px-3 text-xs font-medium leading-none text-warning-content"
-                :title="t('chat.wheelchair.mode')"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="toggleWheelchairMode()"
-              >
-                {{ t("chat.wheelchair.mode") }}
-              </button>
-              <button
-                v-if="planModeEnabled"
-                type="button"
-                class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-info px-3 text-xs font-medium leading-none text-info-content"
-                :title="`Shift+Tab ${t('chat.plan.mode')}`"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="togglePlanMode()"
-              >
-                {{ t("chat.plan.mode") }}
-              </button>
-              <button
-                v-else-if="planSuggestionVisible"
-                type="button"
-                class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-base-200 px-3 text-xs font-medium leading-none text-base-content"
-                :title="`Shift+Tab ${t('chat.plan.mode')}`"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="togglePlanMode()"
-              >
-                {{ t("chat.plan.mode") }}
-              </button>
               <button
                 v-if="showStopAction"
                 type="button"
@@ -429,7 +519,7 @@
                 <button
                   type="button"
                   class="btn btn-sm btn-circle shrink-0 transition-transform duration-150 ease-out active:scale-90"
-                  :class="composerInputBlank ? 'bg-base-200' : 'btn-success'"
+                  :class="composerInputBlank ? 'bg-base-300' : 'btn-success'"
                   :disabled="!composerInputBlank && (frozen || busy)"
                   :title="composerInputBlank ? t('chat.sendModeMenu') : t('chat.send')"
                   @pointerdown.prevent
@@ -492,6 +582,8 @@ import { useChatQueue, type ChatQueueEvent } from "../composables/use-chat-queue
 import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
+import EcallDropdown from "../../shared/components/EcallDropdown.vue";
+import type { AppIconName } from "../../shared/icons/icon-map";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
 import {
@@ -582,7 +674,7 @@ const emit = defineEmits<{
   (e: "removeMention", value: string | { agentId: string }): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
-  (e: "pickAttachments"): void;
+  (e: "pickAttachments", kind?: "image" | "file"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "update:workspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
@@ -597,7 +689,9 @@ const emit = defineEmits<{
   (e: "stopChat"): void;
   (e: "openDelegateSelection"): void;
   (e: "openTaskCreate"): void;
-  (e: "openGoalTask"): void;
+  /** 模式面板里直接填目标内容启动，不走完整的目标弹窗 */
+  (e: "startGoalTask", objective: string): void;
+  (e: "stopGoalTask"): void;
   (e: "open-conversation-list"): void;
   (e: "open-settings"): void;
   (e: "trim-conversation"): void;
@@ -787,6 +881,12 @@ const chatInputHistoryApplying = ref(false);
 const resizeInputRaf = ref(0);
 const instructionPanelOpen = ref(false);
 const instructionFocusIndex = ref(0);
+const modePanelOpen = ref(false);
+const plusPanelOpen = ref(false);
+/** 旧的 deck-top 操作行：默认隐藏，保留实现以便随时切回 */
+const showLegacyActionRow = ref(false);
+const goalSectionOpen = ref(false);
+const goalObjectiveDraft = ref("");
 const mentionPanelOpen = ref(false);
 const mentionQuery = ref("");
 const mentionFocusIndex = ref(0);
@@ -1262,12 +1362,52 @@ function selectConversationPreferredModel(id: string) {
 
 function togglePlanMode() {
   if (!planModeToggleAllowed.value) return;
-  emit("update:planModeEnabled", !props.planModeEnabled);
+  const next = !props.planModeEnabled;
+  emit("update:planModeEnabled", next);
+  // 三种模式互斥：开一个就关掉另外两个
+  if (next) {
+    if (props.wheelchairModeEnabled) emit("update:wheelchairModeEnabled", false);
+    if (props.goalActive) emit("stopGoalTask");
+  }
   closeInstructionPanel();
 }
 
+/** 模式按钮底色跟随当前生效的模式，没开模式时是普通幽灵按钮。 */
+const modeButtonClass = computed(() => {
+  if (props.goalActive) return "btn-primary";
+  if (props.planModeEnabled) return "btn-ghost bg-info/15 text-info";
+  if (props.wheelchairModeEnabled) return "btn-ghost bg-warning/15 text-warning";
+  return "btn-ghost";
+});
+
+/** 模式按钮图标跟着生效的模式走：空模式是 ai-swap，开了哪个模式就用哪个图标。 */
+const modeButtonIcon = computed<AppIconName>(() => {
+  if (props.planModeEnabled) return "quill-write-02";
+  if (props.wheelchairModeEnabled) return "wheelchair";
+  if (props.goalActive) return "target";
+  return "ai-art";
+});
+
+function toggleGoalSection() {
+  goalSectionOpen.value = !goalSectionOpen.value;
+}
+
+function submitGoalObjective() {
+  const objective = goalObjectiveDraft.value.trim();
+  if (!objective || props.frozen || props.goalDisabled) return;
+  emit("startGoalTask", objective);
+  goalObjectiveDraft.value = "";
+  goalSectionOpen.value = false;
+}
+
 function toggleWheelchairMode() {
-  emit("update:wheelchairModeEnabled", !props.wheelchairModeEnabled);
+  const next = !props.wheelchairModeEnabled;
+  emit("update:wheelchairModeEnabled", next);
+  // 三种模式互斥：开一个就关掉另外两个
+  if (next) {
+    if (props.planModeEnabled) emit("update:planModeEnabled", false);
+    if (props.goalActive) emit("stopGoalTask");
+  }
   closeInstructionPanel();
 }
 
@@ -1294,6 +1434,24 @@ function handleChatInputInput() {
   scheduleResizeChatInput();
   updateMentionState();
   updateIssueState();
+}
+
+/** 从加号菜单往输入框光标处插入触发字符（@ / #），复用已有输入处理流程 */
+function insertChatInputTrigger(char: string) {
+  const el = chatInputRef.value;
+  const value = localChatInput.value;
+  const start = el?.selectionStart ?? value.length;
+  const end = el?.selectionEnd ?? start;
+  localChatInput.value = value.slice(0, start) + char + value.slice(end);
+  nextTick(() => {
+    const target = chatInputRef.value;
+    if (target) {
+      const pos = start + char.length;
+      target.focus();
+      target.setSelectionRange(pos, pos);
+    }
+    handleChatInputInput();
+  });
 }
 
 function handleChatInputCompositionStart() {

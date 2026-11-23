@@ -24,7 +24,7 @@
       :class="mainClass"
     >
       <div
-        class="pointer-events-none absolute inset-0 bg-base-100/90 backdrop-blur-md"
+        class="pointer-events-none absolute inset-0 bg-base-100/50 backdrop-blur-md"
         :class="mainClass"
         aria-hidden="true"
       ></div>

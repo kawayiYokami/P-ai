@@ -254,11 +254,44 @@ export function useGoalTask(options: UseGoalTaskOptions) {
     }
   }
 
-  function startGoalTaskPolling() {
-    void refreshActiveGoalTask({ silent: true });
+  /** 模式面板里直接填目标内容启动，不经过完整目标弹窗。 */
+  async function startGoalTaskWithObjective(objective: string) {
+    if (goalSaving.value) return;
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    const goal = String(objective || "").trim();
+    if (!conversationId) {
+      options.setStatus(options.t("chat.goal.noConversation"));
+      return;
+    }
+    if (!goal) return;
+    goalSaving.value = true;
+    goalError.value = "";
+    try {
+      const hadActiveGoal = !!activeGoalTask.value;
+      if (hadActiveGoal) {
+        await invokeTauri<GoalMutationOutput>("goal.cancel", {
+          input: { conversationId },
+        });
+      }
+      const created = await invokeTauri<GoalMutationOutput>("goal.create", {
+        input: { conversationId, objective: goal },
+      });
+      activeGoalTask.value = goalIsActive(created.goal)
+        ? activeGoalTaskFromGoal(created.goal)
+        : null;
+      options.setStatus(
+        options.t(hadActiveGoal ? "chat.goal.updatedStatus" : "chat.goal.createdStatus"),
+      );
+    } catch (error) {
+      options.setStatus(`${options.t("chat.goal.saveFailed")}: ${toErrorMessage(error)}`);
+    } finally {
+      goalSaving.value = false;
+    }
   }
 
-  function handleConversationChanged() {
+  function startGoalTaskPolling() {
+    void refreshActiveGoalTask({ silent: true });
+  }  function handleConversationChanged() {
     goalDialogOpen.value = false;
     goalError.value = "";
     void refreshActiveGoalTask({ silent: true });
@@ -277,6 +310,7 @@ export function useGoalTask(options: UseGoalTaskOptions) {
     openGoalTaskDialog,
     closeGoalTaskDialog,
     saveGoalTask,
+    startGoalTaskWithObjective,
     stopGoalTask,
     refreshActiveGoalTask,
     startGoalTaskPolling,

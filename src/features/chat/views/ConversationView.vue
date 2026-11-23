@@ -99,6 +99,7 @@
     :active-goal-task="activeGoalTask"
     :recent-goal-task-history="recentGoalTaskHistory"
     @open-goal-task="openGoalTaskDialog"
+    @start-goal-task="startGoalTaskWithObjective"
     @close-goal-task="closeGoalTaskDialog"
     @save-goal-task="saveGoalTask"
     @stop-goal-task="stopGoalTask"
@@ -178,6 +179,7 @@ const {
   chatGoalActive: goalActive,
   chatGoalTitle: goalTitleText,
   openGoalTaskDialog,
+  startGoalTaskWithObjective,
   closeGoalTaskDialog,
   saveGoalTask,
   stopGoalTask,
@@ -244,7 +246,7 @@ function refreshConversationAfterStorageRepair() {
 
 // 追问输入栏的附件入口：与主会话共用同一套「选文件 → 读入 → 入队」链路，
 // 入队目标是追问自己的两份队列，不碰主会话。
-async function handlePickAttachments() {
+async function handlePickAttachments(kind?: "image" | "file") {
   const apiConfig = activeApiConfig.value;
   if (!apiConfig) return;
   clearChatError();
@@ -252,7 +254,11 @@ async function handlePickAttachments() {
     const sources = await pickTransportAttachmentSources({
       multiple: true,
       directory: false,
-      title: "选择附件",
+      title: kind === "image" ? "选择图片" : "选择附件",
+      filters:
+        kind === "image"
+          ? [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] }]
+          : undefined,
     });
     for (const source of sources) {
       try {

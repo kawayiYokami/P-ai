@@ -1893,6 +1893,10 @@
     "stopReplying": "Stop Replying",
     "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
     "attach": "Attach",
+    "moreActions": "More",
+    "openImage": "Add image",
+    "openFile": "Add file",
+    "referenceIssue": "Add issue",
     "send": "Send",
     "sendModeEnter": "Send message with Enter",
     "sendModeCtrlEnter": "Send message with Ctrl + Enter",
@@ -2331,10 +2335,14 @@
         "noConversation": "No conversation is available for this task."
       }
     },
+    "mode": {
+      "buttonTitle": "Mode"
+    },
     "plan": {
-      "mode": "Plan",
+      "mode": "Plan Mode",
+      "modeHint": "{personaName} will cross-examine you and then draft the plan",
       "enterMode": "Switch to Plan Mode",
-      "exitMode": "Exit Plan Mode",
+      "exitMode": "Exit",
       "enabled": "Plan Mode Enabled",
       "modeOff": "Off",
       "confirmAction": "I agree, execute the plan",
@@ -2343,9 +2351,10 @@
       "linkLabel": "Plan: "
     },
     "wheelchair": {
-      "mode": "Escort",
+      "mode": "Escort Mode",
+      "modeHint": "pai will infer what you want and push the work forward",
       "enterMode": "Enable Escort",
-      "exitMode": "Off",
+      "exitMode": "Exit",
       "enabled": "Escort Enabled",
       "modeOff": "Off",
       "costHint": "Starts a read-only delegate every turn, noticeably increasing token usage"
@@ -2359,13 +2368,15 @@
       "createTitle": "Start Goal",
       "updateTitle": "Restart Goal",
       "activeHint": "This conversation already has an active goal: {goal}",
-      "goalLabel": "Goal",
+      "goalLabel": "Goal Mode",
+      "modeHint": "pai will require {personaName} to keep working until the goal is met",
       "goalPlaceholder": "Enter the goal you want to keep moving forward",
       "defaultGoal": "",
       "recentTitle": "Recent Goals",
       "createAction": "Start Goal",
       "updateAction": "Restart",
-      "stopAction": "Stop Goal",
+      "stopAction": "Exit",
+      "activeBadge": "Active",
       "createdStatus": "Goal started.",
       "updatedStatus": "Goal restarted.",
       "stoppedStatus": "Goal stopped.",

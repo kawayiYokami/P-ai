@@ -94,7 +94,7 @@
           </Transition>
           <div
             ref="scrollContainer"
-            class="ecall-chat-scroll-container ecall-fade-bottom relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0"
+            class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0"
             :class="[
               chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : '',
               conversationRevealHidden
@@ -632,7 +632,7 @@
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
             @remove-mention="$emit('removeMention', $event)" @remove-clipboard-image="$emit('removeClipboardImage', $event)"
             @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
-            @pick-attachments="$emit('pickAttachments')"
+            @pick-attachments="(kind) => $emit('pickAttachments', kind)"
             @update:conversation-preferred-api-config-id="$emit('update:conversationPreferredApiConfigId', $event)"
             @update:workspace-access="$emit('updateWorkspaceAccess', $event)"
             @update:plan-mode-enabled="$emit('update:planModeEnabled', $event)"
@@ -646,6 +646,7 @@
             @open-delegate-selection="openDelegateSelectionMenu"
             @open-task-create="openTaskCreateDialog"
             @open-goal-task="$emit('openGoalTask')"
+            @start-goal-task="$emit('startGoalTask', $event)"
             @exit-selection-mode="handleExitMessageSelectionMode"
             @selection-action-copy="copySelectedMessages"
             @selection-action-branch="emitSelectionAction('branch')"
@@ -1138,7 +1139,7 @@ const emit = defineEmits<{
   (e: "update:chatMonitorPanelMode", value: ChatMonitorPanelMode): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
-  (e: "pickAttachments"): void;
+  (e: "pickAttachments", kind?: "image" | "file"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
   (e: "updateWorkspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
@@ -1153,7 +1154,7 @@ const emit = defineEmits<{
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
-  (e: "lockWorkspace"): void; (e: "openGoalTask"): void; (e: "openCodeReview"): void;
+  (e: "lockWorkspace"): void; (e: "openGoalTask"): void; (e: "startGoalTask", objective: string): void; (e: "openCodeReview"): void;
   (e: "closeGoalTask"): void;
   (e: "saveGoalTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "stopGoalTask"): void;

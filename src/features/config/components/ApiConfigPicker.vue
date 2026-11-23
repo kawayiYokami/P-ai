@@ -5,7 +5,7 @@
       type="button"
       :class="variant === 'field'
         ? ['select select-bordered bg-none flex w-full items-center justify-between gap-2 pr-3 text-left', size === 'sm' ? 'select-sm' : '']
-        : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-start text-left border-0 bg-transparent text-base-content shadow-none hover:bg-base-200/60'"
+        : 'btn btn-sm h-8 min-h-8 w-full min-w-0 justify-start rounded-md text-left border-0 bg-transparent text-base-content shadow-none hover:bg-base-300'"
       :disabled="disabled || (normalizedOptions.length === 0 && extraOptions.length === 0 && !placeholder)"
       :title="selectedModelTitle"
       @pointerdown.prevent
@@ -42,7 +42,7 @@
         class="fixed z-1200 flex flex-col overflow-hidden bg-base-100/70 text-base-content shadow backdrop-blur-md"
         :class="mobileTouchViewport
           ? 'inset-x-0 bottom-0 max-h-[65vh] rounded-t-[20px] pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-2xl'
-          : 'rounded-[20px] shadow-xl'"
+          : 'rounded-md shadow-xl'"
         :data-theme="teleportTheme"
         :style="mobileTouchViewport ? undefined : panelStyle"
       >

@@ -2029,6 +2029,10 @@
     "stopReplying": "正在回复",
     "dropImageOrPdf": "拖放文件（图片/PDF 可直接多模态）",
     "attach": "添加附件",
+    "moreActions": "更多",
+    "openImage": "添加图片",
+    "openFile": "添加文件",
+    "referenceIssue": "添加议题",
     "send": "发送",
     "sendModeEnter": "按 Enter 键发送消息",
     "sendModeCtrlEnter": "按 Ctrl + Enter 键发送消息",
@@ -2308,10 +2312,14 @@
         "noConversation": "当前没有会话，无法创建任务。"
       }
     },
+    "mode": {
+      "buttonTitle": "模式"
+    },
     "plan": {
-      "mode": "计划",
+      "mode": "计划模式",
+      "modeHint": "「{personaName}」将会与你互相拷问后制定计划",
       "enterMode": "切换到计划模式",
-      "exitMode": "退出计划",
+      "exitMode": "退出",
       "enabled": "计划模式已开启",
       "modeOff": "未开启",
       "confirmAction": "我同意，并执行计划",
@@ -2320,9 +2328,10 @@
       "linkLabel": "计划："
     },
     "wheelchair": {
-      "mode": "护航",
+      "mode": "护航模式",
+      "modeHint": "pai 将会推测你的想法并主动推进进度",
       "enterMode": "开启护航",
-      "exitMode": "关闭",
+      "exitMode": "退出",
       "enabled": "护航已开启",
       "modeOff": "未开启",
       "costHint": "每轮都会发起只读委托，会明显增加 token 消耗"
@@ -2336,13 +2345,15 @@
       "createTitle": "启动目标",
       "updateTitle": "重新启动目标",
       "activeHint": "当前会话已有一个活跃目标：{goal}",
-      "goalLabel": "目标",
+      "goalLabel": "目标模式",
+      "modeHint": "pai 将会要求「{personaName}」达成目标前持续作业",
       "goalPlaceholder": "输入你希望持续推进的目标",
       "defaultGoal": "",
       "recentTitle": "最近目标",
       "createAction": "启动目标",
       "updateAction": "重新启动",
-      "stopAction": "停止目标",
+      "stopAction": "退出",
+      "activeBadge": "进行中",
       "createdStatus": "目标已启动。",
       "updatedStatus": "目标已重新启动。",
       "stoppedStatus": "目标已停止。",
