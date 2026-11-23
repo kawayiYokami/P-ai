@@ -200,7 +200,7 @@
            SettingsPageShell）就用当前一级 tab 名兜底，所以这一行永远在。
            它在左侧、按钮在右侧，不会互相遮挡；空白处兼作窗口拖动区。 -->
       <div class="flex h-10 shrink-0 items-center pr-32 pl-4" data-tauri-drag-region>
-        <div class="flex h-8 min-w-0 items-center">
+        <div class="flex h-8 min-w-0 flex-1 items-center">
           <SettingsBreadcrumb :items="settingsBreadcrumbItems" />
         </div>
       </div>
