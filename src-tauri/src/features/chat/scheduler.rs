@@ -76,6 +76,8 @@ pub(crate) enum ChatEventSource {
     /// 远程 IM 渠道消息
     #[serde(rename = "remote_im")]
     RemoteIm,
+    /// 队伍消息：队员与队长之间的派活与汇报，身份是发信的那个队友
+    Team,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,6 +161,9 @@ pub(crate) struct ChatQueueEventSummary {
     pub message_preview: String,
     pub message_text: String,
     pub conversation_id: String,
+    /// 队伍消息的发信队友名，供队列条显示身份；其它来源为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

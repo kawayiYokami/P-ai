@@ -2201,7 +2201,8 @@
       "sourceTask": "Task",
       "sourceDelegate": "Delegate",
       "sourceSystem": "System",
-      "sourceRemoteIm": "Remote"
+      "sourceRemoteIm": "Remote",
+      "sourceTeam": "Teammate"
     },
     "voice": "Voice {index}",
     "jumpToBottom": "Jump to bottom",

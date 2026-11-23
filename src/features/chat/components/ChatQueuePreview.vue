@@ -20,9 +20,10 @@
             'badge-secondary': event.source === 'delegate',
             'badge-neutral': event.source === 'system',
             'badge-accent': event.source === 'remote_im',
+            'badge-warning': event.source === 'team',
           }"
         >
-          {{ sourceText(event.source) }}
+          {{ sourceText(event) }}
         </span>
         <span class="flex-1 truncate opacity-80">{{ event.messagePreview }}</span>
         <button
@@ -66,8 +67,8 @@ defineEmits<{
 
 const { t } = useI18n();
 
-function sourceText(source: string): string {
-  switch (source) {
+function sourceText(event: ChatQueueEvent): string {
+  switch (event.source) {
     case "user":
       return String(props.userPersonaName || "").trim() || t("archives.roleUser");
     case "task":
@@ -78,8 +79,10 @@ function sourceText(source: string): string {
       return t("chat.queue.sourceSystem");
     case "remote_im":
       return t("chat.queue.sourceRemoteIm");
+    case "team":
+      return String(event.senderName || "").trim() || t("chat.queue.sourceTeam");
     default:
-      return source;
+      return event.source;
   }
 }
 </script>

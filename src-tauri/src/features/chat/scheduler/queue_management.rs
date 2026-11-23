@@ -77,6 +77,15 @@ pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventS
                 message_preview: preview,
                 message_text: message_preview,
                 conversation_id: event.conversation_id.clone(),
+                sender_name: event
+                    .messages
+                    .first()
+                    .and_then(|message| message.provider_meta.as_ref())
+                    .and_then(|meta| meta.get("teamName"))
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
             });
         }
     }

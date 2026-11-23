@@ -2543,7 +2543,8 @@
       "sourceTask": "任务",
       "sourceDelegate": "委托",
       "sourceSystem": "系统",
-      "sourceRemoteIm": "远程"
+      "sourceRemoteIm": "远程",
+      "sourceTeam": "队友"
     },
     "toolNames": {},
     "planStartedDivider": "计划开始执行",

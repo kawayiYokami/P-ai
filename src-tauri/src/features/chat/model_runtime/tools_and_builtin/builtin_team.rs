@@ -642,7 +642,7 @@ fn team_enqueue_message(
         id: format!("team-message-{}", Uuid::new_v4()),
         conversation_id: target_conversation_id.to_string(),
         created_at: now_iso(),
-        source: ChatEventSource::System,
+        source: ChatEventSource::Team,
         queue_mode,
         messages: vec![message],
         activate_assistant: activates_assistant,
@@ -967,7 +967,7 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
         },
         mail,
     );
-    let outcome = team_enqueue_message(state, &leader_conversation_id, message, "queue");
+    let outcome = team_enqueue_message(state, &leader_conversation_id, message, "guided");
     match outcome {
         Ok(()) => runtime_log_info(format!(
             "[工具] 完成 任务=停止兜底汇报 角色={role} 会话={}",

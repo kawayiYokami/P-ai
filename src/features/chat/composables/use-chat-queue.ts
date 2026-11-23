@@ -3,12 +3,13 @@ import { invokeTauri, onTransportNotification } from "../../../services/tauri-ap
 
 export type ChatQueueEvent = {
   id: string;
-  source: "user" | "task" | "delegate" | "system" | "remote_im";
+  source: "user" | "task" | "delegate" | "system" | "remote_im" | "team";
   queueMode: "normal" | "guided";
   createdAt: string;
   messagePreview: string;
   messageText?: string;
   conversationId: string;
+  senderName?: string;
 };
 
 export type ChatQueueRecallResult = {

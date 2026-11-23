@@ -14923,7 +14923,8 @@
         let slot = slots.get(&member_id).expect("member slot");
         let event = slot.pending_queue.back().expect("queued event");
         assert_eq!(event.queue_mode, ChatQueueMode::Guided);
-        assert!(matches!(event.source, ChatEventSource::System));
+        // 队伍消息的来源是队伍本身，不是系统事件：身份取发信的那个队友。
+        assert!(matches!(event.source, ChatEventSource::Team));
         assert!(event.activate_assistant);
         let text = message_text_content(&event.messages[0]);
         assert!(text.contains("去查 A"), "消息正文应带上队长交代的内容：{text}");
