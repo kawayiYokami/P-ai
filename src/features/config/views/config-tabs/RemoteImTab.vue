@@ -1683,7 +1683,7 @@ import AppIcon from "../../../shared/components/AppIcon.vue";
 import { invokeTauri, openTransportFileDialog } from "../../../../services/tauri-api";
 import type { AppConfig, LegacyShellWorkspaceAccess, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImContactGroup, RemoteImPlatform, ShellWorkspace, ShellWorkspaceAccess } from "../../../../types/app";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
-import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/settings-breadcrumb-types";
 import AgentPersonaSelect from "../../../shared/components/AgentPersonaSelect.vue";
 import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";

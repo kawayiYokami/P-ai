@@ -75,8 +75,8 @@ import AppIcon from "../../../shared/components/AppIcon.vue";
 import GalleryControls from "../../../dev-gallery/GalleryControls.vue";
 import type { AppConfig, SearchEngineConfigItem, SearchMode } from "../../../../types/app";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
-import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
-import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
+import type { SettingsBreadcrumbItem } from "../../components/settings-breadcrumb-types";
+import type { UnderlineTabItem } from "../../../shared/components/underline-tabs-types";
 import SearchEnginesPanel from "./SearchEnginesPanel.vue";
 
 const { t } = useI18n();

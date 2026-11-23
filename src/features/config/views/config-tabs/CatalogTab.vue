@@ -256,7 +256,7 @@ import {
 import { toErrorMessage } from "../../../../utils/error";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import CatalogEntryCard from "./CatalogEntryCard.vue";
-import type { UnderlineTabItem } from "../../../shared/components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../../shared/components/underline-tabs-types";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 
 const { t } = useI18n();

@@ -637,7 +637,7 @@ import {
 import type { SkillFileItem, SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
-import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "../../components/settings-breadcrumb-types";
 import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../../composables/use-unsaved-changes-guard";

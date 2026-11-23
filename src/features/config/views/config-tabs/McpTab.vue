@@ -284,7 +284,7 @@ import { formatEndpointDisplay } from "../../utils/api-config-display";
 import { summarizeMcpInstructions } from "../../utils/mcp-instructions";
 import McpServerCard from "./mcp/McpServerCard.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
-import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "../../components/settings-breadcrumb-types";
 import type { StatusTone } from "../../../shell/composables/use-app-core";
 
 const props = withDefaults(defineProps<{

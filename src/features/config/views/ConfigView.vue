@@ -495,7 +495,8 @@ import AppIcon from "../../shared/components/AppIcon.vue";
 import type { AppIconName } from "../../shared/icons/icon-map";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
-import SettingsBreadcrumb, { type SettingsBreadcrumbItem } from "../components/SettingsBreadcrumb.vue";
+import SettingsBreadcrumb from "../components/SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "../components/settings-breadcrumb-types";
 import { provideSettingsBreadcrumb } from "../composables/use-settings-breadcrumb";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";

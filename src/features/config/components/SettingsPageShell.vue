@@ -60,9 +60,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import SettingsStickyLayout from "./SettingsStickyLayout.vue";
-import type { SettingsBreadcrumbItem } from "./SettingsBreadcrumb.vue";
+import type { SettingsBreadcrumbItem } from "./settings-breadcrumb-types";
 import { useSettingsBreadcrumbContext } from "../composables/use-settings-breadcrumb";
-import UnderlineTabs, { type UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
+import UnderlineTabs from "../../shared/components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../shared/components/underline-tabs-types";
 import AppIcon from "../../shared/components/AppIcon.vue";
 
 const props = withDefaults(defineProps<{

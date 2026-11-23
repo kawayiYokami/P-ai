@@ -30,7 +30,7 @@
 import { computed, ref } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import SettingsPageShell from "./SettingsPageShell.vue";
-import type { UnderlineTabItem } from "../../shared/components/UnderlineTabs.vue";
+import type { UnderlineTabItem } from "../../shared/components/underline-tabs-types";
 
 const activeTab = ref("overview");
 
