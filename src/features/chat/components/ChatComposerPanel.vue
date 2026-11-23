@@ -112,6 +112,15 @@
                 </button>
               </div>
             </template>
+            <button
+              type="button"
+              class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-base-content/50 transition hover:bg-base-300 hover:text-base-content"
+              :title="t('common.close')"
+              :aria-label="t('common.close')"
+              @click="emit('dismissWheelchairSuggestion')"
+            >
+              <AppIcon name="close" class="h-3.5 w-3.5" />
+            </button>
           </div>
         </template>
         <template #attachments>
