@@ -528,37 +528,83 @@ fn apply_patch_restore_backup_record(
     Ok((restored, overwritten_files))
 }
 
-fn clear_apply_patch_temp(data_path: &PathBuf) -> Result<(usize, usize), String> {
+/// 压缩收尾按归属与时效清理 apply_patch 备份。
+///
+/// 判定表：本会话的记录任何时间都删；其他会话只删 `cutoff_iso` 之前的，
+/// 近一个月的一个不动。解析不出来的记录一律保留——读不通就不动，不猜。
+/// `cutoff_iso` 由调用方算好传入，函数内部不读系统时间，方便测试。
+fn clear_apply_patch_temp_for_conversation(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    cutoff_iso: &str,
+) -> Result<(usize, usize), String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("会话 ID 为空，无法按会话清理 apply_patch 备份".to_string());
+    }
+    let cutoff_iso = cutoff_iso.trim();
     let records_dir = apply_patch_temp_records_dir(data_path);
-    let blobs_dir = apply_patch_temp_blobs_dir(data_path);
+    let entries = match std::fs::read_dir(&records_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0)),
+        Err(err) => {
+            return Err(format!(
+                "读取 apply_patch 记录目录失败（{}）：{err}",
+                records_dir.to_string_lossy()
+            ));
+        }
+    };
     let mut removed_records = 0usize;
     let mut removed_blobs = 0usize;
-    for dir in [&records_dir, &blobs_dir] {
-        std::fs::create_dir_all(dir)
-            .map_err(|err| format!("创建 apply_patch temp 目录失败（{}）：{err}", dir.to_string_lossy()))?;
-    }
-    if let Ok(entries) = std::fs::read_dir(&records_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                std::fs::remove_file(&path).map_err(|err| {
-                    format!("清理 apply_patch 记录失败（{}）：{err}", path.to_string_lossy())
-                })?;
+    let mut kept_records = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let record = match apply_patch_read_backup_record(&path) {
+            Ok(record) => record,
+            Err(err) => {
+                // 读不通就留着：不为了「清干净」把没法判断归属的记录删掉。
+                runtime_log_warn(format!(
+                    "[工具] 跳过，任务=清理apply_patch备份，原因=记录无法解析，错误={err}"
+                ));
+                kept_records = kept_records.saturating_add(1);
+                continue;
+            }
+        };
+        let same_conversation = record.session_id.trim() == conversation_id;
+        // cutoff 缺失时只按会话判，不把其他会话当过期删掉。
+        let expired = !cutoff_iso.is_empty() && record.created_at.trim() < cutoff_iso;
+        if !same_conversation && !expired {
+            kept_records = kept_records.saturating_add(1);
+            continue;
+        }
+        let blob_count = record
+            .entries
+            .iter()
+            .filter(|entry| entry.backup_blob_file.is_some())
+            .count();
+        match apply_patch_cleanup_backup_record_by_value(data_path, &record) {
+            Ok(()) => {
                 removed_records = removed_records.saturating_add(1);
+                removed_blobs = removed_blobs.saturating_add(blob_count);
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[工具] 跳过，任务=清理apply_patch备份，原因=删除记录失败，错误={err}"
+                ));
+                kept_records = kept_records.saturating_add(1);
             }
         }
     }
-    if let Ok(entries) = std::fs::read_dir(&blobs_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                std::fs::remove_file(&path).map_err(|err| {
-                    format!("清理 apply_patch 备份失败（{}）：{err}", path.to_string_lossy())
-                })?;
-                removed_blobs = removed_blobs.saturating_add(1);
-            }
-        }
-    }
+    runtime_log_info(format!(
+        "[工具] 完成 任务=清理apply_patch备份 删除记录={} 删除备份={} 保留记录={}",
+        removed_records, removed_blobs, kept_records
+    ));
     Ok((removed_records, removed_blobs))
 }
 
@@ -2308,21 +2354,164 @@ mod apply_patch_tool_tests {
         assert!(record.entries.iter().any(|entry| entry.kind == ApplyPatchBackupKind::MoveUpdate));
     }
 
-    #[test]
-    fn clear_apply_patch_temp_should_remove_records_and_blobs() {
-        let data_path = make_temp_data_path("apply-patch-clear");
-        let records_dir = apply_patch_temp_records_dir(&data_path);
-        let blobs_dir = apply_patch_temp_blobs_dir(&data_path);
+    fn seed_apply_patch_backup_record(
+        data_path: &PathBuf,
+        record_id: &str,
+        session_id: &str,
+        created_at: &str,
+        blob_file: Option<&str>,
+    ) {
+        let records_dir = apply_patch_temp_records_dir(data_path);
         std::fs::create_dir_all(&records_dir).expect("create records dir");
-        std::fs::create_dir_all(&blobs_dir).expect("create blobs dir");
-        std::fs::write(records_dir.join("a.json"), "{}").expect("seed record");
-        std::fs::write(blobs_dir.join("b.bin"), "x").expect("seed blob");
+        let entries = blob_file
+            .map(|file| {
+                vec![serde_json::json!({
+                    "kind": "update",
+                    "path": "a.txt",
+                    "backupBlobFile": file,
+                })]
+            })
+            .unwrap_or_default();
+        let record = serde_json::json!({
+            "recordId": record_id,
+            "sessionId": session_id,
+            "cwd": "C:/workspace",
+            "fingerprint": "fp",
+            "createdAt": created_at,
+            "entries": entries,
+        });
+        std::fs::write(
+            apply_patch_record_path(data_path, record_id),
+            serde_json::to_vec(&record).expect("serialize backup record"),
+        )
+        .expect("seed backup record");
+        if let Some(file) = blob_file {
+            let blobs_dir = apply_patch_temp_blobs_dir(data_path);
+            std::fs::create_dir_all(&blobs_dir).expect("create blobs dir");
+            std::fs::write(blobs_dir.join(file), "x").expect("seed blob");
+        }
+    }
 
-        let (records, blobs) = clear_apply_patch_temp(&data_path).expect("clear temp");
-        assert_eq!(records, 1);
-        assert_eq!(blobs, 1);
-        assert_eq!(std::fs::read_dir(&records_dir).expect("read records").count(), 0);
-        assert_eq!(std::fs::read_dir(&blobs_dir).expect("read blobs").count(), 0);
+    fn backup_record_exists(data_path: &PathBuf, record_id: &str) -> bool {
+        apply_patch_record_path(data_path, record_id).exists()
+    }
+
+    fn backup_blob_exists(data_path: &PathBuf, blob_file: &str) -> bool {
+        apply_patch_blob_path(data_path, blob_file).exists()
+    }
+
+    #[test]
+    fn clear_apply_patch_temp_for_conversation_should_drop_own_records_and_keep_other_recent() {
+        let data_path = make_temp_data_path("apply-patch-clear-by-conversation");
+        let cutoff_iso = "2026-10-24T00:00:00Z";
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-a-recent",
+            "conv-a",
+            "2026-11-23T00:00:00Z",
+            Some("a-recent.blob"),
+        );
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-a-old",
+            "conv-a",
+            "2026-09-01T00:00:00Z",
+            Some("a-old.blob"),
+        );
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-b-recent",
+            "conv-b",
+            "2026-11-23T00:00:00Z",
+            Some("b-recent.blob"),
+        );
+
+        let (removed_records, removed_blobs) =
+            clear_apply_patch_temp_for_conversation(&data_path, "conv-a", cutoff_iso)
+                .expect("clear backup records");
+
+        assert_eq!(removed_records, 2);
+        assert_eq!(removed_blobs, 2);
+        assert!(!backup_record_exists(&data_path, "rec-a-recent"));
+        assert!(!backup_record_exists(&data_path, "rec-a-old"));
+        assert!(!backup_blob_exists(&data_path, "a-recent.blob"));
+        assert!(!backup_blob_exists(&data_path, "a-old.blob"));
+        // 其他会话一个月之内的记录与 blob 一个都不能少
+        assert!(backup_record_exists(&data_path, "rec-b-recent"));
+        assert!(backup_blob_exists(&data_path, "b-recent.blob"));
+    }
+
+    #[test]
+    fn clear_apply_patch_temp_for_conversation_should_drop_expired_other_conversation_records() {
+        let data_path = make_temp_data_path("apply-patch-clear-expired");
+        let cutoff_iso = "2026-10-24T00:00:00Z";
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-b-expired",
+            "conv-b",
+            "2026-09-01T00:00:00Z",
+            Some("b-expired.blob"),
+        );
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-b-fresh",
+            "conv-b",
+            "2026-11-20T00:00:00Z",
+            Some("b-fresh.blob"),
+        );
+
+        let (removed_records, removed_blobs) =
+            clear_apply_patch_temp_for_conversation(&data_path, "conv-a", cutoff_iso)
+                .expect("clear backup records");
+
+        assert_eq!(removed_records, 1);
+        assert_eq!(removed_blobs, 1);
+        assert!(!backup_record_exists(&data_path, "rec-b-expired"));
+        assert!(!backup_blob_exists(&data_path, "b-expired.blob"));
+        assert!(backup_record_exists(&data_path, "rec-b-fresh"));
+        assert!(backup_blob_exists(&data_path, "b-fresh.blob"));
+    }
+
+    #[test]
+    fn clear_apply_patch_temp_for_conversation_should_keep_unreadable_records() {
+        let data_path = make_temp_data_path("apply-patch-clear-unreadable");
+        let records_dir = apply_patch_temp_records_dir(&data_path);
+        std::fs::create_dir_all(&records_dir).expect("create records dir");
+        std::fs::write(records_dir.join("broken.json"), "{not json").expect("seed broken record");
+
+        let (removed_records, removed_blobs) =
+            clear_apply_patch_temp_for_conversation(&data_path, "conv-a", "2026-10-24T00:00:00Z")
+                .expect("clear backup records");
+
+        assert_eq!(removed_records, 0);
+        assert_eq!(removed_blobs, 0);
+        assert!(records_dir.join("broken.json").exists());
+    }
+
+    #[test]
+    fn clear_apply_patch_temp_for_conversation_should_keep_other_recent_blob_intact() {
+        let data_path = make_temp_data_path("apply-patch-clear-blob");
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-a",
+            "conv-a",
+            "2026-11-23T00:00:00Z",
+            Some("shared-name.blob"),
+        );
+        seed_apply_patch_backup_record(
+            &data_path,
+            "rec-b",
+            "conv-b",
+            "2026-11-23T00:00:00Z",
+            Some("kept.blob"),
+        );
+
+        clear_apply_patch_temp_for_conversation(&data_path, "conv-a", "2026-10-24T00:00:00Z")
+            .expect("clear backup records");
+
+        assert!(!backup_blob_exists(&data_path, "shared-name.blob"));
+        assert!(backup_blob_exists(&data_path, "kept.blob"));
+        assert!(std::fs::read(apply_patch_blob_path(&data_path, "kept.blob")).is_ok());
     }
 
     #[test]

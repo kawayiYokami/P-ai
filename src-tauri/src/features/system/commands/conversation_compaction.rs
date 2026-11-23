@@ -329,19 +329,20 @@ async fn run_context_compaction_pipeline_inner(
     } else {
         runtime_log_info("[存储] 清空会话待办完成".to_string());
     }
-    match clear_apply_patch_temp(&state.data_path) {
-        Ok((record_count, blob_count)) => {
-            runtime_log_info(format!(
-                "[工具] 完成 任务=clear_temp_on_compaction 记录条数={} 备份条数={}",
-                record_count, blob_count
-            ));
-        }
-        Err(err) => {
-            runtime_log_error(format!(
-                "[工具] 失败 任务=clear_temp_on_compaction 错误={}",
-                err
-            ));
-        }
+    // 压缩只清本会话的备份与任何会话一个月之前的备份：其他会话近一个月的备份
+    // 仍然要能撤回，不能被一次压缩清掉。
+    let cutoff_iso = (now_utc() - time::Duration::days(30))
+        .replace_nanosecond(0)
+        .ok()
+        .and_then(|value| value.format(&time::format_description::well_known::Rfc3339).ok())
+        .unwrap_or_default();
+    if let Err(err) =
+        clear_apply_patch_temp_for_conversation(&state.data_path, &source.id, &cutoff_iso)
+    {
+        runtime_log_error(format!(
+            "[工具] 失败 任务=清理apply_patch备份 错误={}",
+            err
+        ));
     }
     match clear_operate_screenshots_temp(&state.data_path, &source.id) {
         Ok((file_count, dir_count)) => {
