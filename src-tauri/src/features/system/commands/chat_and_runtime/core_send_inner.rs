@@ -1008,7 +1008,6 @@ async fn send_chat_message_inner(
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             is_draft: false,
             auto_push_remote_contact_id: None,
@@ -1621,7 +1620,7 @@ async fn send_chat_message_inner(
             &state,
             &snapshot.prompt_conversation_before.id,
         )
-        .unwrap_or(snapshot.prompt_conversation_before.plan_mode_enabled);
+        .unwrap_or(false);
         let storage_conversation = if trigger_only {
             if let Some(messages) = remote_im_reply_prompt_snapshot_messages {
                 let mut conversation = snapshot.storage_conversation_before.clone();
@@ -3652,7 +3651,6 @@ mod core_send_inner_tests {
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -4412,7 +4410,6 @@ mod core_send_inner_tests {
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,

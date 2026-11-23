@@ -192,7 +192,7 @@ pub(crate) fn builtin_plan(
                     err
                 ));
             }
-            if let Err(err) = set_conversation_plan_mode_enabled(app_state, conversation_id, false) {
+            if let Err(err) = switch_conversation_mode_to(app_state, conversation_id, None) {
                 runtime_log_warn(format!(
                     "[工具] 自动同意关闭计划模式失败 原因={}",
                     err

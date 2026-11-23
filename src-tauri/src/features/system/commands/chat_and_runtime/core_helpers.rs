@@ -389,10 +389,15 @@ fn abort_delegate_runtime_descendant_threads(
     state: &AppState,
     parent_chat_key: &str,
     children: Vec<DelegateRuntimeThread>,
+    visited: &mut std::collections::HashSet<String>,
 ) -> Result<usize, String> {
     let mut aborted_count = 0usize;
     for thread in children {
         let child_chat_key = delegate_thread_chat_key(&thread);
+        // 委托树可能出现自引用或环，同一个 chat_key 只处理一次，避免无限递归爆栈
+        if !visited.insert(child_chat_key.clone()) {
+            continue;
+        }
         let aborted_chat = abort_running_inflight_chat(state, &child_chat_key)?;
         let aborted_tool = abort_inflight_tool_abort_handle(state, &child_chat_key)?;
         if aborted_chat || aborted_tool {
@@ -403,7 +408,8 @@ fn abort_delegate_runtime_descendant_threads(
                 child_chat_key
             ));
         }
-        aborted_count += abort_delegate_runtime_descendants_by_parent_session(state, &child_chat_key)?;
+        aborted_count +=
+            abort_delegate_runtime_descendants_inner(state, &child_chat_key, visited)?;
     }
     Ok(aborted_count)
 }
@@ -412,11 +418,21 @@ fn abort_delegate_runtime_descendants_by_parent_session(
     state: &AppState,
     parent_chat_key: &str,
 ) -> Result<usize, String> {
+    let mut visited = std::collections::HashSet::<String>::new();
+    visited.insert(parent_chat_key.to_string());
+    abort_delegate_runtime_descendants_inner(state, parent_chat_key, &mut visited)
+}
+
+fn abort_delegate_runtime_descendants_inner(
+    state: &AppState,
+    parent_chat_key: &str,
+    visited: &mut std::collections::HashSet<String>,
+) -> Result<usize, String> {
     let children = delegate_runtime_thread_list(state)?
         .into_iter()
         .filter(|thread| thread.parent_chat_session_key.as_deref() == Some(parent_chat_key))
         .collect::<Vec<_>>();
-    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children)
+    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children, visited)
 }
 
 fn abort_delegate_runtime_descendants_by_parent_context(
@@ -442,7 +458,9 @@ fn abort_delegate_runtime_descendants_by_parent_context(
         })
         .filter(|thread| seen_delegate_ids.insert(thread.delegate_id.clone()))
         .collect::<Vec<_>>();
-    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children)
+    let mut visited = std::collections::HashSet::<String>::new();
+    visited.insert(parent_chat_key.to_string());
+    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children, &mut visited)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

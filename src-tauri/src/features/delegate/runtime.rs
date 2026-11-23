@@ -120,7 +120,6 @@ fn delegate_parent_shell_workspace(
             fast_request_turns: conversation_meta.fast_request_turns,
             current_todos: conversation_meta.current_todos,
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal,
             team: conversation_meta.team,

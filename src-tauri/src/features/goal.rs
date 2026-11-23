@@ -133,6 +133,11 @@ fn goal_create_goal_inner(
     if objective.is_empty() {
         return Err("goal.objective is required".to_string());
     }
+    runtime_log_info(format!(
+        "[目标] 开始 任务=创建目标 会话编号={} 目标字数={}",
+        normalized_conversation_id,
+        objective.chars().count()
+    ));
     let now = now_iso();
     let (conversation, goal) = conversation_service_v2().update_goal_conversation(
         state,
@@ -162,22 +167,17 @@ fn goal_create_goal_inner(
         },
     )?;
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
-    // goal 已激活：停掉正在跑的护航委托，避免它的引导消息挤占目标续跑的收尾分支。
+    // 模式切到 Goal：只改标志，护航委托交给它自己的收尾
     if let Err(err) =
-        abort_wheelchair_delegate(state, normalized_conversation_id, "goal 已激活，护航停止")
+        switch_conversation_mode_to(state, normalized_conversation_id, Some(ConversationMode::Goal))
     {
         runtime_log_warn(format!(
-            "[系统] 护航 停止失败 任务=目标激活后停止护航 错误={}",
+            "[系统] 模式切换失败 任务=目标激活后切模式 错误={}",
             err
         ));
     }
-    clear_goal_continue_suppression(state, normalized_conversation_id, "goal_created")?;
-    if let Err(err) = maybe_enqueue_goal_continue_after_idle(state, normalized_conversation_id) {
-        runtime_log_warn(format!(
-            "[系统] 目标续跑 跳过 任务=创建目标后投递续跑 错误={}",
-            err
-        ));
-    }
+    // 创建目标只写状态，不投递续跑、不发起任何一轮对话。
+    runtime_log_info("[目标] 完成 任务=创建目标".to_string());
     Ok(goal_output(normalized_conversation_id, goal))
 }
 
@@ -232,7 +232,21 @@ fn goal_update_terminal_inner(
         },
     )?;
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
+    reset_goal_mode_if_active(state, normalized_conversation_id);
     Ok(goal_output(normalized_conversation_id, goal))
+}
+
+/// 目标结束后把模式清回空态，但只在目标模式确实开着时清，避免覆盖别的模式。
+fn reset_goal_mode_if_active(state: &AppState, conversation_id: &str) {
+    if !get_conversation_goal_mode_enabled(state, conversation_id).unwrap_or(false) {
+        return;
+    }
+    if let Err(err) = switch_conversation_mode_to(state, conversation_id, None) {
+        runtime_log_warn(format!(
+            "[系统] 模式重置失败 任务=目标结束后清模式 错误={}",
+            err
+        ));
+    }
 }
 
 fn goal_cancel_goal_inner(
@@ -263,6 +277,7 @@ fn goal_cancel_goal_inner(
         },
     )?;
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
+    reset_goal_mode_if_active(state, normalized_conversation_id);
     Ok(goal_output(normalized_conversation_id, goal))
 }
 
@@ -355,7 +370,10 @@ fn goal_create_goal(
     input: GoalCreateInput,
     state: State<'_, AppState>,
 ) -> Result<GoalMutationOutput, String> {
-    goal_create_goal_inner(&state, &input.conversation_id, &input.objective)
+    runtime_log_info("[目标] 收到 任务=创建目标命令".to_string());
+    let result = goal_create_goal_inner(&state, &input.conversation_id, &input.objective);
+    runtime_log_info("[目标] 返回 任务=创建目标命令".to_string());
+    result
 }
 
 #[tauri::command]

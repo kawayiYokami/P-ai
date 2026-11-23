@@ -78,8 +78,6 @@ struct UnarchivedConversationSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     current_todo: Option<String>,
     #[serde(default)]
-    plan_mode_enabled: bool,
-    #[serde(default)]
     wheelchair_mode_enabled: bool,
     /// 待用户处理的护航建议。只有用户点选项或直接发言才会清空，切换会话不清。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -683,7 +681,6 @@ fn build_unarchived_conversation_summary_with_kanban(
         pin_index,
         runtime_state: unarchived_conversation_runtime_state(state, &conversation_meta.id),
         current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
-        plan_mode_enabled: get_conversation_plan_mode_enabled(state, conversation_id).unwrap_or(false),
         wheelchair_mode_enabled: get_conversation_wheelchair_mode_enabled(state, conversation_id).unwrap_or(false),
         wheelchair_suggestion: get_conversation_wheelchair_suggestion(state, conversation_id)
             .unwrap_or(None),
@@ -1754,7 +1751,6 @@ mod conversation_snapshot_api_tests {
             pin_index: None,
             runtime_state: None,
             current_todo: None,
-            plan_mode_enabled: false,
             wheelchair_mode_enabled: false,
             wheelchair_suggestion: None,
             detached_window_open: false,

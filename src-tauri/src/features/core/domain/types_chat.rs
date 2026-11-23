@@ -713,8 +713,6 @@ struct Conversation {
     #[serde(default)]
     memory_recall_table: Vec<String>,
     #[serde(default)]
-    plan_mode_enabled: bool,
-    #[serde(default)]
     preferred_api_config_id: Option<String>,
     #[serde(default)]
     is_draft: bool,
@@ -759,6 +757,14 @@ pub(crate) struct WheelchairSuggestion {
     pub options: Vec<String>,
 }
 
+/// 会话模式的切换参数。三个模式各有一个字段，这里只用于统一入口 `switch_conversation_mode_to`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConversationMode {
+    Plan,
+    Escort,
+    Goal,
+}
+
 #[derive(Debug, Clone)]
 struct ConversationRuntimeSlot {
     state: MainSessionState,
@@ -766,8 +772,12 @@ struct ConversationRuntimeSlot {
     stream_cache: ConversationStreamRuntimeCache,
     active_remote_im_activation_sources: Vec<RemoteImActivationSource>,
     active_remote_im_assistant_context: Option<RemoteImConversationAssistantContext>,
-    plan_mode_enabled: bool,
-    wheelchair_mode_enabled: bool,
+    /// 计划模式。三个模式字段互斥，同一时刻最多一个为真。
+    plan_mode: bool,
+    /// 护航模式。
+    escort_mode: bool,
+    /// 目标模式。目标本身的内容在 `Conversation.active_goal`，这里只标记模式是否开启。
+    goal_mode: bool,
     wheelchair_delegate_id: Option<String>,
     /// 待用户处理的建议条。用户不选也不发言就一直留着，切走会话再回来仍可读。
     wheelchair_suggestion: Option<WheelchairSuggestion>,
@@ -833,8 +843,9 @@ impl Default for ConversationRuntimeSlot {
             stream_cache: ConversationStreamRuntimeCache::default(),
             active_remote_im_activation_sources: Vec::new(),
             active_remote_im_assistant_context: None,
-            plan_mode_enabled: false,
-            wheelchair_mode_enabled: false,
+            plan_mode: false,
+            escort_mode: false,
+            goal_mode: false,
             wheelchair_delegate_id: None,
             wheelchair_suggestion: None,
             last_activity_at: String::new(),

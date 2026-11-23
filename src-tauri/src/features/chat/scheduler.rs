@@ -281,7 +281,9 @@ pub(crate) async fn process_chat_event_after_ingress(state: &AppState, ingress: 
 pub(crate) fn trigger_chat_event_after_ingress(state: &AppState, ingress: ChatEventIngress) {
     let state_clone = state.clone();
     tauri::async_runtime::spawn(async move {
-        process_chat_event_after_ingress(&state_clone, ingress).await;
+        // 内部 future 必须装箱：process_chat_event_after_ingress 的状态机很大，
+        // 直接在 async 块里 .await 会让整个 future 在栈上构造，深调用栈或小栈线程上会爆栈。
+        Box::pin(process_chat_event_after_ingress(&state_clone, ingress)).await;
     });
 }
 
@@ -293,7 +295,8 @@ pub(crate) fn trigger_chat_event_after_ingress_with_delay(
     let state_clone = state.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(delay).await;
-        process_chat_event_after_ingress(&state_clone, ingress).await;
+        // 同 trigger_chat_event_after_ingress：内部状态机必须装箱
+        Box::pin(process_chat_event_after_ingress(&state_clone, ingress)).await;
     });
 }
 
@@ -430,15 +433,19 @@ pub(crate) fn set_conversation_runtime_state_and_emit(
 }
 
 include!("scheduler/remote_im_processing.rs");
-pub(crate) fn set_conversation_plan_mode_enabled(
+/// 模式切换的唯一入口：一次把三个模式字段都设好，天然互斥。
+/// 只改标志，不做任何其它处理（不停委托、不取消目标）。
+pub(crate) fn switch_conversation_mode_to(
     state: &AppState,
     conversation_id: &str,
-    enabled: bool,
+    mode: Option<ConversationMode>,
 ) -> Result<(), String> {
     let normalized_conversation_id = conversation_id.trim();
     let mut slots = lock_conversation_runtime_slots(state)?;
     let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
-    slot.plan_mode_enabled = enabled;
+    slot.plan_mode = mode == Some(ConversationMode::Plan);
+    slot.escort_mode = mode == Some(ConversationMode::Escort);
+    slot.goal_mode = mode == Some(ConversationMode::Goal);
     slot.last_activity_at = now_iso();
     Ok(())
 }
@@ -450,21 +457,8 @@ pub(crate) fn get_conversation_plan_mode_enabled(
     let slots = lock_conversation_runtime_slots(state)?;
     Ok(slots
         .get(conversation_id.trim())
-        .map(|slot| slot.plan_mode_enabled)
+        .map(|slot| slot.plan_mode)
         .unwrap_or(false))
-}
-
-pub(crate) fn set_conversation_wheelchair_mode_enabled(
-    state: &AppState,
-    conversation_id: &str,
-    enabled: bool,
-) -> Result<(), String> {
-    let normalized_conversation_id = conversation_id.trim();
-    let mut slots = lock_conversation_runtime_slots(state)?;
-    let slot = conversation_slot_mut(&mut slots, normalized_conversation_id);
-    slot.wheelchair_mode_enabled = enabled;
-    slot.last_activity_at = now_iso();
-    Ok(())
 }
 
 pub(crate) fn get_conversation_wheelchair_mode_enabled(
@@ -474,7 +468,18 @@ pub(crate) fn get_conversation_wheelchair_mode_enabled(
     let slots = lock_conversation_runtime_slots(state)?;
     Ok(slots
         .get(conversation_id.trim())
-        .map(|slot| slot.wheelchair_mode_enabled)
+        .map(|slot| slot.escort_mode)
+        .unwrap_or(false))
+}
+
+pub(crate) fn get_conversation_goal_mode_enabled(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .map(|slot| slot.goal_mode)
         .unwrap_or(false))
 }
 

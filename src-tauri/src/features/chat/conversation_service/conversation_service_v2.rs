@@ -118,7 +118,6 @@ struct ConversationMetaView {
     is_draft: bool,
     auto_push_remote_contact_id: Option<String>,
     cumulative_usage: ConversationCumulativeUsage,
-    plan_mode_enabled: bool,
     shell_workspace_path: Option<String>,
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     shell_autonomous_mode: bool,
@@ -323,7 +322,6 @@ impl ConversationMetaView {
             is_draft: meta.is_draft(),
             auto_push_remote_contact_id: meta.auto_push_remote_contact_id().map(ToOwned::to_owned),
             cumulative_usage: meta.cumulative_usage().clone(),
-            plan_mode_enabled: meta.plan_mode_enabled(),
             shell_workspace_path: meta.shell_workspace_path().map(ToOwned::to_owned),
             shell_workspaces: meta.shell_workspaces().to_vec(),
             shell_autonomous_mode: meta.shell_autonomous_mode(),
@@ -656,7 +654,6 @@ struct ConversationExternalMetadataPatch {
     preferred_api_config_id: Option<Option<String>>,
     auto_push_remote_contact_id: Option<Option<String>>,
     current_todos: Option<Vec<ConversationTodoItem>>,
-    plan_mode_enabled: Option<bool>,
     shell_workspace_path: Option<Option<String>>,
     shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
     shell_autonomous_mode: Option<bool>,
@@ -1262,9 +1259,6 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.current_todos {
                             conversation.current_todos = value;
                         }
-                        if let Some(value) = patch.plan_mode_enabled {
-                            conversation.plan_mode_enabled = value;
-                        }
                         if let Some(value) = patch.shell_workspace_path {
                             conversation.shell_workspace_path = value;
                         }
@@ -1506,7 +1500,6 @@ impl ConversationServiceV2 {
         conversation.shell_recorded_branch = conversation_meta.shell_recorded_branch.clone();
         conversation.archived_at = conversation_meta.archived_at.clone();
         conversation.current_todos = conversation_meta.current_todos.clone();
-        conversation.plan_mode_enabled = conversation_meta.plan_mode_enabled;
         conversation.preferred_api_config_id =
             conversation_meta.preferred_api_config_id.clone();
         conversation.auto_push_remote_contact_id =

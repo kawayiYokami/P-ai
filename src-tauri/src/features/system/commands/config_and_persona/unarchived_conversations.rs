@@ -344,7 +344,15 @@ fn set_conversation_plan_mode_inner(
         });
     }
 
-    set_conversation_plan_mode_enabled(state, conversation_id, input.plan_mode_enabled)?;
+    switch_conversation_mode_to(
+        state,
+        conversation_id,
+        if input.plan_mode_enabled {
+            Some(ConversationMode::Plan)
+        } else {
+            None
+        },
+    )?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
         "[系统] 完成 任务=切换会话运行时计划模式 会话编号={} 状态={}",
@@ -458,7 +466,15 @@ fn set_conversation_wheelchair_mode_inner(
         });
     }
 
-    set_conversation_wheelchair_mode_enabled(state, conversation_id, input.wheelchair_mode_enabled)?;
+    switch_conversation_mode_to(
+        state,
+        conversation_id,
+        if input.wheelchair_mode_enabled {
+            Some(ConversationMode::Escort)
+        } else {
+            None
+        },
+    )?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
         "[聊天] 完成 任务=切换会话运行时护航 会话编号={} 状态={}",
@@ -932,8 +948,6 @@ struct ConversationSharePayload {
     messages: Vec<ChatMessage>,
     #[serde(default)]
     current_todos: Vec<ConversationTodoItem>,
-    #[serde(default)]
-    plan_mode_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1308,7 +1322,6 @@ fn build_branch_conversation_record_from_selection(
         None,
     );
     conversation.parent_conversation_id = Some(source.id.clone());
-    conversation.plan_mode_enabled = source.plan_mode_enabled;
     conversation.shell_workspace_path = source.shell_workspace_path.clone();
     conversation.shell_workspaces = source.shell_workspaces.clone();
     conversation.shell_autonomous_mode = source.shell_autonomous_mode;
@@ -1761,7 +1774,6 @@ fn export_conversation_share_json_inner(
         }),
         messages: conversation.messages.clone(),
         current_todos: conversation.current_todos.clone(),
-        plan_mode_enabled: conversation.plan_mode_enabled,
     };
     let payload_json = serde_json::to_string_pretty(&payload)
         .map_err(|err| format!("生成会话分享 JSON 失败: {err}"))?;
@@ -1832,7 +1844,6 @@ fn import_conversation_share_from_file(
         .map(|message| normalize_imported_conversation_share_message(message, &target_agent_id))
         .collect();
     conversation.current_todos = payload.current_todos;
-    conversation.plan_mode_enabled = payload.plan_mode_enabled;
     conversation.fork_message_cursor = conversation.messages.last().map(|message| message.id.clone());
     if let Some(last_message) = conversation.messages.last() {
         conversation.updated_at = last_message.created_at.clone();
@@ -4306,7 +4317,6 @@ mod unarchived_conversations_tests {
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: true,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,

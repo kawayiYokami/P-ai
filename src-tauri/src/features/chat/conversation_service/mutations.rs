@@ -576,7 +576,6 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
         None,
     );
     conversation.parent_conversation_id = Some(source_meta.id.clone());
-    conversation.plan_mode_enabled = source_meta.plan_mode_enabled;
     conversation.shell_workspace_path = source_meta.shell_workspace_path.clone();
     conversation.shell_workspaces = source_meta.shell_workspaces.clone();
     conversation.shell_autonomous_mode = source_meta.shell_autonomous_mode;
@@ -860,7 +859,6 @@ fn read_conversation_for_backup_cleanup(
         fast_request_turns: conversation_meta.fast_request_turns,
         current_todos: conversation_meta.current_todos,
         memory_recall_table: Vec::new(),
-        plan_mode_enabled: conversation_meta.plan_mode_enabled,
         preferred_api_config_id: conversation_meta.preferred_api_config_id,
         is_draft: conversation_meta.is_draft,
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id,
@@ -914,7 +912,6 @@ mod branch_todos_tests {
             is_draft: false,
             auto_push_remote_contact_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
-            plan_mode_enabled: false,
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,

@@ -1187,7 +1187,6 @@ enableTools = true
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,

@@ -551,7 +551,6 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         fast_request_turns: conversation_meta.fast_request_turns.clone(),
         current_todos: conversation_meta.current_todos.clone(),
         memory_recall_table: Vec::new(),
-        plan_mode_enabled: false,
         preferred_api_config_id: conversation_meta.preferred_api_config_id.clone(),
         is_draft: conversation_meta.is_draft,
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),

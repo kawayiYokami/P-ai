@@ -3585,7 +3585,6 @@
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -10235,7 +10234,6 @@
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -11880,7 +11878,6 @@
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -11945,7 +11942,6 @@
             fast_request_turns: Vec::new(),
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -12026,7 +12022,6 @@
                 status: "in_progress".to_string(),
             }],
             memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
             active_goal: None, team: TeamState::default(), last_error: None,
@@ -13471,9 +13466,9 @@
         let state = test_chat_runtime_state();
 
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-a").unwrap());
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-a", true).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-a", Some(ConversationMode::Plan)).unwrap();
         assert!(get_conversation_plan_mode_enabled(&state, "conversation-plan-a").unwrap());
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-a", false).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-a", None).unwrap();
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-a").unwrap());
     }
 
@@ -13482,7 +13477,7 @@
         let state = test_chat_runtime_state();
 
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-b").unwrap());
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-b", true).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-b", Some(ConversationMode::Plan)).unwrap();
         assert!(get_conversation_plan_mode_enabled(&state, "conversation-plan-b").unwrap());
 
         // 模拟无 slot（新会话）时不再回退 meta，直接 false
@@ -13496,13 +13491,13 @@
     fn plan_mode_slot_is_independent_per_conversation() {
         let state = test_chat_runtime_state();
 
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-d", true).unwrap();
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-e", false).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-d", Some(ConversationMode::Plan)).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-e", None).unwrap();
 
         assert!(get_conversation_plan_mode_enabled(&state, "conversation-plan-d").unwrap());
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-e").unwrap());
         // 设置一个会话不影响其他会话
-        set_conversation_plan_mode_enabled(&state, "conversation-plan-d", false).unwrap();
+        switch_conversation_mode_to(&state, "conversation-plan-d", None).unwrap();
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-d").unwrap());
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-e").unwrap());
     }

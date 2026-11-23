@@ -38,7 +38,6 @@ pub(super) struct ConversationPersistMeta {
     archived_at: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
     memory_recall_table: Vec<String>,
-    plan_mode_enabled: bool,
     preferred_api_config_id: Option<String>,
     #[serde(default)]
     is_draft: bool,
@@ -198,8 +197,6 @@ pub(super) struct ConversationShardMeta {
     current_todos: Vec<ConversationTodoItem>,
     #[serde(default)]
     memory_recall_table: Vec<String>,
-    #[serde(default)]
-    plan_mode_enabled: bool,
     #[serde(default)]
     preferred_api_config_id: Option<String>,
     #[serde(default)]
@@ -494,10 +491,6 @@ impl ConversationShardMeta {
         self.shell_recorded_branch.as_str()
     }
 
-    pub(super) fn plan_mode_enabled(&self) -> bool {
-        self.plan_mode_enabled
-    }
-
     pub(super) fn is_draft(&self) -> bool {
         self.is_draft
     }
@@ -594,7 +587,6 @@ impl ConversationShardMeta {
         target.archived_at = self.archived_at.clone();
         target.current_todos = self.current_todos.clone();
         target.memory_recall_table = self.memory_recall_table.clone();
-        target.plan_mode_enabled = self.plan_mode_enabled;
         target.preferred_api_config_id = self.preferred_api_config_id.clone();
         target.is_draft = self.is_draft;
         target.auto_push_remote_contact_id = self.auto_push_remote_contact_id.clone();
@@ -646,7 +638,6 @@ impl ConversationShardMeta {
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
         self.memory_recall_table = source.memory_recall_table.clone();
-        self.plan_mode_enabled = source.plan_mode_enabled;
         self.preferred_api_config_id = source.preferred_api_config_id.clone();
         self.is_draft = source.is_draft;
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
@@ -689,7 +680,6 @@ impl ConversationShardMeta {
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
         self.memory_recall_table = source.memory_recall_table.clone();
-        self.plan_mode_enabled = source.plan_mode_enabled;
         self.preferred_api_config_id = source.preferred_api_config_id.clone();
         self.is_draft = source.is_draft;
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
@@ -729,7 +719,6 @@ impl ConversationShardMeta {
         self.shell_recorded_branch = source.shell_recorded_branch.clone();
         self.archived_at = source.archived_at.clone();
         self.current_todos = source.current_todos.clone();
-        self.plan_mode_enabled = source.plan_mode_enabled;
         self.preferred_api_config_id = source.preferred_api_config_id.clone();
         self.is_draft = source.is_draft;
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
@@ -1010,7 +999,6 @@ impl ConversationShardMeta {
             archived_at: conversation.archived_at.clone(),
             current_todos: conversation.current_todos.clone(),
             memory_recall_table: conversation.memory_recall_table.clone(),
-            plan_mode_enabled: conversation.plan_mode_enabled,
             preferred_api_config_id: conversation.preferred_api_config_id.clone(),
             is_draft: conversation.is_draft,
             auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
@@ -1116,7 +1104,6 @@ impl ConversationShardMeta {
             archived_at: meta.archived_at.clone(),
             current_todos: meta.current_todos.clone(),
             memory_recall_table: meta.memory_recall_table.clone(),
-            plan_mode_enabled: meta.plan_mode_enabled,
             preferred_api_config_id: meta.preferred_api_config_id.clone(),
             is_draft: meta.is_draft,
             auto_push_remote_contact_id: meta.auto_push_remote_contact_id.clone(),
@@ -1173,7 +1160,6 @@ impl ConversationShardMeta {
             archived_at: self.archived_at.clone(),
             current_todos: self.current_todos.clone(),
             memory_recall_table: self.memory_recall_table.clone(),
-            plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id.clone(),
             is_draft: self.is_draft,
             auto_push_remote_contact_id: self.auto_push_remote_contact_id.clone(),
@@ -1233,7 +1219,6 @@ impl ConversationShardMeta {
             fast_request_turns: Vec::new(),
             current_todos: self.current_todos,
             memory_recall_table: self.memory_recall_table,
-            plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id,
             is_draft: self.is_draft,
             auto_push_remote_contact_id: self.auto_push_remote_contact_id,
@@ -1371,7 +1356,6 @@ mod message_store_meta_tests {
                 status: "pending".to_string(),
             }],
             memory_recall_table: vec!["memory-a".to_string()],
-            plan_mode_enabled: true,
             preferred_api_config_id: Some("api-c".to_string()),
             auto_push_remote_contact_id: Some("contact-a".to_string()),
             cumulative_usage: ConversationCumulativeUsage {
