@@ -79,7 +79,7 @@ rayon = "1.10"
 tiktoken-rs = "0.12.0"
 xcap = "0.9.6"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
-parking_lot = "0.12"
+parking_lot = "0.13.0"
 tantivy = "0.27.0"
 font-kit = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
@@ -91,7 +91,7 @@ ropey = "1.6.1"
 unicode-segmentation = "1.13.3"
 notify = "9"
 notify-debouncer-mini = "0.8"
-gix-ignore = "0.24.1"
+gix-ignore = "0.25.0"
 bstr = "1"
 trash = "5.4.0"
 agent-client-protocol = { version = "5.5.1", features = ["stdio"] }
