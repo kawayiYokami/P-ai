@@ -425,7 +425,13 @@ async fn delegate_run_thread_to_completion(
                 break;
             }
             Err(err) => {
-                errors.push(format!("{api_config_id}: {err}"));
+                // 用户打断不是模型失败：不累积、不换候选，直接按取消收口，
+                // 否则消息会变成「人格所有候选模型均失败：…CHAT_ABORTED_BY_USER」。
+                if err == CHAT_ABORTED_BY_USER_ERROR {
+                    run_result = Err(err);
+                    break;
+                }
+                errors.push(err.clone());
                 run_result = Err(format!("人格所有候选模型均失败：{}", errors.join(" | ")));
             }
         }

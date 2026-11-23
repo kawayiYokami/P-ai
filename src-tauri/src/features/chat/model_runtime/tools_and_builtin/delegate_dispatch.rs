@@ -431,7 +431,14 @@ fn spawn_delegate_task(
                 }
             }
             Err(err) => {
-                let fail_text = format!("《{}》执行失败：{}", delegate_for_publish.title.trim(), err);
+                // 用户打断不是执行失败：写一条「已取消」，别把 CHAT_ABORTED_BY_USER
+                // 包装成「人格所有候选模型均失败」推给用户。
+                let cancelled = err == CHAT_ABORTED_BY_USER_ERROR;
+                let fail_text = if cancelled {
+                    format!("《{}》已取消。", delegate_for_publish.title.trim())
+                } else {
+                    format!("《{}》执行失败：{}", delegate_for_publish.title.trim(), err)
+                };
                 if let Err(enqueue_err) = delegate_enqueue_result_message(
                     &app_state_for_publish,
                     &root_conversation_id,
@@ -441,7 +448,7 @@ fn spawn_delegate_task(
                         "messageKind": "delegate_result",
                         "delegateId": delegate_for_publish.delegate_id,
                         "delegateKind": delegate_for_publish.kind,
-                        "resultStatus": "failed",
+                        "resultStatus": if cancelled { "cancelled" } else { "failed" },
                         "speakerAgentId": delegate_for_publish.target_agent_id,
                         "sourceAgentId": delegate_for_publish.source_agent_id,
                         "targetAgentId": delegate_for_publish.target_agent_id,
