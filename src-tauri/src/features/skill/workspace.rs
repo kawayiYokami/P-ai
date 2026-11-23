@@ -786,7 +786,7 @@ fn render_hidden_skill_snapshot_block(
         .any(|item| !skill_snapshot_path_under_root(item.path.trim(), &skills_root_path));
     let usage = if has_external {
         format!(
-            "System skill directory path: {}\n(global skills live here; project skills live outside it, use the full path in skill index)\n\nhow to read skill:\nexample:\n{}\nread this path: {}",
+            "System skill directory path: {}\n(global skills live here; project skills live outside it. 索引按 [system] / [project] 分组，每组第一行是该组 skill 的根目录，其后的条目是相对路径；读取时把根目录与条目拼成完整路径。)\n\nhow to read skill:\nexample:\n{}\nread this path: {}",
             skills_root, example_name, example_path
         )
     } else {
