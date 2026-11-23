@@ -112,6 +112,7 @@
       <ChatView
         ref="chatViewRef"
         composer-scope="main"
+        :chat-usage-percent="chatUsagePercent"
         :user-alias="userAlias"
         :persona-name="selectedPersonaName"
         :user-avatar-url="userAvatarUrl"
@@ -139,8 +140,6 @@
         :plan-mode-enabled="planModeEnabled"
         :wheelchair-mode-enabled="wheelchairModeEnabled"
         :wheelchair-suggestion="wheelchairSuggestion"
-        :chat-usage-percent="chatUsagePercent"
-        :trim-tip="trimTip"
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
         :trimming="trimming"
@@ -243,7 +242,7 @@
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
         @confirm-plan="confirmPlan"
-        @trim-conversation="openTrimActionDialog"
+        @trim-conversation="trimCompactNow"
         @open-conversation-list="openConversationList"
         @open-settings="openSettingsWindow"
         @selection-action-copy="() => {}"
@@ -732,8 +731,8 @@ const props = defineProps<{
   planModeEnabled: boolean;
   wheelchairModeEnabled?: boolean;
   wheelchairSuggestion?: { type: "suggest" | "options"; text: string; options: string[] } | null;
+  /** 上下文占用百分比：继续往 ChatView → 输入面板传，标题栏不再需要 */
   chatUsagePercent: number;
-  trimTip: string;
   mediaDragActive: boolean;
   chatting: boolean;
   trimming: boolean;
@@ -882,7 +881,7 @@ const props = defineProps<{
   importPersonaMemories: (payload: { agentId: string; file: File }) => void;
   openConversationList: () => void;
   openConversationSummary: (conversationId: string) => void;
-  openTrimActionDialog: () => void;
+  trimCompactNow: () => Promise<void>;
   openSettingsWindow: () => void;
   openPromptPreview: () => void;
   openSystemPromptPreview: () => void;

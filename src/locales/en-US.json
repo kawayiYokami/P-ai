@@ -1894,6 +1894,7 @@
     "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
     "attach": "Attach",
     "moreActions": "More",
+    "contextUsageCompact": "Compact conversation",
     "openImage": "Add image",
     "openFile": "Add file",
     "referenceIssue": "Add issue",

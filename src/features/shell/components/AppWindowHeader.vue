@@ -69,37 +69,6 @@
         >
           <AppIcon name="square-pen" class="h-4 w-4" />
         </button>
-        <button
-          class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
-          :title="`${t('chat.contextUsageTitle', { percent: normalizedChatUsagePercent })} · ${trimTip}`"
-          @click.stop="$emit('trimConversation')"
-        >
-          <svg
-            class="h-5 w-5 -rotate-90"
-            viewBox="0 0 36 36"
-          >
-            <circle
-              cx="18"
-              cy="18"
-              r="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="4"
-              class="opacity-20"
-            />
-            <circle
-              cx="18"
-              cy="18"
-              r="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="4"
-              stroke-linecap="round"
-              :stroke-dasharray="circumference"
-              :stroke-dashoffset="strokeDashoffset"
-            />
-          </svg>
-        </button>
       </div>
 
       <div
@@ -283,14 +252,10 @@ import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
 
-const RING_RADIUS = 14;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
 const props = withDefaults(defineProps<{
   viewMode: "chat" | "archives" | "config";
   currentTheme: string;
   titleText: string;
-  chatUsagePercent: number;
   currentPersonaName: string;
   sideConversationListVisible: boolean;
   toolReviewPanelOpenVisible: boolean;
@@ -301,7 +266,6 @@ const props = withDefaults(defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  trimTip: string;
   maximized: boolean;
   windowReady: boolean;
   openSettingsTitle: string;
@@ -359,7 +323,6 @@ const { t, locale } = useI18n();
 const transportCapabilities = getTransportCapabilities();
 const localPathPickerAvailable = transportCapabilities.localPathPicker;
 
-const circumference = RING_CIRCUMFERENCE;
 const headerRootClass = computed(() => {
   if (props.viewMode === "chat") return "shrink-0 relative z-40 grid items-center";
   if (props.overlay) {
@@ -373,15 +336,6 @@ const headerRootClass = computed(() => {
 const showWindowControls = computed(() =>
   props.windowControlsVisible !== false && transportCapabilities.windowControls,
 );
-
-const normalizedChatUsagePercent = computed(() =>
-  Math.min(100, Math.max(0, Math.round(Number(props.chatUsagePercent || 0)))),
-);
-
-const strokeDashoffset = computed(() => {
-  const percent = normalizedChatUsagePercent.value;
-  return RING_CIRCUMFERENCE * (1 - percent / 100);
-});
 
 // ========== responsive header pane layout ==========
 

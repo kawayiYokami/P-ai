@@ -1,6 +1,7 @@
 import {
   AiArtIcon,
   AiMagicIcon,
+  ArrowShrinkIcon,
   AiSwapIcon,
   AlertCircleIcon,
   AppWindowIcon,
@@ -178,6 +179,7 @@ import {
 export const APP_ICON_MAP = {
   // AI 系列里只留思考这一只：普通版没有等价物，换掉就丢了辨识度
   "ai-art": AiArtIcon,
+  "arrow-shrink": ArrowShrinkIcon,
   "ai-magic": AiMagicIcon,
   "ai-swap": AiSwapIcon,
   "at-sign": AtSignIcon,

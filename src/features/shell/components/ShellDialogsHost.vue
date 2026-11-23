@@ -6,11 +6,6 @@ import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { RuntimeLogEntry } from "../../../types/app";
 import RuntimeLogsDialog from "./RuntimeLogsDialog.vue";
-import ConversationMaintenanceDialog from "../../chat/components/dialogs/ConversationMaintenanceDialog.vue";
-import type {
-  TrimCompactionPreviewResult,
-  TrimPreviewResult,
-} from "../../chat/composables/use-conversation-maintenance-dialog";
 
 initKatex();
 
@@ -59,11 +54,6 @@ const props = defineProps<{
   archiveImportPreview: ArchiveImportPreview;
   archiveImportRunning: boolean;
   skillPlaceholderDialogOpen: boolean;
-  trimActionDialogOpen: boolean;
-  trimPreviewLoading: boolean;
-  trimPreview: TrimPreviewResult | null;
-  trimCompactionPreview: TrimCompactionPreviewResult | null;
-  trimming: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -88,10 +78,6 @@ const emit = defineEmits<{
   closeArchiveImportPreviewDialog: [];
   confirmArchiveImport: [];
   closeSkillPlaceholderDialog: [];
-  confirmTrimCompactionAction: [];
-  confirmTrimAction: [];
-  confirmTrimDeleteAction: [];
-  closeTrimActionDialog: [];
 }>();
 
 const { t } = useI18n();
@@ -181,22 +167,6 @@ watch(() => props.archiveImportPreviewDialogOpen, syncArchiveImportPreviewDialog
 watch(archiveImportPreviewDialogRef, syncArchiveImportPreviewDialog);
 watch(() => props.skillPlaceholderDialogOpen, syncSkillPlaceholderDialog);
 watch(skillPlaceholderDialogRef, syncSkillPlaceholderDialog);
-
-function handleConfirmTrimAction() {
-  emit("confirmTrimAction");
-}
-
-function handleConfirmTrimDeleteAction() {
-  emit("confirmTrimDeleteAction");
-}
-
-function handleCloseTrimActionDialog() {
-  emit("closeTrimActionDialog");
-}
-
-function handleConfirmTrimCompactionAction() {
-  emit("confirmTrimCompactionAction");
-}
 
 function updateDialogCloseLabel() {
   if (props.updateDialogPrimaryAction) return t("common.cancel");
@@ -405,16 +375,4 @@ function canShowUpdateSecondaryActions() {
       <button @click.prevent="onSkillPlaceholderDialogClose">close</button>
     </form>
   </dialog>
-
-  <ConversationMaintenanceDialog
-    :open="trimActionDialogOpen"
-    :loading="trimPreviewLoading"
-    :running="trimming"
-    :preview="trimPreview"
-    :compaction-preview="trimCompactionPreview"
-    @close="handleCloseTrimActionDialog"
-    @confirm-compaction="handleConfirmTrimCompactionAction"
-    @confirm-archive="handleConfirmTrimAction"
-    @confirm-delete="handleConfirmTrimDeleteAction"
-  />
 </template>

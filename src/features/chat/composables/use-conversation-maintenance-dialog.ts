@@ -244,6 +244,11 @@ export function useConversationMaintenanceDialog(options: UseConversationMainten
     }
   }
 
+  async function compactNow() {
+    // 输入面板的账单卡片自己展示明细，点「整理」直接压缩，不再走预览确认对话框。
+    await options.trimCompactNow();
+  }
+
   async function confirmTrimCompactionAction() {
     if (!trimCompactionPreview.value?.canCompact) return;
     closeTrimActionDialog();
@@ -279,6 +284,7 @@ export function useConversationMaintenanceDialog(options: UseConversationMainten
     trimCompactionPreview,
     openTrimActionDialog,
     closeTrimActionDialog,
+    compactNow,
     confirmTrimCompactionAction,
     confirmTrimAction,
     confirmTrimDeleteAction,

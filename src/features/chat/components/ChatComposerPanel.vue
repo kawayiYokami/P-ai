@@ -503,6 +503,80 @@
               </div>
             </template>
             <template #right>
+              <EcallDropdown
+                v-model="usagePanelOpen"
+                teleport
+                placement="top"
+                :match-trigger-width="false"
+                root-class="w-auto min-w-0"
+                panel-class="w-80"
+              >
+                <template #trigger="{ toggle }">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-ghost btn-square h-7 min-h-7 w-7"
+                    :title="t('chat.contextUsageTitle', { percent: normalizedChatUsagePercent })"
+                    @click="toggle"
+                  >
+                    <svg class="h-5 w-5 -rotate-90" viewBox="0 0 36 36">
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="4"
+                        class="opacity-20"
+                      />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="4"
+                        stroke-linecap="round"
+                        :stroke-dasharray="ringCircumference"
+                        :stroke-dashoffset="ringDashoffset"
+                      />
+                    </svg>
+                  </button>
+                </template>
+                <template #default="{ close }">
+                  <div class="flex w-80 flex-col gap-2 p-3">
+                    <div class="flex h-2 overflow-hidden rounded-full bg-base-300">
+                      <span
+                        v-for="row in usageRows"
+                        :key="row.key"
+                        class="h-full"
+                        :style="{ width: `${usagePercentOf(row.tokens)}%`, backgroundColor: row.color }"
+                      />
+                    </div>
+                    <ul class="flex flex-col gap-1">
+                      <li v-for="row in usageRows" :key="row.key" class="flex items-center gap-2 text-xs">
+                        <span class="h-2 w-2 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
+                        <span class="min-w-0 flex-1 truncate">{{ row.label }}</span>
+                        <span class="shrink-0 tabular-nums text-base-content/70">{{ formatUsageTokens(row.tokens) }}</span>
+                        <span class="w-9 shrink-0 text-right tabular-nums text-base-content/50">{{ usagePercentOf(row.tokens) }}%</span>
+                      </li>
+                    </ul>
+                    <div class="flex items-center justify-between text-xs text-base-content/70">
+                      <span>{{ t("dialogs.trim.breakdownContextWindow") }}</span>
+                      <span class="tabular-nums">{{ formatUsageTokens(usageWindowTokens) }}</span>
+                    </div>
+                    <div class="flex justify-end">
+                      <button
+                        type="button"
+                        class="btn btn-sm gap-1"
+                        @click="close(); emit('trim-conversation')"
+                      >
+                        <AppIcon name="arrow-shrink" class="h-3.5 w-3.5" />
+                        {{ t("chat.contextUsageCompact") }}
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </EcallDropdown>
               <button
                 v-if="showStopAction"
                 type="button"
@@ -595,6 +669,7 @@ import {
   type KanbanIssueReference,
 } from "../composables/use-kanban-issue-references";
 import type { KanbanIssue } from "../composables/use-kanban-board";
+import { useConversationMaintenanceDialog } from "../composables/use-conversation-maintenance-dialog";
 
 type BinaryAttachment = { mime: string; bytesBase64: string; previewDataUrl?: string };
 type QueuedAttachmentNotice = { id: string; fileName: string; path: string; mime: string; pending?: boolean };
@@ -883,6 +958,100 @@ const instructionPanelOpen = ref(false);
 const instructionFocusIndex = ref(0);
 const modePanelOpen = ref(false);
 const plusPanelOpen = ref(false);
+const usagePanelOpen = ref(false);
+
+/**
+ * 上下文占用卡片的词元账单：直接复用维护对话框那套预览流程，
+ * 数据由输入面板自己取，不再让标题栏持有。
+ */
+const usageMaintenance = useConversationMaintenanceDialog({
+  t,
+  currentConversationId: computed(() => String(props.activeConversationId || "").trim()),
+  conversationSummaries: computed(() => [] as const),
+  chatUsagePercent: computed(() => Number(props.chatUsagePercent || 0)),
+  trimCompactNow: async () => {
+    emit("trim-conversation");
+  },
+  trimNow: async () => {
+    emit("trim-conversation");
+  },
+  deleteConversation: () => undefined,
+  setStatus: () => undefined,
+  setStatusError: () => undefined,
+});
+
+const usageBreakdown = computed(
+  () => usageMaintenance.trimCompactionPreview.value?.tokenBreakdown,
+);
+const usageWindowTokens = computed(() =>
+  Math.max(0, Number(usageBreakdown.value?.contextWindowTokens) || 0),
+);
+
+/** 压缩阈值：超过 90% 触发压缩，10% 为预留给压缩的保留区（与维护对话框一致） */
+const COMPACTION_THRESHOLD_RATIO = 0.9;
+
+type UsageRow = { key: string; label: string; tokens: number | undefined; color: string };
+
+const usageRows = computed<UsageRow[]>(() => {
+  const breakdown = usageBreakdown.value;
+  const rows: UsageRow[] = [
+    {
+      key: "system",
+      label: t("dialogs.trim.breakdownSystem"),
+      tokens: breakdown?.systemTokens,
+      color: "var(--color-primary)",
+    },
+    {
+      key: "tools",
+      label: t("dialogs.trim.breakdownTools"),
+      tokens: breakdown?.toolsTokens,
+      color: "var(--color-secondary)",
+    },
+    {
+      key: "message",
+      label: t("dialogs.trim.breakdownMessage"),
+      tokens: breakdown?.messageTokens,
+      color: "var(--color-accent)",
+    },
+  ];
+  const windowTokens = usageWindowTokens.value;
+  if (windowTokens <= 0) return rows;
+  const usedTokens = rows.reduce((sum, row) => sum + Math.max(0, Number(row.tokens) || 0), 0);
+  const reservedTokens = Math.round(windowTokens * (1 - COMPACTION_THRESHOLD_RATIO));
+  rows.push({
+    key: "reserved",
+    label: t("dialogs.trim.breakdownReserved"),
+    tokens: reservedTokens,
+    color: "var(--color-warning)",
+  });
+  rows.push({
+    key: "available",
+    label: t("dialogs.trim.breakdownAvailable"),
+    tokens: Math.max(0, windowTokens - usedTokens - reservedTokens),
+    color: "var(--color-base-300)",
+  });
+  return rows;
+});
+
+function formatUsageTokens(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value);
+  if (rounded >= 1000) {
+    const k = rounded / 1000;
+    return `~${Number.isInteger(k) ? String(k) : k.toFixed(1).replace(/\.0$/, "")}K`;
+  }
+  return `~${rounded.toLocaleString("en-US")}`;
+}
+
+function usagePercentOf(value: number | undefined): number {
+  const windowTokens = usageWindowTokens.value;
+  if (windowTokens <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((Math.max(0, Number(value) || 0) / windowTokens) * 100)));
+}
+
+watch(usagePanelOpen, async (open) => {
+  if (open) await usageMaintenance.openTrimActionDialog();
+});
 /** 旧的 deck-top 操作行：默认隐藏，保留实现以便随时切回 */
 const showLegacyActionRow = ref(false);
 const goalSectionOpen = ref(false);
@@ -1373,6 +1542,18 @@ function togglePlanMode() {
 }
 
 /** 模式按钮底色跟随当前生效的模式，没开模式时是普通幽灵按钮。 */
+/** 上下文占用环形：半径 14 与标题栏原图一致，搬进面板后不改变观感 */
+const RING_RADIUS = 14;
+const ringCircumference = 2 * Math.PI * RING_RADIUS;
+
+const normalizedChatUsagePercent = computed(() =>
+  Math.min(100, Math.max(0, Math.round(Number(props.chatUsagePercent || 0)))),
+);
+
+const ringDashoffset = computed(
+  () => ringCircumference * (1 - normalizedChatUsagePercent.value / 100),
+);
+
 const modeButtonClass = computed(() => {
   if (props.goalActive) return "btn-primary";
   if (props.planModeEnabled) return "btn-ghost bg-info/15 text-info";

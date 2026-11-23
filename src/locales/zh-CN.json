@@ -2030,6 +2030,7 @@
     "dropImageOrPdf": "拖放文件（图片/PDF 可直接多模态）",
     "attach": "添加附件",
     "moreActions": "更多",
+    "contextUsageCompact": "整理会话",
     "openImage": "添加图片",
     "openFile": "添加文件",
     "referenceIssue": "添加议题",
