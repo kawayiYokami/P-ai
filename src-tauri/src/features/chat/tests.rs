@@ -7528,12 +7528,20 @@
     fn resolve_archive_request_by_id_should_allow_missing_department() {
         let state = test_chat_runtime_state();
         let mut config = AppConfig::default();
-        if let Some(api_config) = config.api_configs.get_mut(0) {
-            api_config.id = "api-archive".to_string();
-            api_config.base_url = "https://api.openai.com/v1".to_string();
-            api_config.api_key = "k".to_string();
-            api_config.model = "gpt-4o-mini".to_string();
-        }
+        // apiConfigs 是派生数据、不落盘（写盘前清空，读回时按 apiProviders 重算），
+        // 所以模型端点必须通过 apiProviders 造，直接改 config.api_configs 会被写读一轮抹掉。
+        config.api_providers = vec![ApiProviderConfig {
+            id: "api-archive".to_string(),
+            name: "归档供应商".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_keys: vec!["k".to_string()],
+            models: vec![ApiModelConfig {
+                id: "api-archive-model-default".to_string(),
+                model: "gpt-4o-mini".to_string(),
+                ..ApiModelConfig::default()
+            }],
+            ..ApiProviderConfig::default()
+        }];
         config.expert_api_config_id = "api-archive".to_string();
         let expected_api_id = api_endpoint_id("api-archive", "api-archive-model-default");
         write_config(&state.config_path, &config).expect("write config");
@@ -10527,7 +10535,7 @@
         agent.id = "state-agent".to_string();
 
         let mut selected_api = ApiConfig::default();
-        selected_api.id = "api-a".to_string();
+        selected_api.id = api_endpoint_id("provider-a", "model-a");
         selected_api.name = "测试模型".to_string();
         selected_api.request_format = RequestFormat::OpenAI;
         selected_api.enable_text = true;
@@ -10536,9 +10544,23 @@
         selected_api.api_key = "k".to_string();
         selected_api.model = "gpt-4o-mini".to_string();
 
+        // apiConfigs 是派生数据、不落盘（写盘前清空，读回时按 apiProviders 重算），
+        // 供应商必须走 apiProviders 造；否则读回时配置里一个模型都没有，
+        // `normalize_app_config` 会把整份配置重置为默认，渠道配置随之丢失。
         let mut config = AppConfig {
             api_configs: vec![selected_api.clone()],
-            api_providers: Vec::new(),
+            api_providers: vec![ApiProviderConfig {
+                id: "provider-a".to_string(),
+                name: "测试供应商".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                api_keys: vec!["k".to_string()],
+                models: vec![ApiModelConfig {
+                    id: "model-a".to_string(),
+                    model: "gpt-4o-mini".to_string(),
+                    ..ApiModelConfig::default()
+                }],
+                ..ApiProviderConfig::default()
+            }],
             ..AppConfig::default()
         };
         config.remote_im_channels.push(RemoteImChannelConfig {

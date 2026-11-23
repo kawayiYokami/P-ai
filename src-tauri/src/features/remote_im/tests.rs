@@ -1308,15 +1308,19 @@
             ws_port: port,
             ws_token: None,
         };
-        let first = manager.start("channel-a".to_string(), credentials.clone());
-        let second = manager.start("channel-a".to_string(), credentials);
+        // 渠道日志读的是进程级全局日志缓冲（按 channel_id 子串过滤），
+        // 并行跑的其他测试也用 "channel-a"，会污染本测试的日志计数，
+        // 所以这里用进程内唯一的渠道 id 把日志读范围收窄到自己。
+        let channel_id = format!("channel-serialized-{}", Uuid::new_v4());
+        let first = manager.start(channel_id.clone(), credentials.clone());
+        let second = manager.start(channel_id.clone(), credentials);
         let (first_result, second_result) = tokio::join!(first, second);
 
         first_result.expect("first start should succeed");
         second_result.expect("second start should wait and succeed");
         assert_eq!(manager.channel_tasks.read().await.len(), 1);
         assert_eq!(manager.channel_runtimes.read().await.len(), 1);
-        let logs = manager.get_logs("channel-a").await;
+        let logs = manager.get_logs(&channel_id).await;
         assert_eq!(
             logs.iter()
                 .filter(|entry| entry.message.contains("服务器启动，监听"))
@@ -1330,7 +1334,7 @@
         );
 
         manager
-            .stop_channel("channel-a")
+            .stop_channel(&channel_id)
             .await
             .expect("stop onebot channel");
     }
@@ -3858,11 +3862,13 @@
             assert!(entry.event.messages.is_empty());
             (entry.due_at, entry.anchor_message_id.clone())
         };
+        // 入站判定只认在场状态与入场配置（56d871725 起不再读观察员的排期表）：
+        // 这条联系人始终是 Away，后续未点名消息静默入库，既不激活主助理，也不惊动已排期的看群闹钟。
         let (activate_assistant, reason) =
             remote_im_prepare_enqueue_runtime_state(&state, &contact, "未点名的后续消息")
                 .expect("prepare active inspection");
-        assert!(activate_assistant);
-        assert!(reason.contains("已入场"), "reason={reason}");
+        assert!(!activate_assistant);
+        assert!(reason.contains("未命中点名词"), "reason={reason}");
         // 等常规周期时群里继续刷：周期不重置，起点不动。
         observe_remote_im_persisted_event(&state, &contact, &event("normal-2", "user-b", "普通跟话"));
         {
@@ -4116,10 +4122,11 @@
         assert!(!blocked.allowed);
 
         // 点名：跳过能量与回复冷却，放行。
+        // 点名走焦点档，字数上限取 focus_reply_max_chars（默认 200）；常规档才是 20。
         let mention = remote_im_group_reply_gate(&state, &contact, true, true)
             .expect("read mention gate");
         assert!(mention.allowed);
-        assert_eq!(mention.max_chars, 20);
+        assert_eq!(mention.max_chars, 200);
 
         // 点名也不能绕过收发许可。
         let mut denied_contact = contact.clone();

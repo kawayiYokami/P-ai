@@ -2242,7 +2242,11 @@ mode = \"fixed\"",
         let output = run(&root, "check").expect("check should pass");
         assert!(output.contains("校验通过"), "{output}");
         assert!(output.contains("app_config.toml"), "{output}");
-        assert!(output.contains("config/agents/"), "{output}");
+        // 列出来的是真实文件路径，分隔符随平台走，断言只关心列出了 agents 目录下的文件。
+        assert!(
+            output.replace('\\', "/").contains("config/agents/"),
+            "{output}"
+        );
     }
 
     #[test]
