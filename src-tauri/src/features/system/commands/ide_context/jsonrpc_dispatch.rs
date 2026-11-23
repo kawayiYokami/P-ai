@@ -592,6 +592,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "catalog_icon_data_url" => {
             ide_chat_catalog_icon_data_url_for_web_settings(state, request.params).await
         }
+        "catalog_skill_descriptions" => {
+            ide_chat_catalog_skill_descriptions_for_web_settings(state, request.params).await
+        }
         "skill_set_enabled" => ide_chat_skill_set_enabled_for_web_settings(state, request.params).await,
         "skill_remove" => ide_chat_skill_remove_for_web_settings(state, request.params).await,
         "mcp_refresh_mcp_and_skills" => ide_chat_mcp_refresh_mcp_and_skills_for_web_settings(state).await,

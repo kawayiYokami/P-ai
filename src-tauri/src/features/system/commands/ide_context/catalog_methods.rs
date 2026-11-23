@@ -36,6 +36,21 @@ async fn ide_chat_catalog_icon_data_url_for_web_settings(
     ide_chat_serialize(catalog_icon_data_url_inner(state, address).await?)
 }
 
+/// 批量换简介同样走宿主：抓取与缓存都在后端，Web 端不直连 skills.sh。
+async fn ide_chat_catalog_skill_descriptions_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let ids = params
+        .get("ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Missing required parameter 'ids'".to_string())?
+        .iter()
+        .map(|item| item.as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    ide_chat_serialize(catalog_skill_descriptions_inner(state, &ids).await?)
+}
+
 async fn ide_chat_skill_set_enabled_for_web_settings(
     state: &AppState,
     params: Value,
