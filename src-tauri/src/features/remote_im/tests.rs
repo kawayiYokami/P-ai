@@ -5510,3 +5510,69 @@
             "发送目标不得跟随运行时会话一起置空"
         );
     }
+    #[test]
+    fn quote_cursor_should_continue_after_reload() {
+        let state = remote_im_test_state();
+        let contact_id = "contact-quote-cursor";
+        assert_eq!(remote_im_next_quote_no(&state, contact_id).expect("1"), 1);
+        assert_eq!(remote_im_next_quote_no(&state, contact_id).expect("2"), 2);
+        assert_eq!(remote_im_next_quote_no(&state, contact_id).expect("3"), 3);
+        // 从磁盘重读：游标随联系人落盘，不是只在内存里。
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, contact_id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
+        assert_eq!(checkpoint.quote_cursor, 3);
+        // 再分配一次：接着 3 往后编，不回头占已丢编号。
+        assert_eq!(remote_im_next_quote_no(&state, contact_id).expect("4"), 4);
+    }
+
+    
+    #[test]
+    fn quote_lookup_should_find_stored_quote_no_and_miss_unknown() {
+        let state = remote_im_test_state();
+        let conversation_id = "conversation-quote-lookup";
+        let mut contact = remote_im_test_contact("contact-quote-lookup", conversation_id);
+        contact.remote_contact_type = "group".to_string();
+        contact.platform = RemoteImPlatform::OnebotV11;
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+
+        let mut message = cursor_test_contact_message("quote-msg-3", "第三条", &contact);
+        message.provider_meta = Some(serde_json::json!({
+            "origin": {
+                "kind": "remote_im",
+                "contact_type": "group",
+                "contact_id": contact.remote_contact_id,
+                "sender_id": "user-7",
+                "sender_name": "张三",
+                "platform_message_id": "msg-3",
+                "quote_no": 3
+            }
+        }));
+        let conversation = cursor_test_conversation(conversation_id, vec![message]);
+        let paths = message_store::message_store_paths(&state.data_path, conversation_id)
+            .expect("message store paths");
+        message_store::chat_store_write_snapshot(&paths, &conversation).expect("write snapshot");
+
+        // 查得到：编号 → platform_message_id 的映射真的通。
+        assert_eq!(
+            remote_im_lookup_quote_target(&state, &contact, 3).expect("lookup 3"),
+            Some("msg-3".to_string())
+        );
+        // 查不到：失效编号返回 None，外发因此不带 reply 段、正文照发。
+        assert_eq!(
+            remote_im_lookup_quote_target(&state, &contact, 99).expect("lookup 99"),
+            None
+        );
+
+        // 空表的会话里查任何编号都落到 None。
+        let empty_conversation_id = "conversation-quote-empty";
+        let mut empty_contact =
+            remote_im_test_contact("contact-quote-empty", empty_conversation_id);
+        empty_contact.remote_contact_type = "group".to_string();
+        empty_contact.platform = RemoteImPlatform::OnebotV11;
+        state_service_upsert_remote_im_contact(&state, &empty_contact).expect("write contact");
+        assert_eq!(
+            remote_im_lookup_quote_target(&state, &empty_contact, 3).expect("lookup empty"),
+            None
+        );
+    }

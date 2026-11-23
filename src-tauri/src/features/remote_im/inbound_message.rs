@@ -608,7 +608,36 @@ fn build_chat_message_from_input(
     } else {
         base_meta = origin_meta;
     }
-    let merged_meta = provider_meta_without_legacy_attachments(Some(base_meta));
+    let mut merged_meta = provider_meta_without_legacy_attachments(Some(base_meta));
+    // 群聊消息引用编号：只有 OneBot v11 群聊的真人消息才分配，编号跟着消息走。
+    // 其他渠道、私聊连字段都不加。
+    if matches!(contact.platform, RemoteImPlatform::OnebotV11)
+        && contact.remote_contact_type.trim().eq_ignore_ascii_case("group")
+    {
+        let has_platform_message_id = merged_meta
+            .as_ref()
+            .and_then(|meta| meta.pointer("/origin/platform_message_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        if has_platform_message_id {
+            match remote_im_next_quote_no(state, &contact.id) {
+                Ok(quote_no) => {
+                    if let Some(origin) = merged_meta
+                        .as_mut()
+                        .and_then(|meta| meta.get_mut("origin"))
+                        .and_then(Value::as_object_mut)
+                    {
+                        origin.insert("quote_no".to_string(), serde_json::json!(quote_no));
+                    }
+                }
+                Err(err) => runtime_log_warn(format!(
+                    "[远程IM] 跳过 任务=分配群聊引用编号 联系人={} 原因={err}",
+                    remote_im_contact_log_label(contact)
+                )),
+            }
+        }
+    }
 
     ChatMessage {
         id: Uuid::new_v4().to_string(),
@@ -622,6 +651,24 @@ fn build_chat_message_from_input(
         mcp_call: None,
         meme_annotations: None,
     }
+}
+
+
+/// 给联系人分配下一个群聊引用编号：游标只增不减，压缩、清理、重启都不复位。
+pub(crate) fn remote_im_next_quote_no(state: &AppState, contact_id: &str) -> Result<u64, String> {
+    let mut checkpoint =
+        state_service_get_remote_im_contact_checkpoint(state, contact_id)?.unwrap_or(
+            RemoteImContactCheckpoint {
+                contact_id: contact_id.to_string(),
+                ..RemoteImContactCheckpoint::default()
+            },
+        );
+    checkpoint.quote_cursor = checkpoint.quote_cursor.saturating_add(1);
+    remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
+    checkpoint.updated_at = Some(now_iso());
+    let quote_no = checkpoint.quote_cursor;
+    state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    Ok(quote_no)
 }
 
 fn create_pending_event(

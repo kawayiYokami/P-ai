@@ -322,6 +322,9 @@ struct RemoteImContactCheckpoint {
     processed_cursor_message_id: Option<String>,
     #[serde(default)]
     processed_cursor_updated_at: Option<String>,
+    /// 群聊消息引用编号游标：每个联系人各自一个，永久递增，压缩/清理/重启都不复位。
+    #[serde(default)]
+    quote_cursor: u64,
     #[serde(default)]
     latest_seen_message_id: Option<String>,
     /// 旧版外发边界字段：不再写入，只为读旧数据保留。

@@ -1191,11 +1191,23 @@ impl RemoteImSdk for OnebotV11Sdk {
         payload: &'a Value,
     ) -> Pin<Box<dyn Future<Output = Result<String, RemoteImSdkSendError>> + Send + 'a>> {
         Box::pin(async move {
-            let segments = remote_im_onebot_message_segments(payload);
+            let mut segments = remote_im_onebot_message_segments(payload);
             if segments.is_empty() {
                 return Err(RemoteImSdkSendError::definitely_not_sent(
                     "onebot v11 outbound content is empty",
                 ));
+            }
+            // OneBot v11 官方回复段：只带 id，其他 SDK 不读这个字段。
+            if let Some(target) = payload
+                .get("reply_target_platform_message_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                segments.insert(
+                    0,
+                    serde_json::json!({"type": "reply", "data": {"id": target}}),
+                );
             }
 
             let manager = onebot_v11_ws_manager();

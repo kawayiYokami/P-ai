@@ -358,6 +358,98 @@ async fn remote_im_build_text_content_items(
     })])
 }
 
+
+/// 剥掉正文最前面一个 `[#n]` / `【#n】` 标记并返回编号。
+///
+/// 无论后面查没查到目标，标记都必须消失：它只是给模型的约定，不能发到群里。
+fn remote_im_strip_leading_quote_marker(content: &mut Vec<Value>) -> Option<u64> {
+    let text_item = content
+        .iter_mut()
+        .find(|item| item.get("type").and_then(Value::as_str) == Some("text"))?;
+    let text = text_item.get("text").and_then(Value::as_str)?.to_string();
+    let trimmed = text.trim_start();
+    let open = trimmed.chars().next()?;
+    let close = match open {
+        '[' => ']',
+        '【' => '】',
+        _ => return None,
+    };
+    let inner_start = open.len_utf8();
+    let inner_end = trimmed[inner_start..].find(close)? + inner_start;
+    let inner = trimmed[inner_start..inner_end].trim();
+    let digits = inner.strip_prefix('#')?.trim();
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let quote_no = digits.parse::<u64>().ok()?;
+    let rest = trimmed[inner_end + close.len_utf8()..].trim_start().to_string();
+    if let Some(object) = text_item.as_object_mut() {
+        object.insert("text".to_string(), Value::String(rest));
+    }
+    Some(quote_no)
+}
+
+/// 按编号在当前压缩段里查回指目标的平台消息 id。
+///
+/// 从最新往前翻页，先到先停：命中即返回；遇到压缩边界、或编号比目标小，都判未命中。
+pub(crate) fn remote_im_lookup_quote_target(
+    state: &AppState,
+    contact: &RemoteImContact,
+    quote_no: u64,
+) -> Result<Option<String>, String> {
+    let conversation_id = contact
+        .bound_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| remote_im_contact_conversation_key(contact));
+    let paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
+    let mut requested_block_id: Option<u32> = None;
+    let mut before_message_id: Option<String> = None;
+    loop {
+        let Some(page) = message_store::chat_store_read_block_messages_before(
+            &paths,
+            requested_block_id,
+            before_message_id.as_deref(),
+            100,
+        )?
+        else {
+            break;
+        };
+        requested_block_id = Some(page.selected_block_id);
+        let Some(oldest) = page.messages.first() else {
+            break;
+        };
+        before_message_id = Some(oldest.id.clone());
+        for message in page.messages.iter().rev() {
+            if is_context_compaction_message(message, message.role.trim()) {
+                return Ok(None);
+            }
+            let Some(origin) = remote_im_origin_from_message(message) else {
+                continue;
+            };
+            let Some(no) = origin.get("quote_no").and_then(Value::as_u64) else {
+                continue;
+            };
+            if no == quote_no {
+                return Ok(remote_im_origin_string(origin, "platform_message_id")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string));
+            }
+            // 编号永久递增：比目标小的都更老，目标不可能在它后面。
+            if no < quote_no {
+                return Ok(None);
+            }
+        }
+        if !page.has_more {
+            break;
+        }
+    }
+    Ok(None)
+}
+
 async fn remote_im_send_content_payload(
     state: &AppState,
     channel: &RemoteImChannelConfig,
@@ -366,6 +458,7 @@ async fn remote_im_send_content_payload(
     stop_tool_loop: bool,
     action: &str,
 ) -> Result<Value, String> {
+    let mut content = content;
     if content.is_empty() {
         return Err("发送内容不能为空".to_string());
     }
@@ -386,8 +479,27 @@ async fn remote_im_send_content_payload(
             remote_im_contact_log_label(contact)
         ));
     }
+    // 群聊消息引用：只有 OneBot v11 群聊处理 `[#n]` 标记，其他渠道原样透传。
+    let mut reply_target_platform_message_id: Option<String> = None;
+    if matches!(contact.platform, RemoteImPlatform::OnebotV11)
+        && contact.remote_contact_type.trim().eq_ignore_ascii_case("group")
+    {
+        if let Some(quote_no) = remote_im_strip_leading_quote_marker(&mut content) {
+            match remote_im_lookup_quote_target(state, contact, quote_no) {
+                Ok(Some(target)) => reply_target_platform_message_id = Some(target),
+                Ok(None) => runtime_log_warn(format!(
+                    "[远程IM] 跳过 任务=群聊消息引用 联系人={} 编号={quote_no} 原因=编号未命中（可能已被压缩） 处理=剥标记后照发正文",
+                    remote_im_contact_log_label(contact)
+                )),
+                Err(err) => runtime_log_warn(format!(
+                    "[远程IM] 跳过 任务=群聊消息引用 联系人={} 编号={quote_no} 原因=查表失败 错误={err} 处理=剥标记后照发正文",
+                    remote_im_contact_log_label(contact)
+                )),
+            }
+        }
+    }
     let content_digest = remote_im_outbound_content_digest(&content);
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "channel_id": contact.channel_id,
         "contact_record_id": contact.id,
         "platform": channel.platform,
@@ -395,6 +507,9 @@ async fn remote_im_send_content_payload(
         "contact_id": contact.remote_contact_id,
         "content": content,
     });
+    if let Some(target) = reply_target_platform_message_id {
+        payload["reply_target_platform_message_id"] = serde_json::json!(target);
+    }
     let send_channel = remote_im_channel_with_effective_credentials(state, channel)?;
     let platform_message_id = match remote_im_send_via_sdk(&send_channel, contact, &payload).await {
         Ok(value) => value,
@@ -633,5 +748,42 @@ mod remote_im_local_image_tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].get("type").and_then(Value::as_str), Some("image"));
+    }
+}
+
+#[cfg(test)]
+mod quote_marker_tests {
+    use super::*;
+
+    #[test]
+    fn strip_marker_should_remove_leading_quote_no_from_first_text_segment() {
+        let mut content = vec![
+            serde_json::json!({"type": "text", "text": "[#3] 这条我来说"}),
+            serde_json::json!({"type": "image", "bytesBase64": "x"}),
+        ];
+        assert_eq!(remote_im_strip_leading_quote_marker(&mut content), Some(3));
+        assert_eq!(
+            content[0].get("text").and_then(Value::as_str),
+            Some("这条我来说")
+        );
+        // 图片段不受影响
+        assert_eq!(content[1].get("type").and_then(Value::as_str), Some("image"));
+    }
+
+    #[test]
+    fn strip_marker_should_accept_fullwidth_brackets_and_leading_spaces() {
+        let mut content = vec![serde_json::json!({"type": "text", "text": "  【#12】 你好"})];
+        assert_eq!(remote_im_strip_leading_quote_marker(&mut content), Some(12));
+        assert_eq!(content[0].get("text").and_then(Value::as_str), Some("你好"));
+    }
+
+    #[test]
+    fn strip_marker_should_leave_plain_text_untouched() {
+        let mut content = vec![serde_json::json!({"type": "text", "text": "普通正文 [#3] 在中间"})];
+        assert_eq!(remote_im_strip_leading_quote_marker(&mut content), None);
+        assert_eq!(
+            content[0].get("text").and_then(Value::as_str),
+            Some("普通正文 [#3] 在中间")
+        );
     }
 }

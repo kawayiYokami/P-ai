@@ -2113,11 +2113,19 @@ fn build_prompt_speaker_block(
         } else {
             remote_im_origin_canonical_user_id(origin).unwrap_or("")
         };
-        return match (!speaker_name.is_empty(), !speaker_id.is_empty()) {
-            (true, true) => format!("[{}/{}]", speaker_name, speaker_id),
-            (true, false) => format!("[{}]", speaker_name),
-            (false, true) => format!("[{}]", speaker_id),
+        let inner = match (!speaker_name.is_empty(), !speaker_id.is_empty()) {
+            (true, true) => format!("{}/{}", speaker_name, speaker_id),
+            (true, false) => speaker_name.to_string(),
+            (false, true) => speaker_id.to_string(),
             (false, false) => String::new(),
+        };
+        if inner.is_empty() {
+            return String::new();
+        }
+        // 群聊消息引用编号：有编号才写 `[#3 张三/user-7]`，没有编号的消息逐字保持原样。
+        return match origin.get("quote_no").and_then(Value::as_u64) {
+            Some(quote_no) => format!("[#{quote_no} {}]", inner),
+            None => format!("[{}]", inner),
         };
     }
     let speaker_name = prompt_speaker_label(message, agents, user_name);
