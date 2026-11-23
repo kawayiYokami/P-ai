@@ -114,6 +114,51 @@ export function filterKanbanIssueOptions(
   });
 }
 
+/** 议题引用列表的组序：按需要用户看的优先级排——要拍板的在最前，已完成垫底。
+    只用于输入面板里 `#` 弹出的那份列表，不参与首页磁贴与看板页的任何排序。 */
+export const KANBAN_ISSUE_LIST_ORDER = [
+  "in_review",
+  "discussing",
+  "blocked",
+  "todo",
+  "in_progress",
+  "done",
+] as const;
+
+/** 按组序排、组内编号倒序（最新在上）。顺序表外的状态排在最后。 */
+export function sortKanbanIssueOptions(entries: KanbanIssue[]): KanbanIssue[] {
+  const order = KANBAN_ISSUE_LIST_ORDER as readonly string[];
+  const rank = (status: string) => {
+    const index = order.indexOf(String(status || "").trim());
+    return index < 0 ? order.length : index;
+  };
+  return [...(Array.isArray(entries) ? entries : [])].sort((a, b) => {
+    const byGroup = rank(a.status) - rank(b.status);
+    if (byGroup !== 0) return byGroup;
+    return Number(b.number || 0) - Number(a.number || 0);
+  });
+}
+
+/** 渲染用的分组视图：只输出非空组，每项带上它在扁平列表里的下标，键盘导航仍走扁平索引。 */
+export function groupKanbanIssueOptions(entries: KanbanIssue[]): {
+  status: string;
+  label: string;
+  items: { issue: KanbanIssue; index: number }[];
+}[] {
+  const flat = Array.isArray(entries) ? entries : [];
+  const groups: { status: string; label: string; items: { issue: KanbanIssue; index: number }[] }[] = [];
+  flat.forEach((issue, index) => {
+    const status = String(issue.status || "").trim();
+    let group = groups.find((item) => item.status === status);
+    if (!group) {
+      group = { status, label: kanbanIssueStatusText(status), items: [] };
+      groups.push(group);
+    }
+    group.items.push({ issue, index });
+  });
+  return groups;
+}
+
 /** 议题引用列表：一个实例，磁贴点击与 `#` 选中都调这里，避免两条路各写一份。 */
 export function useKanbanIssueReferences() {
   const references = ref<KanbanIssueReference[]>([]);

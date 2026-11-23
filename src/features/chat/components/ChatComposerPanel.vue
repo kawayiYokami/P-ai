@@ -303,24 +303,28 @@
                   ref="issuePanelScrollRef"
                   class="max-h-[min(56vh,24rem)] overflow-y-auto overscroll-contain p-1"
                 >
-                  <ul class="flex flex-col gap-1">
-                    <li
-                      v-for="(item, index) in filteredIssueOptions"
-                      :key="item.number"
-                    >
-                      <button
-                        type="button"
-                        :data-issue-option-index="index"
-                        class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors"
-                        :class="issueFocusIndex === index ? 'bg-base-200' : 'hover:bg-base-200/80'"
-                        @click="applyIssueOption(item)"
-                      >
-                        <span class="shrink-0 font-mono text-xs tabular-nums text-base-content/55">#{{ item.number }}</span>
-                        <span class="min-w-0 flex-1 truncate text-sm leading-5">{{ item.title }}</span>
-                        <span class="shrink-0 text-caption" :class="kanbanIssueStatusClass(item.status)">{{ kanbanIssueStatusText(item.status) }}</span>
-                      </button>
-                    </li>
-                  </ul>
+                  <div class="flex flex-col gap-1">
+                    <div v-for="group in issueOptionGroups" :key="group.status">
+                      <div class="px-2 pb-0.5 pt-1 text-caption text-base-content/45">{{ group.label }}</div>
+                      <ul class="flex flex-col gap-1">
+                        <li
+                          v-for="{ issue: item, index } in group.items"
+                          :key="item.number"
+                        >
+                          <button
+                            type="button"
+                            :data-issue-option-index="index"
+                            class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors"
+                            :class="issueFocusIndex === index ? 'bg-base-200' : 'hover:bg-base-200/80'"
+                            @click="applyIssueOption(item)"
+                          >
+                            <span class="shrink-0 font-mono text-xs tabular-nums text-base-content/55">#{{ item.number }}</span>
+                            <span class="min-w-0 flex-1 truncate text-sm leading-5">{{ item.title }}</span>
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </Transition>
@@ -494,8 +498,8 @@ import {
   buildKanbanIssueReferenceLabel,
   filterKanbanIssueOptions,
   findKanbanIssueTrigger,
-  kanbanIssueStatusText,
-  kanbanIssueStatusClass,
+  groupKanbanIssueOptions,
+  sortKanbanIssueOptions,
   type KanbanIssueReference,
 } from "../composables/use-kanban-issue-references";
 import type { KanbanIssue } from "../composables/use-kanban-board";
@@ -1164,8 +1168,10 @@ function updateMentionState() {
 }
 
 const filteredIssueOptions = computed(() =>
-  filterKanbanIssueOptions(props.kanbanIssues || [], issueQuery.value),
+  sortKanbanIssueOptions(filterKanbanIssueOptions(props.kanbanIssues || [], issueQuery.value)),
 );
+/** 渲染用分组：组序按用户优先级，组内最新在上；每项带扁平下标，键盘导航仍走 filteredIssueOptions。 */
+const issueOptionGroups = computed(() => groupKanbanIssueOptions(filteredIssueOptions.value));
 const attachedIssueReferences = computed<KanbanIssueReference[]>(() =>
   Array.isArray(props.attachedIssueReferences) ? props.attachedIssueReferences : [],
 );
