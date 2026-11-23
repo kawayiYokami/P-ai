@@ -50,10 +50,10 @@ reqwest = { version = "0.13.4", default-features = false, features = ["json", "s
 # `rustls::crypto::ring::default_provider()`，特性保持最小可用。
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 genai = { git = "https://github.com/kawayiYokami/rust-genai.git", branch = "main" }
-base64 = "0.22"
+base64 = "0.23"
 zstd = "0.13"
 aes = "0.9.1"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 qrcode = "0.14"
 md5 = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
