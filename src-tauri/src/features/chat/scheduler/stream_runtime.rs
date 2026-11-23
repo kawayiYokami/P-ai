@@ -999,8 +999,10 @@ fn finish_conversation_round(
 /// 一次加锁内做两件事：清空这一轮的所有权、写下打断落盘凭据。认领之后旧协程再也
 /// 认不出这一轮是自己的，随它退到哪、退多久；容器内容由调用方按现成快照读取落盘。
 ///
-/// 槽上没有正在跑的轮次、容器里也没有对得上这次停止的调度身份时返回 `false`：
-/// 那种情况要停的不是它（例如提交期取消，或者这一轮早已收完），不许动容器。
+/// 认领成立要求两件事**同时**为真：槽上确实压着一轮在跑（所有权在），且这次停止带的
+/// 身份就是它。缺一条都不许动容器：
+/// - 所有权在、身份对不上：要停的是别的调度，认领就是误夺别人的轮次；
+/// - 所有权不在（这一轮已收完）、只是残留缓存身份恰好命中：认领就是把旧内容当新的再写一遍。
 fn claim_conversation_round_for_interrupt(
     state: &AppState,
     conversation_id: &str,
@@ -1023,7 +1025,7 @@ fn claim_conversation_round_for_interrupt(
         cache.activation_id.as_str(),
         cache.persisted_assistant_message_id.as_str(),
     );
-    if !owns_round && !identity_matches {
+    if !owns_round || !identity_matches {
         return Ok(false);
     }
     // 所有权当场交还：旧协程的收尾从这里开始就认不上号了。

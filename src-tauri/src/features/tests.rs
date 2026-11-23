@@ -293,6 +293,65 @@
         });
     }
 
+    /// 认领只允许发生在「槽位持有运行中所有权」且「身份对得上」同时成立时。
+    ///
+    /// 两条边都不能松：所有权在、身份不对，认领就是误夺别人的轮次；
+    /// 所有权不在、只是残留缓存身份恰好命中，认领就是把早就收完的旧内容再写一遍。
+    #[test]
+    fn claim_conversation_round_should_require_both_ownership_and_identity() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-claim-guard";
+
+        // 情况一：这一轮在跑（所有权在），但停止身份对不上。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.entry(conversation_id.to_string()).or_default();
+            slot.round_owner = "owner-running".to_string();
+            slot.stream_cache.activation_id = "req-running".to_string();
+            slot.stream_cache.request_id = "req-running".to_string();
+            slot.stream_cache.persisted_assistant_message_id = "assistant-running".to_string();
+        }
+        let claimed = claim_conversation_round_for_interrupt(
+            &state,
+            conversation_id,
+            &stop_identity("req-other", ""),
+        )
+        .expect("claim round");
+        assert!(!claimed, "身份对不上时不许认领");
+        {
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(conversation_id).expect("slot");
+            assert_eq!(slot.round_owner, "owner-running", "所有权不得被动");
+            assert!(slot.stop_persisted_at_ms.is_none(), "不得留下落盘凭据");
+        }
+
+        // 情况二：这一轮已经收完（所有权已交还），残留缓存身份恰好命中。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            slots
+                .get_mut(conversation_id)
+                .expect("slot")
+                .round_owner
+                .clear();
+        }
+        let claimed = claim_conversation_round_for_interrupt(
+            &state,
+            conversation_id,
+            &stop_identity("req-running", "assistant-running"),
+        )
+        .expect("claim round");
+        assert!(!claimed, "没有运行中的所有权时不许认领");
+        assert!(
+            lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .get(conversation_id)
+                .expect("slot")
+                .stop_persisted_at_ms
+                .is_none(),
+            "不得留下落盘凭据"
+        );
+    }
+
     /// 构造一次停止请求要终止的调度身份。
     fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
         StopDispatchIdentity {
