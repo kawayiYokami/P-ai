@@ -123,10 +123,12 @@ fn qq_official_bind_decrypt_secret(key: &[u8; 32], encrypted_base64: &str) -> Re
         return Err(format!("解密凭据失败：密文长度不足, len={}", raw.len()));
     }
     let (iv, ciphertext) = raw.split_at(QQ_OFFICIAL_BIND_GCM_IV_BYTES);
+    let nonce = aes_gcm::Nonce::try_from(iv)
+        .map_err(|_| "解密凭据失败：IV 长度不是 12 字节".to_string())?;
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(key)
         .map_err(|err| format!("解密凭据失败：初始化 AES-256-GCM 失败, error={err}"))?;
     let plaintext = cipher
-        .decrypt(aes_gcm::Nonce::from_slice(iv), ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| "解密凭据失败：GCM 校验未通过（key 不匹配或密文被截断）".to_string())?;
     String::from_utf8(plaintext).map_err(|err| format!("解密凭据失败：明文不是合法 UTF-8, error={err}"))
 }

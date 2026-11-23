@@ -215,7 +215,6 @@ impl ConversationMutationGate {
 
     fn lock_named<'a>(
         &'a self,
-        conversation_id: &str,
         task_name: &str,
     ) -> Result<TimedConversationMutationGuard<'a>, String> {
         let started_at = std::time::Instant::now();
@@ -232,7 +231,6 @@ impl ConversationMutationGate {
                 }
                 return Ok(TimedConversationMutationGuard {
                     task_name: task_name.to_string(),
-                    conversation_id: conversation_id.to_string(),
                     acquired_at: std::time::Instant::now(),
                     thread: waiter_thread,
                     _guard: guard,
@@ -253,7 +251,6 @@ impl ConversationMutationGate {
 
 struct TimedConversationMutationGuard<'a> {
     task_name: String,
-    conversation_id: String,
     acquired_at: std::time::Instant,
     thread: String,
     _guard: parking_lot::ReentrantMutexGuard<'a, ()>,
@@ -282,7 +279,7 @@ where
 {
     let normalized_conversation_id = conversation_id.trim();
     let mutation_gate = conversation_mutation_gate(data_path, normalized_conversation_id)?;
-    let _guard = mutation_gate.lock_named(normalized_conversation_id, task_name)?;
+    let _guard = mutation_gate.lock_named(task_name)?;
     f()
 }
 

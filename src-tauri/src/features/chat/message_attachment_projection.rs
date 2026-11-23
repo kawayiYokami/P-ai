@@ -39,7 +39,6 @@ enum PromptMessageAbstractPart {
 
 #[derive(Debug, Clone)]
 struct AttachmentProjectionWarning {
-    message_id: String,
     part_index: usize,
     detail: String,
 }
@@ -147,13 +146,11 @@ fn project_message_attachments(
                 let available = is_absolute && std::path::Path::new(path.trim()).is_file();
                 if !is_absolute {
                     warnings.push(AttachmentProjectionWarning {
-                        message_id: message.id.clone(),
                         part_index,
                         detail: format!("附件路径不是绝对路径：{}", normalized_path),
                     });
                 } else if !available {
                     warnings.push(AttachmentProjectionWarning {
-                        message_id: message.id.clone(),
                         part_index,
                         detail: format!("附件文件不可用：{}", normalized_path),
                     });
@@ -179,7 +176,6 @@ fn project_message_attachments(
                     format!("附件#{}", attachment_index)
                 };
                 warnings.push(AttachmentProjectionWarning {
-                    message_id: message.id.clone(),
                     part_index,
                     detail: "旧媒体 part 尚未经过带上下文的兼容解析".to_string(),
                 });
