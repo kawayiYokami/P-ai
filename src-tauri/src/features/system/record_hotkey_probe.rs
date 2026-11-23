@@ -663,7 +663,8 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
             _ => {}
         };
         if let Err(err) = rdev::listen(callback) {
-            runtime_log_error(format!("[系统] listen 失败: {err}"));
+            // Linux 的 rdev::ListenError 没有实现 Display，只能打 Debug；Windows 上两者都有。
+            runtime_log_error(format!("[系统] listen 失败: {err:?}"));
         }
     });
     Ok(())
