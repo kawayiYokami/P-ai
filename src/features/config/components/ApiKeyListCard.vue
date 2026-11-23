@@ -1,65 +1,52 @@
 <template>
   <ConfigCard :title="title">
     <div class="grid gap-2 py-3">
-      <div v-for="(apiKey, index) in props.modelValue" :key="`api-key-${index}`" class="flex items-center gap-2">
-          <button
-            v-if="statusForKey(apiKey)"
-            type="button"
-            class="cursor-pointer shrink-0 leading-none"
-            :title="t('config.api.testConnectionReReportTitle')"
-            @click="emit('click-status', apiKey)"
-          >
-            <span v-if="statusForKey(apiKey)?.status === 'success'" class="status status-success"></span>
-            <span v-else class="status status-error"></span>
-          </button>
-          <span v-else class="w-4 shrink-0"></span>
-          <input
-            :value="apiKey"
-            :type="visibleKeys[index] ? 'text' : 'password'"
-            class="input input-bordered input-sm flex-1"
-            :placeholder="`API Key #${index + 1}`"
-            @input="updateKey(index, ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            class="btn btn-sm btn-square bg-base-200"
-            type="button"
-            :disabled="index === 0"
-            :title="t('config.api.pinApiKeyToTop')"
-            @click="pinKey(index)"
-          >
-            <AppIcon name="arrow-up-to-line" class="h-3.5 w-3.5" />
-          </button>
-          <button
-            class="btn btn-sm btn-square bg-base-200"
-            type="button"
-            @click="toggleKeyVisibility(index)"
-          >
-            <AppIcon name="eye-off" v-if="visibleKeys[index]" class="h-3.5 w-3.5" />
-            <AppIcon name="eye" v-else class="h-3.5 w-3.5" />
-          </button>
-          <button
-            class="btn btn-sm btn-square bg-base-200 text-error"
-            type="button"
-            :disabled="props.modelValue.length <= 1"
-            :title="t('common.delete')"
-            @click="removeKey(index)"
-          >
-            <AppIcon name="trash" class="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <div v-if="props.modelValue.length === 0" class="rounded-box border border-dashed border-base-300 px-3 py-3 text-sm opacity-60">
-          {{ t("config.api.noApiKey") }}
-        </div>
-        <button class="btn btn-sm w-full" type="button" @click="addKey">
-          <AppIcon name="plus" class="h-3.5 w-3.5" />
-          <span>{{ t("config.api.addApiKey") }}</span>
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs opacity-60">{{ t("config.api.apiKeyTextareaHint") }}</span>
+        <button
+          class="btn btn-sm btn-square btn-ghost"
+          type="button"
+          :title="visible ? t('config.api.hideApiKeys') : t('config.api.showApiKeys')"
+          @click="toggleVisibility"
+        >
+          <AppIcon :name="visible ? 'eye-off' : 'eye'" class="h-3.5 w-3.5" />
         </button>
       </div>
+      <textarea
+        :value="displayText"
+        class="textarea textarea-bordered min-h-32 w-full resize-y font-mono text-sm leading-6"
+        :class="{ 'api-key-masked': masked }"
+        :placeholder="t('config.api.apiKeyTextareaPlaceholder')"
+        :readonly="masked && !supportsTextSecurity"
+        spellcheck="false"
+        autocomplete="off"
+        autocapitalize="off"
+        rows="6"
+        @input="onInput"
+        @blur="normalizeText"
+      ></textarea>
+      <div v-if="statusEntries.length" class="flex flex-wrap items-center gap-1.5">
+        <button
+          v-for="entry in statusEntries"
+          :key="entry.key"
+          type="button"
+          class="cursor-pointer leading-none"
+          :title="t('config.api.testConnectionReReportTitle')"
+          @click="emit('click-status', entry.key)"
+        >
+          <span v-if="entry.status.status === 'success'" class="status status-success"></span>
+          <span v-else class="status status-error"></span>
+        </button>
+      </div>
+      <div v-if="props.modelValue.length === 0" class="rounded-box border border-dashed border-base-300 px-3 py-3 text-sm opacity-60">
+        {{ t("config.api.noApiKey") }}
+      </div>
+    </div>
   </ConfigCard>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import { useI18n } from "vue-i18n";
 import ConfigCard from "./ConfigCard.vue";
@@ -84,55 +71,73 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const visibleKeys = ref<Record<number, boolean>>({});
 
-function statusForKey(apiKey: string): ApiKeyConnectionStatus | undefined {
-  const key = apiKey.trim();
-  return key ? props.connectionTestKeyStatus?.[key] : undefined;
+// textarea 没有 password 类型，用 CSS 把文本画成圆点；不支持该 CSS 的浏览器退回只读掩码视图。
+const supportsTextSecurity = typeof CSS !== "undefined"
+  && typeof CSS.supports === "function"
+  && CSS.supports("-webkit-text-security", "disc");
+
+const visible = ref(false);
+const masked = computed(() => !visible.value);
+const draftText = ref(props.modelValue.join("\n"));
+
+function splitKeys(text: string): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const key = line.trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
 }
 
-function updateKey(index: number, value: string) {
-  const next = [...props.modelValue];
-  next[index] = value;
-  emit("update:modelValue", next);
+function sameKeys(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 
-function addKey() {
-  emit("update:modelValue", [...props.modelValue, ""]);
+function commitText() {
+  const next = splitKeys(draftText.value);
+  if (!sameKeys(next, props.modelValue)) emit("update:modelValue", next);
 }
 
-function removeKey(index: number) {
-  if (props.modelValue.length <= 1) return;
-  const next = props.modelValue.filter((_, currentIndex) => currentIndex !== index);
-  const nextVisibleKeys: Record<number, boolean> = {};
-  Object.entries(visibleKeys.value).forEach(([currentIndex, visible]) => {
-    const numericIndex = Number(currentIndex);
-    if (numericIndex === index) return;
-    nextVisibleKeys[numericIndex > index ? numericIndex - 1 : numericIndex] = visible;
-  });
-  visibleKeys.value = nextVisibleKeys;
-  emit("update:modelValue", next);
+function onInput(event: Event) {
+  draftText.value = (event.target as HTMLTextAreaElement).value;
+  commitText();
 }
 
-function pinKey(index: number) {
-  if (index <= 0 || index >= props.modelValue.length) return;
-  const next = [...props.modelValue];
-  const [key] = next.splice(index, 1);
-  next.unshift(key);
-  const nextVisibleKeys: Record<number, boolean> = {};
-  Object.entries(visibleKeys.value).forEach(([currentIndex, visible]) => {
-    const numericIndex = Number(currentIndex);
-    const nextIndex = numericIndex === index ? 0 : numericIndex < index ? numericIndex + 1 : numericIndex;
-    nextVisibleKeys[nextIndex] = visible;
-  });
-  visibleKeys.value = nextVisibleKeys;
-  emit("update:modelValue", next);
+// 失焦时把编辑区本身也规范成一行一个，避免界面留着空行和重复行、保存后却对不上。
+function normalizeText() {
+  const normalized = splitKeys(draftText.value).join("\n");
+  if (draftText.value !== normalized) draftText.value = normalized;
+  commitText();
 }
 
-function toggleKeyVisibility(index: number) {
-  visibleKeys.value = {
-    ...visibleKeys.value,
-    [index]: !visibleKeys.value[index],
-  };
+function toggleVisibility() {
+  visible.value = !visible.value;
 }
+
+const displayText = computed(() => {
+  if (!masked.value || supportsTextSecurity || !draftText.value) return draftText.value;
+  return splitKeys(draftText.value).map((key) => "•".repeat(Math.min(key.length, 40))).join("\n");
+});
+
+const statusEntries = computed(() => {
+  const statuses = props.connectionTestKeyStatus;
+  if (!statuses) return [];
+  return splitKeys(draftText.value)
+    .map((key) => ({ key, status: statuses[key] }))
+    .filter((entry): entry is { key: string; status: ApiKeyConnectionStatus } => !!entry.status);
+});
+
+watch(() => props.modelValue, (value) => {
+  if (!sameKeys(splitKeys(draftText.value), value)) draftText.value = value.join("\n");
+});
 </script>
+
+<style scoped>
+.api-key-masked {
+  -webkit-text-security: disc;
+}
+</style>
