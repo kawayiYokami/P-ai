@@ -1502,6 +1502,9 @@ async fn activate_main_assistant(
         stream_started_at.as_str(),
         stream_started_at_ms,
     )?;
+    // 本轮所有权令牌：收尾只认它。停止命令会当场交还它、新一轮会换掉它，
+    // 两种情况都意味着这一轮的收尾不许再动会话状态与流式缓存。
+    let round_owner = begin_conversation_round_owner(state, conversation_id)?;
     emit_round_started_event(
         state,
         conversation_id,
@@ -1752,12 +1755,17 @@ async fn activate_main_assistant(
         ));
     }
 
-    set_conversation_runtime_state_and_emit(state, conversation_id, MainSessionState::Idle)?;
-    if let Err(err) = clear_conversation_stream_runtime_cache(state, conversation_id) {
-        runtime_log_warn(format!(
-            "[聊天] 清理失败 原因={}",
-            err
-        ));
+    // 收尾只认自己的令牌：这一轮若已被停止命令当场收走（会话已置就绪、内容已落盘），
+    // 或用户紧接着发起了新一轮（令牌被换掉），这里必须静默退出，
+    // 绝不能把新一轮的运行态与流式缓存擦掉。
+    match finish_conversation_round(state, conversation_id, round_owner.as_str()) {
+        Ok(true) => {}
+        Ok(false) => runtime_log_info(format!(
+            "[聊天] 跳过 任务=轮次收尾复位 原因=这一轮已被停止收走或已被新一轮接管 会话={conversation_id}"
+        )),
+        Err(err) => runtime_log_warn(format!(
+            "[聊天] 轮次收尾复位失败 会话={conversation_id} 错误={err}"
+        )),
     }
 
     // 后台会话活动标记：前台观看时不写 completed/failed，直接清标记

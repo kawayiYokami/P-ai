@@ -2319,13 +2319,112 @@ async fn stop_chat_message_inner(
             aborted_delegate_children
         ));
     }
+
+    // 就地没收这一轮：不等生成协程收口。
+    //
+    // 停止的意义是「立刻收走她手上没做完的东西，然后当她不存在」，不是「请她做完手上的活再走」。
+    // 所以内容直接从现成的会话流式快照取，落盘由停止方自己做；协程那边随后怎么退、退到哪、
+    // 退多久，都与这次停止无关——认领之后它已经不是这一轮的主人了。
+    let mut interrupted_result: Option<SendChatResult> = None;
+    if aborted {
+        if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            match claim_conversation_round_for_interrupt(state, conversation_id, &stop_identity) {
+                Ok(true) => {
+                    let collect_started = std::time::Instant::now();
+                    match persist_aborted_chat_partial_result(
+                        state,
+                        Some(conversation_id),
+                        &agent_id,
+                        &chat_key,
+                    ) {
+                        Ok(persisted) => {
+                            let round_result = match persisted {
+                                Some(result) => result,
+                                None => empty_chat_round_result(
+                                    conversation_id,
+                                    &stop_identity.request_id,
+                                ),
+                            };
+                            runtime_log_info(format!(
+                                "[聊天] 打断就地落盘 完成 会话={} 已落盘={} 正文长度={} 耗时={}ms",
+                                conversation_id,
+                                round_result.assistant_message.is_some(),
+                                round_result.assistant_text.chars().count(),
+                                collect_started.elapsed().as_millis()
+                            ));
+                            if let Err(err) =
+                                release_conversation_after_interrupt(state, conversation_id)
+                            {
+                                runtime_log_warn(format!(
+                                    "[聊天] 打断后就绪失败 会话={} 错误={}",
+                                    conversation_id, err
+                                ));
+                            }
+                            // 轮次终态由停止方发出：旧协程已被认领短路，不会再发第二个。
+                            let identity = round_result
+                                .activation_request_id
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .or_else(|| {
+                                    let request_id = stop_identity.request_id.trim();
+                                    (!request_id.is_empty()).then_some(request_id)
+                                })
+                                .or_else(|| {
+                                    let activation_id = stop_identity.activation_id.trim();
+                                    (!activation_id.is_empty()).then_some(activation_id)
+                                });
+                            emit_round_completed_event(
+                                state,
+                                conversation_id,
+                                &round_result,
+                                identity,
+                                identity,
+                            );
+                            interrupted_result = Some(round_result);
+                        }
+                        Err(err) => {
+                            // 落盘失败：撤掉认领凭据，让旧协程退出去时的兜底落盘照旧生效。
+                            runtime_log_error(format!(
+                                "[聊天] 打断就地落盘 失败 会话={} 错误={}",
+                                conversation_id, err
+                            ));
+                            if let Err(clear_err) =
+                                clear_conversation_interrupt_record(state, conversation_id)
+                            {
+                                runtime_log_warn(format!(
+                                    "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
+                                    conversation_id, clear_err
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(false) => runtime_log_debug(format!(
+                    "[聊天] 跳过 任务=打断就地落盘 原因=槽上没有可收走的轮次 会话={conversation_id}"
+                )),
+                Err(err) => runtime_log_warn(format!(
+                    "[聊天] 打断就地认领失败 会话={} 错误={}",
+                    conversation_id, err
+                )),
+            }
+        }
+    }
+    let persisted = interrupted_result
+        .as_ref()
+        .is_some_and(|result| result.assistant_message.is_some());
+    let assistant_text = interrupted_result
+        .as_ref()
+        .map(|result| result.assistant_text.clone())
+        .unwrap_or_default();
+    let assistant_message = interrupted_result.and_then(|result| result.assistant_message);
     let conversation_id = requested_conversation_id.clone();
     Ok(StopChatResult {
         aborted,
-        persisted: false,
+        persisted,
         conversation_id,
-        assistant_text: String::new(),
-        assistant_message: None,
+        assistant_text,
+        assistant_message,
     })
 }
 
@@ -2521,6 +2620,32 @@ fn reasoning_text_from_stream_blocks(blocks: &[AssistantStreamBlock]) -> String 
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// 没有可落盘内容时的空轮次结果。
+///
+/// 内容没留下不代表终态不发：前端与其它窗口要靠这条终态把「这一轮在跑」收掉。
+fn empty_chat_round_result(conversation_id: &str, request_id: &str) -> SendChatResult {
+    SendChatResult {
+        conversation_id: conversation_id.to_string(),
+        latest_user_text: String::new(),
+        assistant_text: String::new(),
+        final_response_text: String::new(),
+        archived_before_send: false,
+        assistant_message: None,
+        provider_prompt_tokens: None,
+        estimated_prompt_tokens: None,
+        effective_prompt_tokens: None,
+        effective_prompt_source: None,
+        context_window_tokens: None,
+        max_output_tokens: None,
+        context_usage_percent: None,
+        remote_im_reply_decision: None,
+        remote_im_reply_target: None,
+        usage: None,
+        activation_request_id: (!request_id.trim().is_empty())
+            .then(|| request_id.trim().to_string()),
+    }
 }
 
 #[cfg(test)]
