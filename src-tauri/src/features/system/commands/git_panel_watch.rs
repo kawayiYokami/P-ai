@@ -102,12 +102,20 @@ impl GitPanelIgnoreFilter {
         let mut search = gix_ignore::Search::default();
         let ignore_file = repo_root.join(".gitignore");
         if let Ok(bytes) = std::fs::read(&ignore_file) {
-            search.add_patterns_buffer(
+            // gix-ignore 0.24 起 add_patterns_buffer 返回 Result：解析失败不能静默吞掉，
+            // 否则「忽略规则没生效」将无法从日志判断。
+            if let Err(err) = search.add_patterns_buffer(
                 &bytes,
                 std::path::PathBuf::from(".gitignore"),
                 None,
                 gix_ignore::search::Ignore::default(),
-            );
+            ) {
+                runtime_log_warn(format!(
+                    "[系统] 失败 任务=解析仓库根忽略规则 文件={} 原因={}",
+                    ignore_file.display(),
+                    err
+                ));
+            }
         } else {
             runtime_log_debug(format!(
                 "[系统] 仓库根无 .gitignore，跳过忽略规则解析 文件={}",
@@ -213,6 +221,47 @@ fn git_panel_watch_forward_events(
     }
     if !merged.is_empty() {
         tx.try_send(merged).ok();
+    }
+}
+
+/// 后端报告事件可能已丢失（notify 的 Rescan）：三条信号全置脏并清掉仓库读缓存，
+/// 让下一次面板读取走全量刷新，而不是基于可能残缺的增量事件做局部更新。
+fn git_panel_watch_forward_rescan(repo_root: &str, tx: &GitPanelWatchTx) {
+    runtime_log_info(format!(
+        "[系统] 监视器要求重扫 工作区={} 处置=全部置脏",
+        repo_root
+    ));
+    git_executor().invalidate(repo_root);
+    tx.try_send(GitPanelWatchSignals {
+        workdir_changed: true,
+        head_changed: true,
+        refs_changed: true,
+    })
+    .ok();
+}
+
+/// debouncer 回调的统一入口：把 0.8 的批次类型拆成「一批具体事件」与「要求重扫」两条路。
+fn git_panel_watch_dispatch_batch(
+    result: notify_debouncer_mini::DebounceEventResult,
+    repo_root: &str,
+    filter: &GitPanelIgnoreFilter,
+    tx: &GitPanelWatchTx,
+) {
+    match result {
+        Ok(notify_debouncer_mini::DebouncedEventBatch::Events(events)) => {
+            git_panel_watch_forward_events(events, filter, tx);
+        }
+        Ok(notify_debouncer_mini::DebouncedEventBatch::Rescan) => {
+            git_panel_watch_forward_rescan(repo_root, tx);
+        }
+        // DebouncedEventBatch 是 non_exhaustive：未来新增批次语义一律按「要求重扫」保守处理。
+        Ok(_) => git_panel_watch_forward_rescan(repo_root, tx),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[系统] 监视器事件通道异常 工作区={} 原因={}",
+                repo_root, err
+            ));
+        }
     }
 }
 
@@ -360,9 +409,12 @@ fn git_panel_watch_try_native(
 ) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>, String> {
     let mut debouncer = notify_debouncer_mini::new_debouncer(
         std::time::Duration::from_millis(GIT_PANEL_WATCH_DEBOUNCE_MS),
-        move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-            if let Ok(events) = events {
-                git_panel_watch_forward_events(events, &filter, &tx);
+        {
+            let repo_root_text = repo_root.to_string_lossy().to_string();
+            let filter = std::sync::Arc::clone(&filter);
+            let tx = tx.clone();
+            move |result: notify_debouncer_mini::DebounceEventResult| {
+                git_panel_watch_dispatch_batch(result, &repo_root_text, &filter, &tx);
             }
         },
     )
@@ -387,9 +439,12 @@ fn git_panel_watch_try_poll(
         );
     let mut debouncer = notify_debouncer_mini::new_debouncer_opt::<_, notify::PollWatcher>(
         config,
-        move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-            if let Ok(events) = events {
-                git_panel_watch_forward_events(events, &filter, &tx);
+        {
+            let repo_root_text = repo_root.to_string_lossy().to_string();
+            let filter = std::sync::Arc::clone(&filter);
+            let tx = tx.clone();
+            move |result: notify_debouncer_mini::DebounceEventResult| {
+                git_panel_watch_dispatch_batch(result, &repo_root_text, &filter, &tx);
             }
         },
     )

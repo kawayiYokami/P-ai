@@ -9,7 +9,7 @@
 
 const ACP_CLI_SUBCOMMAND: &str = "acp";
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
     SessionConfigValueId,
 };
@@ -127,7 +127,7 @@ fn acp_current_turn(
 /// 不由会话或时间推断。
 fn acp_handle_cancel_notification(
     sessions: &AcpSessionRegistry,
-    notif: agent_client_protocol::schema::v1::CancelNotification,
+    notif: agent_client_protocol::v1::schema::CancelNotification,
 ) -> Result<(), agent_client_protocol::Error> {
     let session_id = notif.session_id.0.to_string();
     let turn = match acp_current_turn(sessions, &session_id) {
@@ -240,16 +240,16 @@ async fn acp_serve() -> Result<(), String> {
     let sessions_for_cancel = sessions.clone();
 
     agent_client_protocol::Agent
-        .builder()
+        .v1()
         .name("p-ai")
         .on_receive_request(
-            async |req: agent_client_protocol::schema::v1::InitializeRequest, responder, _cx| {
+            async |req: agent_client_protocol::v1::schema::InitializeRequest, responder, _cx| {
                 responder.respond(acp_initialize_response(req))
             },
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |req: agent_client_protocol::schema::v1::NewSessionRequest, responder, _cx| {
+            async move |req: agent_client_protocol::v1::schema::NewSessionRequest, responder, _cx| {
                 acp_handle_new_session(
                     state_for_new.clone(),
                     sessions_for_new.clone(),
@@ -261,7 +261,7 @@ async fn acp_serve() -> Result<(), String> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |req: agent_client_protocol::schema::v1::LoadSessionRequest,
+            async move |req: agent_client_protocol::v1::schema::LoadSessionRequest,
                         responder,
                         cx| {
                 acp_handle_load_session(
@@ -276,7 +276,7 @@ async fn acp_serve() -> Result<(), String> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |req: agent_client_protocol::schema::v1::SetSessionConfigOptionRequest,
+            async move |req: agent_client_protocol::v1::schema::SetSessionConfigOptionRequest,
                         responder,
                         _cx| {
                 acp_handle_set_config_option(
@@ -290,7 +290,7 @@ async fn acp_serve() -> Result<(), String> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |req: agent_client_protocol::schema::v1::PromptRequest, responder, cx| {
+            async move |req: agent_client_protocol::v1::schema::PromptRequest, responder, cx| {
                 acp_handle_prompt(
                     state_for_prompt.clone(),
                     sessions_for_prompt.clone(),
@@ -303,7 +303,7 @@ async fn acp_serve() -> Result<(), String> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_notification(
-            async move |notif: agent_client_protocol::schema::v1::CancelNotification, _cx| {
+            async move |notif: agent_client_protocol::v1::schema::CancelNotification, _cx| {
                 acp_handle_cancel_notification(&sessions_for_cancel, notif)
             },
             agent_client_protocol::on_receive_notification!(),
@@ -318,22 +318,22 @@ async fn acp_serve() -> Result<(), String> {
 
 /// 能力只报真做到的那部分：`loadSession` 已实现，图片与 MCP over ACP 尚未实现。
 fn acp_initialize_response(
-    req: agent_client_protocol::schema::v1::InitializeRequest,
-) -> agent_client_protocol::schema::v1::InitializeResponse {
-    use agent_client_protocol::schema::v1::{AgentCapabilities, InitializeResponse};
+    req: agent_client_protocol::v1::schema::InitializeRequest,
+) -> agent_client_protocol::v1::schema::InitializeResponse {
+    use agent_client_protocol::v1::schema::{AgentCapabilities, InitializeResponse};
     InitializeResponse::new(req.protocol_version)
         .agent_capabilities(AgentCapabilities::new().load_session(true))
 }
 
 fn acp_internal_error(message: impl Into<String>) -> agent_client_protocol::Error {
-    use agent_client_protocol::schema::v1::ErrorCode;
-    agent_client_protocol::Error::new(ErrorCode::InternalError.into(), message)
+    use agent_client_protocol::v1::schema::ErrorCode;
+    agent_client_protocol::Error::new(ErrorCode::InternalError, message)
 }
 
 /// 参数不合法：会话不存在、配置项不认识、模型 id 不在配置里。
 fn acp_invalid_params(message: impl Into<String>) -> agent_client_protocol::Error {
-    use agent_client_protocol::schema::v1::ErrorCode;
-    agent_client_protocol::Error::new(ErrorCode::InvalidParams.into(), message)
+    use agent_client_protocol::v1::schema::ErrorCode;
+    agent_client_protocol::Error::new(ErrorCode::InvalidParams, message)
 }
 
 /// ACP 里模型选项的固定 id，客户端按这个 id 提交切换请求。
@@ -548,8 +548,8 @@ fn acp_apply_model_switch(
 async fn acp_handle_new_session(
     state: AppState,
     sessions: AcpSessionRegistry,
-    req: agent_client_protocol::schema::v1::NewSessionRequest,
-    responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::NewSessionResponse>,
+    req: agent_client_protocol::v1::schema::NewSessionRequest,
+    responder: agent_client_protocol::v1::Responder<agent_client_protocol::v1::schema::NewSessionResponse>,
 ) -> Result<(), agent_client_protocol::Error> {
     // 参数校验放在最前：cwd 不成立时连会话都不该建，更不能先读一轮配置再报错。
     let workspaces = match acp_new_session_workspaces(&req.cwd) {
@@ -645,8 +645,8 @@ async fn acp_handle_new_session(
             runtime_log_warn(format!("[系统] 概览刷新失败 任务=新建会话：{err}"));
         }
     });
-    let mut response = agent_client_protocol::schema::v1::NewSessionResponse::new(
-        agent_client_protocol::schema::v1::SessionId::new(conversation_id),
+    let mut response = agent_client_protocol::v1::schema::NewSessionResponse::new(
+        agent_client_protocol::v1::schema::SessionId::new(conversation_id),
     );
     response.config_options = Some(config_options);
     responder.respond(response)
@@ -662,11 +662,11 @@ async fn acp_handle_new_session(
 /// 但原因必须原样带回给调用方记日志，不能静默丢掉。
 fn acp_session_mcp_servers(
     session_id: &str,
-    servers: &[agent_client_protocol::schema::v1::McpServer],
+    servers: &[agent_client_protocol::v1::schema::McpServer],
 ) -> (Vec<McpServerConfig>, Vec<String>) {
-    use agent_client_protocol::schema::v1::McpServer;
+    use agent_client_protocol::v1::schema::McpServer;
 
-    let headers_map = |items: &[agent_client_protocol::schema::v1::HttpHeader]| {
+    let headers_map = |items: &[agent_client_protocol::v1::schema::HttpHeader]| {
         items
             .iter()
             .map(|item| (item.name.clone(), item.value.clone()))
@@ -758,7 +758,7 @@ fn acp_mcp_id_slug(text: &str) -> String {
 async fn acp_mount_session_mcp(
     state: &AppState,
     session_id: &str,
-    servers: &[agent_client_protocol::schema::v1::McpServer],
+    servers: &[agent_client_protocol::v1::schema::McpServer],
 ) {
     if servers.is_empty() {
         return;
@@ -785,13 +785,13 @@ async fn acp_mount_session_mcp(
 async fn acp_handle_load_session(
     state: AppState,
     sessions: AcpSessionRegistry,
-    req: agent_client_protocol::schema::v1::LoadSessionRequest,
-    responder: agent_client_protocol::Responder<
-        agent_client_protocol::schema::v1::LoadSessionResponse,
+    req: agent_client_protocol::v1::schema::LoadSessionRequest,
+    responder: agent_client_protocol::v1::Responder<
+        agent_client_protocol::v1::schema::LoadSessionResponse,
     >,
-    cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+    cx: agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
-    use agent_client_protocol::schema::v1::LoadSessionResponse;
+    use agent_client_protocol::v1::schema::LoadSessionResponse;
 
     let session_id_text = req.session_id.0.to_string();
     // cwd 的校验口径与 `session/new` 完全一致：不是目录就是调用方的参数问题。
@@ -965,9 +965,9 @@ fn acp_replay_messages(state: &AppState, conversation_id: &str) -> Result<Vec<Ch
 fn acp_replay_update(
     role: &str,
     parts: &[MessagePart],
-    session_id: &agent_client_protocol::schema::v1::SessionId,
-) -> Option<agent_client_protocol::schema::v1::SessionNotification> {
-    use agent_client_protocol::schema::v1::{
+    session_id: &agent_client_protocol::v1::schema::SessionId,
+) -> Option<agent_client_protocol::v1::schema::SessionNotification> {
+    use agent_client_protocol::v1::schema::{
         ContentBlock, ContentChunk, SessionNotification, SessionUpdate, TextContent,
     };
 
@@ -998,12 +998,12 @@ fn acp_replay_update(
 async fn acp_handle_set_config_option(
     state: AppState,
     sessions: AcpSessionRegistry,
-    req: agent_client_protocol::schema::v1::SetSessionConfigOptionRequest,
-    responder: agent_client_protocol::Responder<
-        agent_client_protocol::schema::v1::SetSessionConfigOptionResponse,
+    req: agent_client_protocol::v1::schema::SetSessionConfigOptionRequest,
+    responder: agent_client_protocol::v1::Responder<
+        agent_client_protocol::v1::schema::SetSessionConfigOptionResponse,
     >,
 ) -> Result<(), agent_client_protocol::Error> {
-    use agent_client_protocol::schema::v1::SetSessionConfigOptionResponse;
+    use agent_client_protocol::v1::schema::SetSessionConfigOptionResponse;
 
     let session_id = req.session_id.0.to_string();
     let session = match sessions.lock() {
@@ -1077,9 +1077,9 @@ async fn acp_handle_set_config_option(
 async fn acp_handle_prompt(
     state: AppState,
     sessions: AcpSessionRegistry,
-    req: agent_client_protocol::schema::v1::PromptRequest,
-    responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::PromptResponse>,
-    cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+    req: agent_client_protocol::v1::schema::PromptRequest,
+    responder: agent_client_protocol::v1::Responder<agent_client_protocol::v1::schema::PromptResponse>,
+    cx: agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
     let session_id_text = req.session_id.0.to_string();
     // 内容块校验先于占位：不支持的类型要立刻回错误，连轮次都不该开。
@@ -1142,8 +1142,8 @@ async fn acp_handle_prompt(
         runtime_log_warn(format!(
             "[系统] 跳过 任务=处理轮次 原因=提示词没有文本内容"
         ));
-        return responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
-            agent_client_protocol::schema::v1::StopReason::EndTurn,
+        return responder.respond(agent_client_protocol::v1::schema::PromptResponse::new(
+            agent_client_protocol::v1::schema::StopReason::EndTurn,
         ));
     }
 
@@ -1172,11 +1172,11 @@ async fn acp_handle_prompt(
 async fn acp_run_prompt_turn(
     state: AppState,
     session: AcpSessionState,
-    session_id: agent_client_protocol::schema::v1::SessionId,
+    session_id: agent_client_protocol::v1::schema::SessionId,
     prompt_text: String,
     turn: std::sync::Arc<AcpTurnControl>,
-    responder: agent_client_protocol::Responder<agent_client_protocol::schema::v1::PromptResponse>,
-    cx: agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+    responder: agent_client_protocol::v1::Responder<agent_client_protocol::v1::schema::PromptResponse>,
+    cx: agent_client_protocol::v1::ConnectionTo<agent_client_protocol::Client>,
 ) -> Result<(), agent_client_protocol::Error> {
     let sent_chars = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let sent_chars_for_channel = sent_chars.clone();
@@ -1203,14 +1203,14 @@ async fn acp_run_prompt_turn(
             Err(_) => Vec::new(),
         };
         for update in updates {
-            if let agent_client_protocol::schema::v1::SessionUpdate::AgentMessageChunk(chunk) = &update
+            if let agent_client_protocol::v1::schema::SessionUpdate::AgentMessageChunk(chunk) = &update
             {
-                if let agent_client_protocol::schema::v1::ContentBlock::Text(text) = &chunk.content {
+                if let agent_client_protocol::v1::schema::ContentBlock::Text(text) = &chunk.content {
                     sent_chars_for_channel
                         .fetch_add(text.text.chars().count(), std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            let notification = agent_client_protocol::schema::v1::SessionNotification::new(
+            let notification = agent_client_protocol::v1::schema::SessionNotification::new(
                 session_id_for_channel.clone(),
                 update,
             );
@@ -1269,8 +1269,8 @@ async fn acp_run_prompt_turn(
                 turn.turn_id
             )),
         }
-        return responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
-            agent_client_protocol::schema::v1::StopReason::Cancelled,
+        return responder.respond(agent_client_protocol::v1::schema::PromptResponse::new(
+            agent_client_protocol::v1::schema::StopReason::Cancelled,
         ));
     }
 
@@ -1281,14 +1281,14 @@ async fn acp_run_prompt_turn(
             let already_sent = sent_chars.load(std::sync::atomic::Ordering::Relaxed);
             let trimmed = final_text.trim();
             if already_sent == 0 && !trimmed.is_empty() {
-                let update = agent_client_protocol::schema::v1::SessionUpdate::AgentMessageChunk(
-                    agent_client_protocol::schema::v1::ContentChunk::new(
-                        agent_client_protocol::schema::v1::ContentBlock::Text(
-                            agent_client_protocol::schema::v1::TextContent::new(trimmed),
+                let update = agent_client_protocol::v1::schema::SessionUpdate::AgentMessageChunk(
+                    agent_client_protocol::v1::schema::ContentChunk::new(
+                        agent_client_protocol::v1::schema::ContentBlock::Text(
+                            agent_client_protocol::v1::schema::TextContent::new(trimmed),
                         ),
                     ),
                 );
-                let notification = agent_client_protocol::schema::v1::SessionNotification::new(
+                let notification = agent_client_protocol::v1::schema::SessionNotification::new(
                     session_id.clone(),
                     update,
                 );
@@ -1300,8 +1300,8 @@ async fn acp_run_prompt_turn(
                 "[系统] 完成 任务=处理轮次 发送字数={already_sent} 最终字数={}",
                 trimmed.chars().count()
             ));
-            responder.respond(agent_client_protocol::schema::v1::PromptResponse::new(
-                agent_client_protocol::schema::v1::StopReason::EndTurn,
+            responder.respond(agent_client_protocol::v1::schema::PromptResponse::new(
+                agent_client_protocol::v1::schema::StopReason::EndTurn,
             ))
         }
         Err(err) => {
@@ -1390,9 +1390,9 @@ fn acp_shell_workspaces(cwd: &std::path::Path) -> Result<Vec<ShellWorkspaceConfi
 /// - 图片、音频、内嵌资源：本轮没有声明对应能力（`promptCapabilities` 全为 false），
 ///   回错误。静默丢掉会让模型答非所问，客户端还以为什么都送到了。
 fn acp_prompt_text(
-    blocks: &[agent_client_protocol::schema::v1::ContentBlock],
+    blocks: &[agent_client_protocol::v1::schema::ContentBlock],
 ) -> Result<String, String> {
-    use agent_client_protocol::schema::v1::ContentBlock;
+    use agent_client_protocol::v1::schema::ContentBlock;
     let mut parts: Vec<String> = Vec::new();
     for block in blocks {
         match block {
@@ -1494,9 +1494,9 @@ fn acp_apply_tool_result(
     tool_call_id: &str,
     content: &str,
     tool_states: &mut std::collections::HashMap<String, AcpToolProgress>,
-    mut updates: Vec<agent_client_protocol::schema::v1::SessionUpdate>,
-) -> Vec<agent_client_protocol::schema::v1::SessionUpdate> {
-    use agent_client_protocol::schema::v1::{
+    mut updates: Vec<agent_client_protocol::v1::schema::SessionUpdate>,
+) -> Vec<agent_client_protocol::v1::schema::SessionUpdate> {
+    use agent_client_protocol::v1::schema::{
         SessionUpdate, ToolCall, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
     };
 
@@ -1562,8 +1562,8 @@ fn acp_apply_tool_result(
 fn acp_updates_from_event(
     event: &serde_json::Value,
     tool_states: &mut std::collections::HashMap<String, AcpToolProgress>,
-) -> Vec<agent_client_protocol::schema::v1::SessionUpdate> {
-    use agent_client_protocol::schema::v1::{
+) -> Vec<agent_client_protocol::v1::schema::SessionUpdate> {
+    use agent_client_protocol::v1::schema::{
         ContentBlock, ContentChunk, SessionUpdate, TextContent,
     };
 
@@ -1617,9 +1617,9 @@ fn acp_updates_from_event(
 fn acp_push_tool_updates_from_block(
     tool: &serde_json::Value,
     tool_states: &mut std::collections::HashMap<String, AcpToolProgress>,
-    updates: &mut Vec<agent_client_protocol::schema::v1::SessionUpdate>,
+    updates: &mut Vec<agent_client_protocol::v1::schema::SessionUpdate>,
 ) {
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         SessionUpdate, ToolCall, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
     };
 
@@ -1711,9 +1711,9 @@ fn acp_push_tool_updates_from_block(
 fn acp_tool_updates_from_delta(
     event: &serde_json::Value,
     tool_states: &mut std::collections::HashMap<String, AcpToolProgress>,
-    mut updates: Vec<agent_client_protocol::schema::v1::SessionUpdate>,
-) -> Vec<agent_client_protocol::schema::v1::SessionUpdate> {
-    use agent_client_protocol::schema::v1::{
+    mut updates: Vec<agent_client_protocol::v1::schema::SessionUpdate>,
+) -> Vec<agent_client_protocol::v1::schema::SessionUpdate> {
+    use agent_client_protocol::v1::schema::{
         SessionUpdate, ToolCall, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
     };
 
@@ -1839,8 +1839,8 @@ fn acp_tool_title(tool_name: &str) -> String {
     }
 }
 
-fn acp_tool_kind(tool_name: &str) -> agent_client_protocol::schema::v1::ToolKind {
-    use agent_client_protocol::schema::v1::ToolKind;
+fn acp_tool_kind(tool_name: &str) -> agent_client_protocol::v1::schema::ToolKind {
+    use agent_client_protocol::v1::schema::ToolKind;
     match tool_name {
         "read" | "read_file" | "read_media" => ToolKind::Read,
         "write" | "update" => ToolKind::Edit,
@@ -1852,8 +1852,8 @@ fn acp_tool_kind(tool_name: &str) -> agent_client_protocol::schema::v1::ToolKind
     }
 }
 
-fn acp_tool_status(status: &str) -> agent_client_protocol::schema::v1::ToolCallStatus {
-    use agent_client_protocol::schema::v1::ToolCallStatus;
+fn acp_tool_status(status: &str) -> agent_client_protocol::v1::schema::ToolCallStatus {
+    use agent_client_protocol::v1::schema::ToolCallStatus;
     match status {
         "done" | "completed" | "success" | "succeeded" => ToolCallStatus::Completed,
         "error" | "failed" | "errored" => ToolCallStatus::Failed,
@@ -1864,7 +1864,7 @@ fn acp_tool_status(status: &str) -> agent_client_protocol::schema::v1::ToolCallS
 #[cfg(test)]
 mod acp_agent_cli_tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{SessionConfigKind, SessionConfigSelectOptions};
+    use agent_client_protocol::v1::schema::{SessionConfigKind, SessionConfigSelectOptions};
 
     fn argv(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
@@ -1880,7 +1880,7 @@ mod acp_agent_cli_tests {
 
     #[test]
     fn prompt_text_should_join_text_blocks() {
-        use agent_client_protocol::schema::v1::{ContentBlock, ResourceLink, TextContent};
+        use agent_client_protocol::v1::schema::{ContentBlock, ResourceLink, TextContent};
         let blocks = vec![
             ContentBlock::Text(TextContent::new("第一段")),
             ContentBlock::Text(TextContent::new("第二段")),
@@ -1905,7 +1905,7 @@ mod acp_agent_cli_tests {
     /// 不支持的内容块必须明确报错，不许静默丢。
     #[test]
     fn prompt_with_unsupported_block_should_fail_loudly() {
-        use agent_client_protocol::schema::v1::{ContentBlock, ImageContent, TextContent};
+        use agent_client_protocol::v1::schema::{ContentBlock, ImageContent, TextContent};
         let blocks = vec![
             ContentBlock::Text(TextContent::new("这张图是什么")),
             ContentBlock::Image(ImageContent::new("AAAA", "image/png")),
@@ -1920,7 +1920,7 @@ mod acp_agent_cli_tests {
 
     #[test]
     fn tool_kind_should_map_known_tools() {
-        use agent_client_protocol::schema::v1::ToolKind;
+        use agent_client_protocol::v1::schema::ToolKind;
         assert_eq!(acp_tool_kind("read"), ToolKind::Read);
         assert_eq!(acp_tool_kind("write"), ToolKind::Edit);
         assert_eq!(acp_tool_kind("exec"), ToolKind::Execute);
@@ -1935,9 +1935,9 @@ mod acp_agent_cli_tests {
         let updates = acp_updates_from_event(&event, &mut states);
         assert_eq!(updates.len(), 1);
         match &updates[0] {
-            agent_client_protocol::schema::v1::SessionUpdate::AgentMessageChunk(chunk) => {
+            agent_client_protocol::v1::schema::SessionUpdate::AgentMessageChunk(chunk) => {
                 match &chunk.content {
-                    agent_client_protocol::schema::v1::ContentBlock::Text(text) => {
+                    agent_client_protocol::v1::schema::ContentBlock::Text(text) => {
                         assert_eq!(text.text, "你好")
                     }
                     other => panic!("应为文本块，实际 {other:?}"),
@@ -1954,7 +1954,7 @@ mod acp_agent_cli_tests {
         let updates = acp_updates_from_event(&event, &mut states);
         assert!(matches!(
             updates.first(),
-            Some(agent_client_protocol::schema::v1::SessionUpdate::AgentThoughtChunk(_))
+            Some(agent_client_protocol::v1::schema::SessionUpdate::AgentThoughtChunk(_))
         ));
     }
 
@@ -1976,10 +1976,10 @@ mod acp_agent_cli_tests {
         let first = acp_updates_from_event(&doing, &mut states);
         assert_eq!(first.len(), 1);
         match &first[0] {
-            agent_client_protocol::schema::v1::SessionUpdate::ToolCall(call) => {
+            agent_client_protocol::v1::schema::SessionUpdate::ToolCall(call) => {
                 assert_eq!(call.name.as_deref(), Some("exec"));
-                assert_eq!(call.kind, agent_client_protocol::schema::v1::ToolKind::Execute);
-                assert_eq!(call.status, agent_client_protocol::schema::v1::ToolCallStatus::InProgress);
+                assert_eq!(call.kind, agent_client_protocol::v1::schema::ToolKind::Execute);
+                assert_eq!(call.status, agent_client_protocol::v1::schema::ToolCallStatus::InProgress);
                 assert!(call.raw_input.is_some());
             }
             other => panic!("首次应发 tool_call，实际 {other:?}"),
@@ -2006,10 +2006,10 @@ mod acp_agent_cli_tests {
         let advanced = acp_updates_from_event(&done, &mut states);
         assert_eq!(advanced.len(), 1);
         match &advanced[0] {
-            agent_client_protocol::schema::v1::SessionUpdate::ToolCallUpdate(update) => {
+            agent_client_protocol::v1::schema::SessionUpdate::ToolCallUpdate(update) => {
                 assert_eq!(
                     update.fields.status,
-                    Some(agent_client_protocol::schema::v1::ToolCallStatus::Completed)
+                    Some(agent_client_protocol::v1::schema::ToolCallStatus::Completed)
                 );
                 assert!(update.fields.raw_output.is_some());
             }
@@ -2021,7 +2021,7 @@ mod acp_agent_cli_tests {
     /// 这是兜底路径先建卡片、`streamBlocks` 后补齐时真实会发生顺序。
     #[test]
     fn late_args_and_result_should_be_patched_onto_existing_call() {
-        use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallStatus};
+        use agent_client_protocol::v1::schema::{SessionUpdate, ToolCallStatus};
 
         let mut states = std::collections::HashMap::new();
         let announce = serde_json::json!({
@@ -2089,7 +2089,7 @@ mod acp_agent_cli_tests {
     /// 结果事件只在 `message` 里带输出，id 与内容都要从那里拆出来补到卡片上。
     #[test]
     fn tool_result_message_should_patch_raw_output_without_repeating_status() {
-        use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallStatus};
+        use agent_client_protocol::v1::schema::{SessionUpdate, ToolCallStatus};
 
         let mut states = std::collections::HashMap::new();
         let running = serde_json::json!({
@@ -2159,7 +2159,7 @@ mod acp_agent_cli_tests {
     /// `streamCache` 缺席时（主链路当前就是这么跑的），工具卡片与状态推进仍要成立。
     #[test]
     fn tool_event_without_stream_cache_should_still_emit_call_and_complete() {
-        use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallStatus};
+        use agent_client_protocol::v1::schema::{SessionUpdate, ToolCallStatus};
 
         let mut states = std::collections::HashMap::new();
         let running = serde_json::json!({
@@ -2476,7 +2476,7 @@ mod acp_agent_cli_tests {
     /// 工具却静默跑回默认工作区——看着成功，地方不对。
     #[test]
     fn new_session_should_reject_file_cwd_with_invalid_params() {
-        use agent_client_protocol::schema::v1::ErrorCode;
+        use agent_client_protocol::v1::schema::ErrorCode;
 
         let dir = acp_test_temp_dir("file-cwd");
         let file = dir.join("not-a-dir.txt");
@@ -2511,7 +2511,7 @@ mod acp_agent_cli_tests {
     /// cwd 指向不存在的目录时同样归到参数错误。
     #[test]
     fn new_session_should_reject_missing_cwd_with_invalid_params() {
-        use agent_client_protocol::schema::v1::ErrorCode;
+        use agent_client_protocol::v1::schema::ErrorCode;
 
         let dir = acp_test_temp_dir("missing-cwd");
         let missing = dir.join("no-such-subdir");
@@ -2548,7 +2548,7 @@ mod acp_agent_cli_tests {
     /// 工具已经报过失败后，结果事件只许补输出，不许把状态改回成功。
     #[test]
     fn failed_tool_status_should_not_be_rewritten_to_completed_by_result() {
-        use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallStatus};
+        use agent_client_protocol::v1::schema::{SessionUpdate, ToolCallStatus};
 
         let mut states = std::collections::HashMap::new();
         let running = serde_json::json!({
@@ -2608,7 +2608,7 @@ mod acp_agent_cli_tests {
     /// 首帧无参数建卡后，状态没变的参数补齐帧同样要发出去。
     #[test]
     fn delta_tool_args_should_be_patched_when_status_unchanged() {
-        use agent_client_protocol::schema::v1::SessionUpdate;
+        use agent_client_protocol::v1::schema::SessionUpdate;
 
         let mut states = std::collections::HashMap::new();
         let first = serde_json::json!({
@@ -2747,8 +2747,8 @@ mod acp_agent_cli_tests {
 
         let result = acp_handle_cancel_notification(
             &registry,
-            agent_client_protocol::schema::v1::CancelNotification::new(
-                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            agent_client_protocol::v1::schema::CancelNotification::new(
+                agent_client_protocol::v1::schema::SessionId::new("s-1"),
             ),
         );
         assert!(result.is_ok(), "通知没有响应帧，必须安静收下");
@@ -2758,8 +2758,8 @@ mod acp_agent_cli_tests {
         // 会话根本不存在也一样：属于编辑器的正常竞态，不能回任何东西。
         let unknown = acp_handle_cancel_notification(
             &registry,
-            agent_client_protocol::schema::v1::CancelNotification::new(
-                agent_client_protocol::schema::v1::SessionId::new("nope"),
+            agent_client_protocol::v1::schema::CancelNotification::new(
+                agent_client_protocol::v1::schema::SessionId::new("nope"),
             ),
         );
         assert!(unknown.is_ok(), "未知会话的 cancel 也要安静丢弃");
@@ -2780,8 +2780,8 @@ mod acp_agent_cli_tests {
 
         acp_handle_cancel_notification(
             &registry,
-            agent_client_protocol::schema::v1::CancelNotification::new(
-                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            agent_client_protocol::v1::schema::CancelNotification::new(
+                agent_client_protocol::v1::schema::SessionId::new("s-1"),
             ),
         )
         .expect("cancel 应被受理");
@@ -2823,8 +2823,8 @@ mod acp_agent_cli_tests {
         );
         acp_handle_cancel_notification(
             &registry,
-            agent_client_protocol::schema::v1::CancelNotification::new(
-                agent_client_protocol::schema::v1::SessionId::new("s-1"),
+            agent_client_protocol::v1::schema::CancelNotification::new(
+                agent_client_protocol::v1::schema::SessionId::new("s-1"),
             ),
         )
         .expect("轮次已结束的 cancel 也该安静收下");
@@ -2846,7 +2846,7 @@ mod acp_agent_cli_tests {
     /// 回放只还原正文：用户与助理各归各的块，工具消息与空正文不产生帧。
     #[test]
     fn replay_update_should_render_body_text_by_role() {
-        use agent_client_protocol::schema::v1::{SessionId, SessionUpdate};
+        use agent_client_protocol::v1::schema::{SessionId, SessionUpdate};
 
         let session_id = SessionId::new("s-1");
         let text = |value: &str| MessagePart::Text {
@@ -2859,7 +2859,7 @@ mod acp_agent_cli_tests {
         assert!(
             matches!(user.update, SessionUpdate::UserMessageChunk(ref chunk)
                 if matches!(&chunk.content,
-                    agent_client_protocol::schema::v1::ContentBlock::Text(item)
+                    agent_client_protocol::v1::schema::ContentBlock::Text(item)
                         if item.text == "第一问\n\n补充")),
             "多段正文要按顺序拼起来"
         );
@@ -2871,7 +2871,7 @@ mod acp_agent_cli_tests {
                 assistant.update,
                 SessionUpdate::AgentMessageChunk(ref chunk)
                     if matches!(&chunk.content,
-                        agent_client_protocol::schema::v1::ContentBlock::Text(item)
+                        agent_client_protocol::v1::schema::ContentBlock::Text(item)
                             if item.text == "回答")
             ),
             "助理正文必须走 AgentMessageChunk"
@@ -2886,7 +2886,7 @@ mod acp_agent_cli_tests {
     /// 编辑器带来的 stdio MCP 定义要原样翻成 PAI 的 definition JSON。
     #[test]
     fn session_mcp_servers_should_translate_stdio_definition() {
-        use agent_client_protocol::schema::v1::{McpServer, McpServerStdio};
+        use agent_client_protocol::v1::schema::{McpServer, McpServerStdio};
 
         let servers = vec![McpServer::Stdio(
             McpServerStdio::new("probe", "node").args(vec!["server.js".to_string()]),

@@ -41,7 +41,7 @@ rmcp = { version = "3.0.1", features = ["auth", "client", "macros", "transport-c
 async-trait = "0.1"
 tokio = { version = "1.52.1", features = ["rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
-tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 axum = { version = "0.8", features = ["ws"] }
 dingtalk-stream = "0.1.5"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream", "multipart", "query", "form", "rustls"] }
@@ -51,16 +51,16 @@ reqwest = { version = "0.13.4", default-features = false, features = ["json", "s
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 genai = { git = "https://github.com/kawayiYokami/rust-genai.git", branch = "main" }
 base64 = "0.23"
-zstd = "0.13"
+zstd = "0.14.4"
 aes = "0.9.1"
 aes-gcm = "0.11"
-qrcode = "0.14"
+qrcode = "0.15.0"
 md5 = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
-infer = "0.19.0"
+infer = "0.22.0"
 uuid = { version = "1", features = ["v4"] }
 once_cell = "1"
-scraper = "0.27.0"
+scraper = "0.29.0"
 rs-trafilatura = "0.2"
 urlencoding = "2.1"
 webbrowser = "1.0"
@@ -69,32 +69,32 @@ socket2 = "0.6.4"
 os_info = "3"
 sse-stream = "0.2"
 sha2 = "0.11.0"
-sha1 = "0.10"
+sha1 = "0.11.0"
 pdf_oxide = { version = "0.3.78", default-features = false }
-hayro = "0.7.1"
+hayro = "0.9.0"
 aho-corasick = "1.1"
 enigo = "0.6"
 webp = "0.3"
 rayon = "1.10"
 tiktoken-rs = "0.12.0"
 xcap = "0.9.6"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 parking_lot = "0.12"
-tantivy = "0.26.0"
+tantivy = "0.27.0"
 font-kit = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
-undoc = "0.5.2"
+undoc = "0.28.0"
 litchi = { git = "https://github.com/DevExzh/litchi.git", rev = "5a931961d58bf71c6bb5b7e82f450bda34349e3d" }
 walkdir = "2.5.0"
 zip = { version = "9.0.5", default-features = false, features = ["deflate", "aes-crypto"] }
 ropey = "1.6.1"
 unicode-segmentation = "1.13.3"
-notify = "7"
-notify-debouncer-mini = "0.5"
-gix-ignore = "0.22"
+notify = "9"
+notify-debouncer-mini = "0.8"
+gix-ignore = "0.24.1"
 bstr = "1"
-trash = "5.2.8"
-agent-client-protocol = { version = "3.6.0", features = ["stdio"] }
+trash = "5.4.0"
+agent-client-protocol = { version = "5.5.1", features = ["stdio"] }
 jsonc-parser = { version = "0.34.0", features = ["serde", "serde_json"] }
 
 [features]
@@ -127,7 +127,7 @@ debug = "line-tables-only"
 panic = "abort"
 
 [dev-dependencies]
-httpmock = "0.8.3"
+httpmock = "0.9.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = [

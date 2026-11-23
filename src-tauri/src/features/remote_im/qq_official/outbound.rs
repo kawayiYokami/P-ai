@@ -75,7 +75,12 @@ fn qq_official_sha1_hex(bytes: &[u8]) -> String {
     use sha1::Digest as _;
     let mut hasher = sha1::Sha1::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    // digest 0.11 起输出类型不再实现 LowerHex，这里自己拼小写十六进制，输出与旧版一致。
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn qq_official_md5_hex(bytes: &[u8]) -> String {

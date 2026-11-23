@@ -226,7 +226,9 @@ fn render_pdf_pages_as_webp_with_hayro(file_path: &str) -> Result<(usize, Vec<Pd
     }
 
     let interpreter_settings = hayro::hayro_interpret::InterpreterSettings::default();
-    let render_settings = hayro::RenderSettings {
+    // hayro 0.9 起缩放与背景色从 RenderSettings 移到了独立的 PixmapSettings。
+    let render_settings = hayro::RenderSettings::default();
+    let pixmap_settings = hayro::PixmapSettings {
         x_scale: 1.0,
         y_scale: 1.0,
         bg_color: hayro::vello_cpu::color::palette::css::WHITE,
@@ -238,7 +240,13 @@ fn render_pdf_pages_as_webp_with_hayro(file_path: &str) -> Result<(usize, Vec<Pd
         .enumerate()
         .map(|(page_index, page)| {
             let render_cache = hayro::RenderCache::new();
-            let pixmap = hayro::render(page, &render_cache, &interpreter_settings, &render_settings);
+            let pixmap = hayro::render(
+                page,
+                &render_cache,
+                &interpreter_settings,
+                &render_settings,
+                &pixmap_settings,
+            );
             let width = pixmap.width() as u32;
             let height = pixmap.height() as u32;
             let rgba = pixmap.data_as_u8_slice().to_vec();
