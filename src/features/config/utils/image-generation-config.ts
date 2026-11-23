@@ -409,6 +409,18 @@ export function normalizeImageGenerationConfig(config: Pick<AppConfig, "imageGen
   );
 }
 
+/**
+ * 图片生成的脏判定快照：只取保存时会写、且需要归一化后比较的字段。
+ * 图片生成页的 imageDirty 与「未保存的更改」弹窗的字段清单都从这里取，避免两份口径。
+ */
+export function imageGenerationDirtySnapshot(config: Partial<AppConfig>) {
+  const imageProviders = normalizeImageGenerationProviders(config.imageProviders);
+  return {
+    imageGenerationModelId: normalizeImageGenerationModelId(config.imageGenerationModelId, imageProviders),
+    imageProviders,
+  };
+}
+
 export function imageGenerationProviderTemplate(
   providerType: ImageGenerationProviderKind,
 ): ProviderTemplate {

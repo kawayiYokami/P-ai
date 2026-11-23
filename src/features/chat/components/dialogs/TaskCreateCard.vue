@@ -214,6 +214,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import AppLoading from "../../../shared/components/AppLoading.vue";
 import { CronLight } from "@vue-js-cron/light";
@@ -986,7 +987,7 @@ watch(
 
 watch(
   scheduleDetailMode,
-  (nextMode, prevMode) => {
+  async (nextMode, prevMode) => {
     if (nextMode === prevMode) return;
     if (nextMode !== "simple" || simpleModeAllowed.value) {
       if (nextMode === "advanced") {
@@ -996,7 +997,7 @@ watch(
       return;
     }
     const confirmed = typeof window !== "undefined"
-      ? window.confirm(t("chat.taskCreate.confirmSwitchToSimple"))
+      ? await confirmDialog({ message: t("chat.taskCreate.confirmSwitchToSimple") })
       : false;
     if (!confirmed) {
       scheduleDetailMode.value = (prevMode || lastScheduleDetailMode.value || "advanced");

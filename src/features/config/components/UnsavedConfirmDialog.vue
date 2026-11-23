@@ -20,6 +20,22 @@
         </div>
       </div>
 
+      <div v-if="guard.dialogOptions.value.dirtyDetails?.length" class="mt-3 rounded-box border border-base-300 px-2 py-1.5">
+        <OverlayScrollArea scroller-class="max-h-52">
+          <ul class="space-y-0.5 text-xs">
+            <li
+              v-for="(item, index) in guard.dialogOptions.value.dirtyDetails"
+              :key="`${item.path}-${index}`"
+              class="flex flex-wrap items-baseline gap-x-1.5 break-all"
+            >
+              <code class="text-base-content/80">{{ shortenDirtyPathForDisplay(item.path) }}</code>
+              <span v-if="item.before !== undefined" class="text-base-content/40 line-through">{{ item.before }}</span>
+              <span v-if="item.after !== undefined" class="text-base-content/60">{{ item.after }}</span>
+            </li>
+          </ul>
+        </OverlayScrollArea>
+      </div>
+
       <div class="modal-action mt-6 flex flex-wrap items-center justify-end gap-2">
         <template v-if="guard.dialogOptions.value.canSaveAndLeave">
           <button
@@ -78,6 +94,8 @@
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
+import { shortenDirtyPathForDisplay } from "../utils/dirty-field-diff";
 import { useUnsavedChangesGuard } from "../composables/use-unsaved-changes-guard";
 
 const { t } = useI18n();

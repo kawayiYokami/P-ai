@@ -200,6 +200,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -471,7 +472,7 @@ async function refreshCodexRateLimits(status?: CodexAuthStatus | null) {
 async function consumeCodexResetCredit() {
   const providerId = String(props.provider.id || "").trim();
   if (!providerId || currentCodexResetCreditCount.value <= 0 || codexResetBusy.value) return;
-  if (!window.confirm(`确定消耗 1 张重置券吗？当前有 ${currentCodexResetCreditCount.value} 张可用券。此操作不可撤销。`)) return;
+  if (!(await confirmDialog({ message: `确定消耗 1 张重置券吗？当前有 ${currentCodexResetCreditCount.value} 张可用券。此操作不可撤销。` }))) return;
   codexResetBusy.value = true;
   try {
     const result = await invokeTauri<CodexConsumeRateLimitResetCreditResult>("codex_consume_rate_limit_reset_credit", {

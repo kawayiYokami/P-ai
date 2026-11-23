@@ -264,6 +264,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import type {
   AppConfig,
@@ -292,6 +293,7 @@ import {
   createImageGenerationModel,
   createImageGenerationProvider,
   imageGenerationEndpointId,
+  imageGenerationDirtySnapshot,
   imageGenerationProviderTemplate,
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
@@ -569,22 +571,14 @@ const providerTemplateGroups = computed<ConfigTemplateGroup[]>(() => {
   return [{ title: t("config.imageGeneration.providerSettings"), rows }];
 });
 
-function imageConfigSnapshot(config: Partial<AppConfig>) {
-  const imageProviders = normalizeImageGenerationProviders(config.imageProviders);
-  return {
-    imageGenerationModelId: normalizeImageGenerationModelId(config.imageGenerationModelId, imageProviders),
-    imageProviders,
-  };
-}
-
 const savedImageSnapshot = computed(() => {
   try {
-    return imageConfigSnapshot(JSON.parse(String(props.lastSavedConfigJson || "{}")) as Partial<AppConfig>);
+    return imageGenerationDirtySnapshot(JSON.parse(String(props.lastSavedConfigJson || "{}")) as Partial<AppConfig>);
   } catch {
-    return imageConfigSnapshot({ imageProviders: [] });
+    return imageGenerationDirtySnapshot({ imageProviders: [] });
   }
 });
-const currentImageSnapshot = computed(() => imageConfigSnapshot(props.config));
+const currentImageSnapshot = computed(() => imageGenerationDirtySnapshot(props.config));
 const imageDirty = computed(() => (
   JSON.stringify(currentImageSnapshot.value) !== JSON.stringify(savedImageSnapshot.value)
 ));
@@ -711,10 +705,10 @@ function addProvider() {
   return provider;
 }
 
-function removeSelectedProvider(): boolean {
+async function removeSelectedProvider(): Promise<boolean> {
   const provider = selectedProvider.value;
   if (!provider) return false;
-  if (!window.confirm(t("config.imageGeneration.confirmRemoveProvider", { name: provider.name }))) return false;
+  if (!(await confirmDialog({ message: t("config.imageGeneration.confirmRemoveProvider", { name: provider.name }) }))) return false;
   const index = props.config.imageProviders.findIndex((item) => item.id === provider.id);
   if (index >= 0) props.config.imageProviders.splice(index, 1);
   clearInvalidDefaultModel();
@@ -737,12 +731,12 @@ function addModel() {
   }
 }
 
-function removeModel(modelId: string) {
+async function removeModel(modelId: string) {
   const provider = selectedProvider.value;
   if (!provider) return;
   const model = provider.models.find((item) => item.id === modelId);
   if (!model) return;
-  if (!window.confirm(t("config.imageGeneration.confirmRemoveModel", { name: model.name || model.model || model.id }))) return;
+  if (!(await confirmDialog({ message: t("config.imageGeneration.confirmRemoveModel", { name: model.name || model.model || model.id }) }))) return;
   const index = provider.models.findIndex((item) => item.id === modelId);
   if (index >= 0) provider.models.splice(index, 1);
   clearInvalidDefaultModel();

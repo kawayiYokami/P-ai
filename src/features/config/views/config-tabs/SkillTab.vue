@@ -620,6 +620,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import type { AppIconName } from "../../../shared/icons/icon-map";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
@@ -640,6 +641,8 @@ import type { SettingsBreadcrumbItem } from "../../components/SettingsBreadcrumb
 import AppMarkdownRenderer from "../../../chat/markdown/AppMarkdownRenderer.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
 import { useUnsavedChangesGuard } from "../../composables/use-unsaved-changes-guard";
+import type { DirtyFieldDiff } from "../../composables/use-unsaved-changes-guard";
+import { formatDirtyValue } from "../../utils/dirty-field-diff";
 
 const { t } = useI18n();
 const unsavedGuard = useUnsavedChangesGuard();
@@ -649,6 +652,35 @@ onMounted(() => {
     // 显式优先级高于全局 config checker：「保存并离开」应先落在具体 skill 草稿上。
     priority: 10,
     isDirty: () => isDirty.value,
+    // dev 模式弹窗里的字段清单：逐项对照 isMetaDirty / isContentDirty 的判定口径
+    describeDirty: () => {
+      const skill = selectedSkill.value;
+      if (!skill || skill.isBuiltin) return [];
+      const base = `skills[${skill.path}]`;
+      const fields: DirtyFieldDiff[] = [];
+      if (editingName.value.trim() !== (skill.name || "").trim()) {
+        fields.push({
+          path: `${base}.name`,
+          before: formatDirtyValue(skill.name, "name"),
+          after: formatDirtyValue(editingName.value, "name"),
+        });
+      }
+      if (editingDescription.value.trim() !== (skill.description || "").trim()) {
+        fields.push({
+          path: `${base}.description`,
+          before: formatDirtyValue(skill.description, "description"),
+          after: formatDirtyValue(editingDescription.value, "description"),
+        });
+      }
+      if (editingContent.value !== (skill.content || "")) {
+        fields.push({
+          path: `${base}.content`,
+          before: formatDirtyValue(skill.content, "content"),
+          after: formatDirtyValue(editingContent.value, "content"),
+        });
+      }
+      return fields;
+    },
     title: t("config.unsavedConfirm.title"),
     message: t("config.skill.confirmLeaveUnsaved"),
     onDiscard: () => {
@@ -856,8 +888,8 @@ function cancelEditDesc() {
   isEditingDesc.value = false;
 }
 
-function confirmRemoveSkill(skill: SkillSummaryItem) {
-  if (window.confirm(t("config.skill.deleteConfirm", { name: skill.name }))) {
+async function confirmRemoveSkill(skill: SkillSummaryItem) {
+  if (await confirmDialog({ message: t("config.skill.deleteConfirm", { name: skill.name }) })) {
     void removeSkill(skill);
   }
 }

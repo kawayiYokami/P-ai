@@ -429,6 +429,8 @@ import {
   appendImageGenerationProvider,
 } from "../../utils/image-generation-config";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
+import { collectDirtyFields } from "../../utils/dirty-field-diff";
+import { imageGenerationDirtySnapshot } from "../../utils/image-generation-config";
 import {
   CODEX_REASONING_EFFORTS,
   LEGAL_REASONING_EFFORTS,
@@ -436,7 +438,7 @@ import {
   reasoningEffortDisplayLabel as sharedReasoningEffortDisplayLabel,
   sortReasoningEffortValues,
 } from "../../utils/api-config-display";
-import { buildModelCapability, type ModelCapabilitySnapshot } from "../../utils/model-capability";
+import { buildModelCapability, capabilityHasContextWindow, type ModelCapabilitySnapshot } from "../../utils/model-capability";
 import {
   AUTO_CONTEXT_WINDOW_TOKENS,
   buildDraftGroups,
@@ -498,7 +500,7 @@ type ImageGenerationToolbarState = {
 type ImageGenerationTabPublicInstance = {
   toolbarState: ImageGenerationToolbarState;
   addProvider: () => ImageGenerationProviderConfigItem;
-  removeSelectedProvider: () => boolean;
+  removeSelectedProvider: () => Promise<boolean>;
   restoreImageConfig: () => void;
   saveImageConfig: () => Promise<boolean>;
 };
@@ -546,6 +548,13 @@ onMounted(() => {
     // 只在详情页（inDetailMode）才认为当前 provider 是「正在被编辑的草稿」；
     // 列表页 selectedProvider 会兜底到 activeProviderList[0]，不代表用户在改它。
     isDirty: () => inDetailMode.value && activeTopTab.value !== "imageGeneration" && currentProviderDirty.value,
+    // dev 模式弹窗里的字段清单：与 currentProviderDirty 用同一对对象
+    describeDirty: () => {
+      const provider = selectedProvider.value;
+      const pair = resolveProviderComparePair();
+      if (!provider || !pair) return [];
+      return collectDirtyFields(pair.saved, pair.current, `apiProviders[${provider.id}]`);
+    },
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {
@@ -558,6 +567,18 @@ onMounted(() => {
   const unregisterImage = unsavedGuard.registerDirtyChecker("image-provider", {
     priority: 10,
     isDirty: () => inDetailMode.value && activeTopTab.value === "imageGeneration" && imageToolbarDirty.value,
+    // dev 模式弹窗里的字段清单：与图片生成页的 imageDirty 用同一个快照函数
+    describeDirty: () => {
+      try {
+        return collectDirtyFields(
+          imageGenerationDirtySnapshot(JSON.parse(String(props.lastSavedConfigJson || "{}")) as Partial<AppConfig>),
+          imageGenerationDirtySnapshot(props.config),
+          "imageProviders",
+        );
+      } catch {
+        return [];
+      }
+    },
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {
@@ -1317,18 +1338,34 @@ function draftGroupsWithCodexVirtualExpansion(groups: DraftModelGroup[], provide
   return groups;
 }
 
-const currentProviderDirty = computed(() => {
+/**
+ * 当前供应商的「已保存基线 / 当前草稿」对比对。
+ * 脏判定与 dev 明细清单共用同一对对象，避免两套口径算出不同结论。
+ * 返回 null：当前没有供应商，或该供应商还没有已保存基线（新增）。
+ */
+function resolveProviderComparePair(): { saved: unknown; current: unknown } | null {
   const provider = selectedProvider.value;
-  if (!provider) return false;
+  if (!provider) return null;
   const savedProvider = savedProviderMap.value.get(String(provider.id || "").trim());
-  if (!savedProvider) return true;
+  if (!savedProvider) return null;
   // 纯预览：不产生副作用，避免 Date.now 导致的报告抖动；codex 虚拟展开与 commit 同构
   const virtualGroups = draftGroupsWithCodexVirtualExpansion(cloneDraftGroupsForDirty(), provider);
   const draftView = {
     ...provider,
     models: peekDraftModels(provider, virtualGroups),
   };
-  return JSON.stringify(normalizeProviderForCompare(draftView)) !== JSON.stringify(normalizeProviderForCompare(savedProvider));
+  return {
+    saved: normalizeProviderForCompare(savedProvider),
+    current: normalizeProviderForCompare(draftView),
+  };
+}
+
+const currentProviderDirty = computed(() => {
+  if (!selectedProvider.value) return false;
+  const pair = resolveProviderComparePair();
+  // 没有已保存基线 = 新增供应商，视为有改动
+  if (!pair) return true;
+  return JSON.stringify(pair.current) !== JSON.stringify(pair.saved);
 });
 
 function isGoogleModelAdapter(adapter: string | undefined): boolean {
@@ -1549,6 +1586,14 @@ function capabilityFromRequestFormat(format: ApiRequestFormat | string): ApiCapa
   return "text";
 }
 
+/**
+ * 只有文本能力才有「上下文窗口」这个参数：嵌入/重排/语音/图像的能力卡片不显示它，
+ * 所以草稿不要算它、不要夹它，比对时也不该看它——否则打开详情什么都不改就会判脏。
+ */
+function selectedCapabilityHasContextWindow(): boolean {
+  return capabilityHasContextWindow(selectedCapability.value);
+}
+
 function decodeProviderConcurrentLimit(provider: ApiProviderConfigItem): number {
   const raw = Number(provider.maxConcurrentRequests ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -1585,6 +1630,9 @@ function normalizedModelReasoningEffort(_provider: ApiProviderConfigItem, model:
 
 function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
   const isCodex = provider.requestFormat === "codex";
+  // 非文本能力没有上下文窗口：历史数据里可能残留该字段，比对时一律不看，
+  // 否则草稿不带它、已保存带着它，打开详情什么都不改也会判脏。
+  const keepContextWindow = capabilityHasContextWindow(capabilityFromRequestFormat(provider.requestFormat));
   return {
     id: String(provider.id || "").trim(),
     name: String(provider.name || "").trim(),
@@ -1630,7 +1678,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
           reasoningEffort: normalizedModelReasoningEffort(provider, model),
           temperature: Number(model.temperature ?? 1),
           customTemperatureEnabled: !!model.customTemperatureEnabled,
-          contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS)),
+          ...(keepContextWindow ? { contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS)) } : {}),
           customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
           maxOutputTokens: Number(model.maxOutputTokens ?? 4096),
         }))
@@ -1740,6 +1788,8 @@ function createModel(seed: string, name = ""): ApiModelConfigItem {
     reasoningEffort: "default",
     temperature: 1,
     customTemperatureEnabled: false,
+    // 数据模型要求这个字段必填，所以留一个占位值；
+    // 非文本能力在比对与计算时都不看它（见 capabilityHasContextWindow）。
     contextWindowTokens: AUTO_CONTEXT_WINDOW_TOKENS,
     customMaxOutputTokensEnabled: false,
     maxOutputTokens: 4096,
@@ -1811,8 +1861,8 @@ function addImageProvider() {
   return provider;
 }
 
-function removeImageProvider() {
-  const removed = imageGenerationTabRef.value?.removeSelectedProvider();
+async function removeImageProvider() {
+  const removed = await imageGenerationTabRef.value?.removeSelectedProvider();
   if (removed) {
     inDetailMode.value = false;
   }
@@ -2023,17 +2073,21 @@ function autoContextWindowTokens(group: DraftModelGroup): number {
 }
 
 function applyAutoContextWindowTokens(group: DraftModelGroup) {
+  // 嵌入/重排等能力没有这个参数，不要去算，算了就会变成脏
+  if (!selectedCapabilityHasContextWindow()) return;
   group.primary.contextWindowTokens = autoContextWindowTokens(group);
 }
 
 function clampModelCardValues(group: DraftModelGroup) {
   const modelCard = group.primary;
-  const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS));
-  const contextMax = contextWindowMax(group);
-  const contextMin = Math.min(SLIDER_CONTEXT_MIN, contextMax);
-  const clampedContext = Math.max(contextMin, Math.min(contextMax, nextContext));
-  if (Number.isFinite(nextContext) && nextContext !== clampedContext) {
-    modelCard.contextWindowTokens = clampedContext;
+  if (selectedCapabilityHasContextWindow()) {
+    const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS));
+    const contextMax = contextWindowMax(group);
+    const contextMin = Math.min(SLIDER_CONTEXT_MIN, contextMax);
+    const clampedContext = Math.max(contextMin, Math.min(contextMax, nextContext));
+    if (Number.isFinite(nextContext) && nextContext !== clampedContext) {
+      modelCard.contextWindowTokens = clampedContext;
+    }
   }
 
   const nextOutput = Math.round(Number(modelCard.maxOutputTokens ?? 4_096));
@@ -2043,6 +2097,7 @@ function clampModelCardValues(group: DraftModelGroup) {
 }
 
 function clampManualContextWindowValue(group: DraftModelGroup) {
+  if (!selectedCapabilityHasContextWindow()) return;
   const modelCard = group.primary;
   const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS));
   const clampedContext = Math.max(SLIDER_CONTEXT_MIN, Math.min(FALLBACK_CONTEXT_WINDOW_MAX, nextContext));

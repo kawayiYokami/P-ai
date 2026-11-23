@@ -260,6 +260,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../components/ConfigCard.vue";
 import {
@@ -485,10 +486,10 @@ async function refreshStorageOverview() {
 async function handleCleanupStorageItem(item: StorageUsageItem) {
   const cleanupKind = String(item.cleanupKind || "").trim();
   if (!cleanupKind || item.cleanableFileCount <= 0) return;
-  const confirmed = window.confirm(t("config.storage.cleanupConfirm", {
+  const confirmed = await confirmDialog({ message: t("config.storage.cleanupConfirm", {
     name: storageCategoryLabel(item.id),
     size: formatBytes(item.cleanableBytes),
-  }));
+  }) });
   if (!confirmed) return;
   cleanupBusyKind.value = cleanupKind;
   storageMessage.value = "";

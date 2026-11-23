@@ -581,6 +581,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import { confirmDialog, alertDialog, promptDialog } from "../../shared/services/confirm-dialog";
 import { useI18n } from "vue-i18n";
 import {
   appendTransportProbeLog,
@@ -1544,9 +1545,9 @@ function unstagePaths(paths: string[]) {
   void runGitAction(`restore --staged ${paths.join(" ")}`, () => gitPanelUnstage(repoRoot.value, paths), `已取消暂存 ${paths.length} 个文件`);
 }
 
-function discardPaths(paths: string[]) {
+async function discardPaths(paths: string[]) {
   if (paths.length === 0) return;
-  if (!window.confirm(t("gitPanel.discardConfirm", { paths: paths.join(", ") }))) return;
+  if (!(await confirmDialog({ message: t("gitPanel.discardConfirm", { paths: paths.join(", ") }) }))) return;
   void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(repoRoot.value, paths), `已撤回 ${paths.length} 个文件`);
 }
 
@@ -1592,7 +1593,7 @@ async function runStashApply(stashRef: string) {
 }
 
 async function runStashDrop(stashRef: string) {
-  if (!window.confirm(t("gitPanel.stashDropConfirm", { reference: stashRef }))) return;
+  if (!(await confirmDialog({ message: t("gitPanel.stashDropConfirm", { reference: stashRef }) }))) return;
   void runGitAction(`stash drop ${stashRef}`, () => gitPanelStashDrop(repoRoot.value, stashRef), "已删除储藏");
 }
 
@@ -1638,18 +1639,18 @@ async function runCheckoutBranch(name: string) {
   try {
     const check = await gitPanelCheckoutCheck(repoRoot.value, name);
     if (check.conflictingPaths.length > 0) {
-      window.alert(
-        t("gitPanel.checkoutBlocked", {
+      await alertDialog({
+        message: t("gitPanel.checkoutBlocked", {
           name,
           paths: check.conflictingPaths.join("\n"),
         }),
-      );
+      });
       return;
     }
   } catch {
     // 预检失败不阻塞，走默认确认文案
   }
-  if (!window.confirm(t("gitPanel.checkoutConfirm", { name }))) return;
+  if (!(await confirmDialog({ message: t("gitPanel.checkoutConfirm", { name }) }))) return;
   branchPickerOpen.value = false;
   const ok = await runGitAction(
     `checkout ${name}`,
@@ -1807,7 +1808,7 @@ async function createBranchFromCommit() {
   const entry = commitCard.value.entry;
   closeCommitCard();
   if (!entry || busy.value) return;
-  const name = window.prompt(t("gitPanel.createBranchPrompt"), "");
+  const name = await promptDialog({ message: t("gitPanel.createBranchPrompt"), defaultValue: "" });
   if (!name?.trim()) return;
   busy.value = true;
   try {

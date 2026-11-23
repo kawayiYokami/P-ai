@@ -94,6 +94,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../shared/services/confirm-dialog";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import {
   gitPanelBranchList,
@@ -287,7 +288,7 @@ async function switchBranch(name: string) {
       emit("error", t("gitPanel.checkoutBlocked", { name, paths: check.conflictingPaths.join("\n") }));
       return;
     }
-    if (!window.confirm(t("gitPanel.checkoutConfirm", { name }))) return;
+    if (!(await confirmDialog({ message: t("gitPanel.checkoutConfirm", { name }) }))) return;
     const result = await gitPanelCheckout(root, name);
     if (result.exitCode !== 0) {
       emit("error", result.stderr || result.stdout || `checkout ${name} failed`);

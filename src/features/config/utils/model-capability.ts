@@ -169,3 +169,11 @@ export function buildModelCapability(input: {
     }),
   };
 }
+
+/**
+ * 只有文本能力才有「上下文窗口」这个参数。
+ * 嵌入/重排/语音/图像的模型卡不显示它，草稿不该算它、不该夹它、比对也不该看它。
+ */
+export function capabilityHasContextWindow(capability: string): boolean {
+  return capability === "text";
+}

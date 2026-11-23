@@ -326,6 +326,8 @@ import { useI18n } from "vue-i18n";
 import ConfigView from "./features/config/views/ConfigView.vue";
 import UnsavedConfirmDialog from "./features/config/components/UnsavedConfirmDialog.vue";
 import { provideUnsavedChangesGuard } from "./features/config/composables/use-unsaved-changes-guard";
+import type { DirtyFieldDiff } from "./features/config/composables/use-unsaved-changes-guard";
+import { collectDirtyFields, parseDirtySnapshot } from "./features/config/utils/dirty-field-diff";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
@@ -1085,79 +1087,54 @@ watch(uiSizeScale, (scale) => {
   }
 });
 
+// ==================== 未保存提示的字段级明细 ====================
+// 只服务于 dev 模式下「未保存的更改」弹窗里的字段清单，用来定位误报。
+// 不参与脏判定：谁算脏仍只由 configDirty / personaDirty 决定。
+
+function collectGlobalConfigDirtyFields(): DirtyFieldDiff[] {
+  const details: DirtyFieldDiff[] = [];
+  try {
+    details.push(...collectDirtyFields(
+      parseDirtySnapshot(lastSavedConfigJson.value),
+      parseDirtySnapshot(buildConfigSnapshotJson()),
+    ));
+  } catch {
+    /* 明细字段只是排障，算不出来不影响弹窗 */
+  }
+  if (personaDirty.value) {
+    try {
+      // 必须跟脏判定用同一个快照函数，否则清洗差异会被误报成「改了」
+      details.push(...collectDirtyFields(
+        parseDirtySnapshot(lastSavedPersonasJson.value),
+        parseDirtySnapshot(buildPersonasSnapshotJson()),
+        "personas",
+      ));
+    } catch {
+      /* 同上 */
+    }
+  }
+  return details;
+}
+
 onMounted(() => {
   unsavedGuard.registerDirtyChecker("global-config", {
     isDirty: () => {
       const dirty = configDirty.value || personaDirty.value;
+      // 排障探针：字段级明细打到运行日志；界面上的清单走下面的 describeDirty（仅 dev）
       if (dirty) {
-        // 排障探针：diff 出具体哪些字段不一致，定位「用户没改却弹未保存」的根源。
-        try {
-          const cur = JSON.parse(buildConfigSnapshotJson()) as Record<string, unknown>;
-          const saved = JSON.parse(lastSavedConfigJson.value) as Record<string, unknown>;
-          const diffKeys = [...new Set([...Object.keys(cur), ...Object.keys(saved)])]
-            .filter((key) => JSON.stringify(cur[key]) !== JSON.stringify(saved[key]));
-          const lines: string[] = [
-            `[unsaved-guard] global-config dirty: configDirty=${configDirty.value} personaDirty=${personaDirty.value} diffKeys=${JSON.stringify(diffKeys)}`,
-          ];
-          // apiProviders 按 provider.id 拆字段级 diff
-          if (diffKeys.includes("apiProviders")) {
-            const savedProviders = Array.isArray(saved.apiProviders) ? saved.apiProviders as Array<Record<string, unknown>> : [];
-            const curProviders = Array.isArray(cur.apiProviders) ? cur.apiProviders as Array<Record<string, unknown>> : [];
-            for (const curP of curProviders) {
-              const savedP = savedProviders.find((p) => p?.id === curP?.id);
-              if (!savedP) {
-                lines.push(`  added provider ${curP.id} (${curP.name})`);
-                continue;
-              }
-              const pDiffKeys = [...new Set([...Object.keys(savedP), ...Object.keys(curP)])]
-                .filter((k) => JSON.stringify(savedP[k]) !== JSON.stringify(curP[k]));
-              if (pDiffKeys.length === 0) continue;
-              lines.push(`  provider ${curP.id} (${curP.name}) diffKeys=${JSON.stringify(pDiffKeys)}`);
-              for (const k of pDiffKeys) {
-                // models 数组再拆一层，按 model.id 找字段差异
-                if (k === "models" && Array.isArray(savedP[k]) && Array.isArray(curP[k])) {
-                  const savedModels = savedP[k] as Array<Record<string, unknown>>;
-                  const curModels = curP[k] as Array<Record<string, unknown>>;
-                  for (const cm of curModels) {
-                    const sm = savedModels.find((m) => m?.id === cm?.id);
-                    if (!sm) {
-                      lines.push(`    added model ${cm.id} (${cm.model})`);
-                      continue;
-                    }
-                    const mDiffKeys = [...new Set([...Object.keys(sm), ...Object.keys(cm)])]
-                      .filter((mk) => JSON.stringify(sm[mk]) !== JSON.stringify(cm[mk]));
-                    if (mDiffKeys.length === 0) continue;
-                    lines.push(`    model ${cm.id} (${cm.model}) diffKeys=${JSON.stringify(mDiffKeys)}`);
-                    for (const mk of mDiffKeys) {
-                      lines.push(`      ${mk}: saved=${JSON.stringify(sm[mk])} current=${JSON.stringify(cm[mk])}`);
-                    }
-                  }
-                  for (const sm of savedModels) {
-                    if (!curModels.find((m) => m?.id === sm?.id)) {
-                      lines.push(`    removed model ${sm.id} (${sm.model})`);
-                    }
-                  }
-                } else {
-                  lines.push(`    ${k}: saved=${JSON.stringify(savedP[k])?.slice(0, 200)} current=${JSON.stringify(curP[k])?.slice(0, 200)}`);
-                }
-              }
-            }
-            for (const savedP of savedProviders) {
-              if (!curProviders.find((p) => p?.id === savedP?.id)) {
-                lines.push(`  removed provider ${savedP.id} (${savedP.name})`);
-              }
-            }
-          }
-          void invokeTauri("append_runtime_log_probe", {
-            message: lines.join("\n"),
-            level: "debug",
-          }).catch(() => {});
-        } catch {
-          /* 探针失败不影响主流程 */
-        }
+        const fields = collectGlobalConfigDirtyFields();
+        void invokeTauri("append_runtime_log_probe", {
+          message: [
+            `[unsaved-guard] global-config dirty: configDirty=${configDirty.value} personaDirty=${personaDirty.value} fields=${fields.length}`,
+            ...fields.map((field) => `  ${field.path}: ${field.before ?? "（无）"} → ${field.after ?? "（无）"}`),
+          ].join("\n"),
+          level: "debug",
+        }).catch(() => {});
       }
       return dirty;
     },
+    // dev 模式弹窗里的字段清单；生产构建里 guard 不会调用它
+    describeDirty: collectGlobalConfigDirtyFields,
     title: t("config.unsavedConfirm.title"),
     message: t("config.unsavedConfirm.message"),
     onDiscard: () => {

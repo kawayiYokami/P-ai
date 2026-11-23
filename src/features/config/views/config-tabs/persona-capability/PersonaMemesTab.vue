@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../../shared/services/confirm-dialog";
 import AppIcon from "../../../../shared/components/AppIcon.vue";
 import ConfigCard from "../../../components/ConfigCard.vue";
 import { invokeTauri } from "../../../../../services/tauri-api";
@@ -123,7 +124,7 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 async function deleteItem(item: MemeItem) {
-  if (!window.confirm(t("config.persona.memes.confirmDelete", { name: item.name }))) return;
+  if (!(await confirmDialog({ message: t("config.persona.memes.confirmDelete", { name: item.name }) }))) return;
   busy.value = true;
   try {
     await invokeTauri("delete_agent_meme", {

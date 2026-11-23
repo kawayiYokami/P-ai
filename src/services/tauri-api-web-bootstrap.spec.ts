@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+const { invokeMock, promptDialogMock } = vi.hoisted(() => ({ invokeMock: vi.fn(), promptDialogMock: vi.fn() }));
+
+vi.mock("../features/shared/services/confirm-dialog", () => ({
+  promptDialog: promptDialogMock,
+}));
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -135,6 +139,7 @@ describe("Web transport bootstrap", () => {
   beforeEach(() => {
     vi.resetModules();
     invokeMock.mockReset();
+    promptDialogMock.mockReset();
     bridgeAuthRequired = false;
     requestHandlers = new Map();
     sockets = [];
@@ -179,6 +184,7 @@ describe("Web transport bootstrap", () => {
   it("并发业务请求共享一次适配器认证", async () => {
     bridgeAuthRequired = true;
     const prompt = vi.fn(() => "secret");
+    promptDialogMock.mockResolvedValueOnce("secret");
     installWebWindow({
       discovery: { chatUrl: "ws://test.local/chat" },
       prompt,
@@ -196,7 +202,7 @@ describe("Web transport bootstrap", () => {
     ]);
 
     const socket = sockets[0];
-    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(promptDialogMock).toHaveBeenCalledTimes(1);
     expect(socket.sent.filter((item) => item.method === "auth.login")).toHaveLength(1);
     expect(socket.sent.find((item) => item.method === "load_config")?.params?.authToken).toBe("token-1");
     expect(socket.sent.find((item) => item.method === "load_agents")?.params?.authToken).toBe("token-1");
@@ -206,6 +212,7 @@ describe("Web transport bootstrap", () => {
   it("旧 token 失效时由适配器认证并重试原请求", async () => {
     bridgeAuthRequired = true;
     const prompt = vi.fn(() => "fresh-secret");
+    promptDialogMock.mockResolvedValueOnce("fresh-secret");
     installWebWindow({
       discovery: { chatUrl: "ws://test.local/chat", token: "stale-token" },
       prompt,
@@ -227,7 +234,7 @@ describe("Web transport bootstrap", () => {
     await expect(transport.invokeTauri("load_config")).resolves.toEqual({ ok: true });
 
     const requests = sockets[0]?.sent.filter((item) => item.method === "load_config") || [];
-    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(promptDialogMock).toHaveBeenCalledTimes(1);
     expect(requests).toHaveLength(2);
     expect(requests[0]?.params?.authToken).toBe("stale-token");
     expect(requests[1]?.params?.authToken).toBe("fresh-token");

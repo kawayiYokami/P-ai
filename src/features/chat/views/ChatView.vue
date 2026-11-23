@@ -924,6 +924,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, shallowRef, toRef, watch, watchEffect, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { alertDialog } from "../../shared/services/confirm-dialog";
 import { isDarkAppTheme, isVscodeHost } from "../../shell/composables/use-app-theme";
 import {
   useChatComposerAppearance,
@@ -3490,7 +3491,7 @@ async function openHomeGitCommits() {
 function handleHomeGitError(message: string) {
   const text = String(message || "").trim();
   if (!text) return;
-  window.alert(text);
+  void alertDialog({ message: text });
 }
 
 /** 主页监控卡片里的概览条目点击后：切到监控面板的对应 tab。 */

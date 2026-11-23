@@ -147,4 +147,62 @@ describe("useUnsavedChangesGuard", () => {
     expect(highSave).toHaveBeenCalledTimes(1);
     expect(lowSave).not.toHaveBeenCalled();
   });
+
+  it("dev 模式下应把 checker 给出的字段清单带进弹窗", async () => {
+    const guard = createUnsavedChangesGuard();
+    guard.registerDirtyChecker("test-detail", {
+      isDirty: () => true,
+      describeDirty: () => [
+        { path: "apiProviders[p1].apiKeys", before: "***", after: "***" },
+        { path: "uiSizeScale", before: "1", after: "1.1" },
+      ],
+    });
+
+    void guard.confirmLeaveIfDirty();
+
+    expect(guard.dialogOptions.value.dirtyDetails).toEqual([
+      { path: "apiProviders[p1].apiKeys", before: "***", after: "***" },
+      { path: "uiSizeScale", before: "1", after: "1.1" },
+    ]);
+
+    guard.handleCancel();
+  });
+
+  it("checker 不提供清单或清单为空时，弹窗里不出现 dirtyDetails", async () => {
+    const guard = createUnsavedChangesGuard();
+    guard.registerDirtyChecker("test-no-detail", {
+      isDirty: () => true,
+    });
+
+    void guard.confirmLeaveIfDirty();
+    expect(guard.dialogOptions.value.dirtyDetails).toBeUndefined();
+    guard.handleCancel();
+
+    const emptyGuard = createUnsavedChangesGuard();
+    emptyGuard.registerDirtyChecker("test-empty-detail", {
+      isDirty: () => true,
+      describeDirty: () => [],
+    });
+    void emptyGuard.confirmLeaveIfDirty();
+    expect(emptyGuard.dialogOptions.value.dirtyDetails).toBeUndefined();
+    emptyGuard.handleCancel();
+  });
+
+  it("明细计算抛错时弹窗照常打开，脏判定不受影响", async () => {
+    const guard = createUnsavedChangesGuard();
+    guard.registerDirtyChecker("test-broken-detail", {
+      isDirty: () => true,
+      describeDirty: () => {
+        throw new Error("diff failed");
+      },
+    });
+
+    void guard.confirmLeaveIfDirty();
+
+    expect(guard.dialogOpen.value).toBe(true);
+    expect(guard.dialogOptions.value.dirtyDetails).toBeUndefined();
+
+    guard.handleCancel();
+  });
 });
+

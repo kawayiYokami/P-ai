@@ -261,6 +261,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { confirmDialog } from "../../../shared/services/confirm-dialog";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
   getTransportCapabilities,
@@ -663,8 +664,8 @@ async function saveServer(server: McpServerView) {
   }
 }
 
-function confirmRemoveServer(server: McpServerView) {
-  if (window.confirm(t("config.mcp.deleteConfirm", { name: server.name || server.id }))) {
+async function confirmRemoveServer(server: McpServerView) {
+  if (await confirmDialog({ message: t("config.mcp.deleteConfirm", { name: server.name || server.id }) })) {
     void removeServer(server.id);
   }
 }
@@ -927,7 +928,7 @@ async function handleOAuthCancel(serverId: string) {
 }
 
 async function handleOAuthClearCredentials(serverId: string) {
-  if (!window.confirm(t("config.mcp.oauthClearConfirm"))) {
+  if (!(await confirmDialog({ message: t("config.mcp.oauthClearConfirm") }))) {
     return;
   }
   loading.value = true;

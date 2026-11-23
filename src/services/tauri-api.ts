@@ -3,6 +3,7 @@ import { emit, emitTo, listen, type EventCallback, type UnlistenFn } from "@taur
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { AttachmentReceipt } from "./attachment-transfer";
+import { promptDialog } from "../features/shared/services/confirm-dialog";
 import type { CatalogInstallResult, CatalogPage, CatalogSourceInfo, SkillSummaryItem, SkillListResult } from "../types/app";
 
 type WebBridgeConfig = {
@@ -2755,7 +2756,7 @@ async function loginWebBridge(password: string): Promise<WebBridgeState> {
 
 async function requestWebBridgePassword(): Promise<string> {
   // 远程前端模式：iframe 嵌入时优先向父窗口（手机 PAI 壳层）请求已保存密码，
-  // 避免 Android WebView 对跨域 iframe 的 window.prompt 静默拦截。
+  // 避免 Android WebView 对跨域 iframe 的系统弹窗静默拦截。
   if (typeof window !== "undefined" && window.self !== window.top) {
     const fromParent = await requestRemotePasswordFromParent();
     if (fromParent) return fromParent;
@@ -2763,7 +2764,7 @@ async function requestWebBridgePassword(): Promise<string> {
   if (typeof window === "undefined" || typeof window.prompt !== "function") {
     throw new Error("远程访问需要密码，但当前宿主无法显示认证输入框");
   }
-  const password = String(window.prompt("请输入 PAI 远程访问密码") || "").trim();
+  const password = String((await promptDialog({ message: "请输入 PAI 远程访问密码", inputType: "password" })) || "").trim();
   if (!password) throw new Error("远程访问认证已取消");
   return password;
 }
