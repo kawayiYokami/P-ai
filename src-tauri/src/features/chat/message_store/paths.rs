@@ -133,6 +133,12 @@ pub(super) fn message_store_shard_modified_time(
     path_modified_time(&chat_metadata_store_db_path(&paths.data_path))
 }
 
+/// 每个写者必须拿到各自的临时文件：同名临时文件会让并发写互相踩掉内容。
+/// 这条不变量由 `message_store_atomic_write_temp_paths_should_be_distinct` 直接盯着。
+fn message_store_atomic_temp_path(path: &PathBuf, tmp_extension: &str) -> PathBuf {
+    path.with_extension(format!("{tmp_extension}.{}", Uuid::new_v4()))
+}
+
 pub(super) fn write_message_store_text_atomic(
     path: &PathBuf,
     tmp_extension: &str,
@@ -147,7 +153,7 @@ pub(super) fn write_message_store_text_atomic(
             )
         })?;
     }
-    let tmp_path = path.with_extension(format!("{tmp_extension}.{}", Uuid::new_v4()));
+    let tmp_path = message_store_atomic_temp_path(path, tmp_extension);
     fs::write(&tmp_path, content).map_err(|err| {
         format!(
             "写入{label}临时文件失败，path={}，error={err}",
@@ -172,7 +178,7 @@ pub(super) fn write_message_store_bytes_atomic(
             )
         })?;
     }
-    let tmp_path = path.with_extension(format!("{tmp_extension}.{}", Uuid::new_v4()));
+    let tmp_path = message_store_atomic_temp_path(path, tmp_extension);
     fs::write(&tmp_path, content).map_err(|err| {
         format!(
             "写入{label}临时文件失败，path={}，error={err}",
@@ -304,6 +310,26 @@ mod message_store_atomic_write_tests {
             .collect::<Vec<_>>();
         assert_eq!(remaining, vec![target.clone()]);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_atomic_write_temp_paths_should_be_distinct() {
+        let target = std::path::PathBuf::from("store").join("messages.jsonl");
+        let paths = (0..64)
+            .map(|_| message_store_atomic_temp_path(&target, "jsonl.tmp"))
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(paths.len(), 64, "每个写者必须拿到各自的临时文件");
+        for path in &paths {
+            assert_ne!(path, &target, "临时文件不能等于目标文件");
+            assert!(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .starts_with("messages.jsonl.tmp."),
+                "临时文件名应带 tmp_extension 前缀：{}",
+                path.display()
+            );
+        }
     }
 
     #[test]
