@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.98.6](docs/changelog/releases/v0.98.6.md) - 日志换了一套写法：打开日志看到的是中文一句话，不再是满屏 JSON、英文键名和 `api-provider-…` 这类内部 ID。
 - [v0.98.5](docs/changelog/releases/v0.98.5.md) - Codex 供应商现在能直接生图和改图：走它自己的图片接口，不再绕道对话接口。图片模型由 ChatGPT 决定，界面上不再给一个假的版本下拉；可添加的模型清单也从接口实时拉取，拉不到才回落到内置名单。
 - [v0.98.4](docs/changelog/releases/v0.98.4.md) - QQ 官方渠道详情页多了「扫码绑定」：点一下出二维码，手机 QQ 扫完确认，AppID 和 AppSecret 自动填进表单，不用再手动复制。
 - [v0.98.3](docs/changelog/releases/v0.98.3.md) - **长会话触发上下文整理后，停止按钮点下去没反应、回答停不下来；现在整理完成后依然能随时中断。**

@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-20T22:18:43.827Z",
-  "latestVersion": "v0.98.5",
+  "generatedAt": "2026-11-23T12:59:38.766Z",
+  "latestVersion": "v0.98.6",
   "releases": [
+    {
+      "version": "v0.98.6",
+      "path": "docs/changelog/releases/v0.98.6.md",
+      "summary": "日志换了一套写法：打开日志看到的是中文一句话，不再是满屏 JSON、英文键名和 `api-provider-…` 这类内部 ID。"
+    },
     {
       "version": "v0.98.5",
       "path": "docs/changelog/releases/v0.98.5.md",
