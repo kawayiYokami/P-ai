@@ -313,6 +313,7 @@ console.log(result);
     #[test]
     fn filter_markdown_content_items_should_only_touch_text_items() {
         let channel = RemoteImChannelConfig {
+            short_id: None,
             id: "channel-a".to_string(),
             name: "A".to_string(),
             platform: RemoteImPlatform::Dingtalk,

@@ -43,6 +43,7 @@
     ) -> Conversation {
         let now = now_iso();
         Conversation {
+            short_id: None,
             loaded_mcp_tools: Vec::new(),
             id: Uuid::new_v4().to_string(),
             title: "t".to_string(),
@@ -1351,4 +1352,159 @@
                 .any(|message| message.role.trim() == "assistant"),
             "新消息必须真的激活出助理轮次；库里只有用户消息说明整轮没被激活"
         );
+    }
+
+    // ==================== 全局短 ID 基建 ====================
+
+    /// 各域独立单调递增，号只增不减：删除/跳过都不会把号重新发出去。
+    #[test]
+    fn short_id_sequences_should_increment_per_domain_and_never_recycle() {
+        let state = test_chat_runtime_state();
+        let data_path = state.data_path.clone();
+
+        assert_eq!(
+            allocate_next_short_id(&data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("alloc"),
+            0
+        );
+        assert_eq!(
+            allocate_next_short_id(&data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("alloc"),
+            1
+        );
+        // 其它域从 0 开始，互不影响。
+        assert_eq!(
+            allocate_next_short_id(&data_path, SHORT_ID_DOMAIN_AGENT).expect("alloc"),
+            0
+        );
+        // 回到会话域继续向前，不回收。
+        assert_eq!(
+            allocate_next_short_id(&data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("alloc"),
+            2
+        );
+        assert_eq!(
+            peek_next_short_id(&data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("peek"),
+            3
+        );
+        assert_eq!(
+            peek_next_short_id(&data_path, SHORT_ID_DOMAIN_AGENT).expect("peek"),
+            1
+        );
+    }
+
+    /// 历史会话迁移：按 createdAt 升序补号，重跑幂等。
+    #[test]
+    fn backfill_conversation_short_ids_should_order_by_created_at_and_be_idempotent() {
+        let state = test_chat_runtime_state();
+        insert_test_conversation_metadata(&state, "conv-late", "2024-03-01T00:00:00Z", None);
+        insert_test_conversation_metadata(&state, "conv-early", "2024-01-01T00:00:00Z", None);
+        insert_test_conversation_metadata(&state, "conv-mid", "2024-02-01T00:00:00Z", None);
+
+        let assigned = backfill_conversation_short_ids(&state).expect("backfill");
+        assert_eq!(assigned, 3);
+        assert_eq!(conversation_short_id_of(&state, "conv-early"), Some(0));
+        assert_eq!(conversation_short_id_of(&state, "conv-mid"), Some(1));
+        assert_eq!(conversation_short_id_of(&state, "conv-late"), Some(2));
+        assert_eq!(
+            peek_next_short_id(&state.data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("peek"),
+            3
+        );
+
+        // 再跑一次：没有待分配的，号一个都不变。
+        let again = backfill_conversation_short_ids(&state).expect("backfill again");
+        assert_eq!(again, 0);
+        assert_eq!(conversation_short_id_of(&state, "conv-early"), Some(0));
+        assert_eq!(conversation_short_id_of(&state, "conv-late"), Some(2));
+    }
+
+    /// 已有短 ID 的会话在迁移中不得被覆盖：模拟迁移中断后重启继续。
+    #[test]
+    fn backfill_should_keep_existing_short_ids() {
+        let state = test_chat_runtime_state();
+        insert_test_conversation_metadata(&state, "conv-has-id", "2024-01-01T00:00:00Z", Some(5));
+        insert_test_conversation_metadata(&state, "conv-no-id", "2024-01-02T00:00:00Z", None);
+
+        let assigned = backfill_conversation_short_ids(&state).expect("backfill");
+        assert_eq!(assigned, 1);
+        assert_eq!(
+            conversation_short_id_of(&state, "conv-has-id"),
+            Some(5),
+            "已分配的号必须原样保留"
+        );
+        assert_eq!(
+            conversation_short_id_of(&state, "conv-no-id"),
+            Some(0),
+            "空缺号从 0 起补"
+        );
+        assert_eq!(
+            peek_next_short_id(&state.data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("peek"),
+            6
+        );
+    }
+
+    /// 双解析：纯数字按短 ID 寻址，UUID / 文本按主键原样返回。
+    #[test]
+    fn resolve_conversation_reference_should_accept_short_id_and_primary_key() {
+        let state = test_chat_runtime_state();
+        insert_test_conversation_metadata(&state, "conv-resolve", "2024-05-01T00:00:00Z", Some(42));
+
+        assert_eq!(
+            resolve_conversation_id_reference(&state, "42").expect("resolve short id"),
+            Some("conv-resolve".to_string())
+        );
+        assert_eq!(
+            resolve_conversation_id_reference(&state, "conv-resolve").expect("resolve primary key"),
+            Some("conv-resolve".to_string())
+        );
+        assert_eq!(
+            resolve_conversation_id_reference(&state, "9999").expect("resolve missing"),
+            None
+        );
+        assert_eq!(
+            resolve_conversation_id_reference(&state, "   ").expect("resolve blank"),
+            None
+        );
+    }
+
+    /// 手工往会话库写一条元数据：迁移与解析只依赖库里的行，不依赖内存缓存。
+    fn insert_test_conversation_metadata(
+        state: &AppState,
+        conversation_id: &str,
+        created_at: &str,
+        short_id: Option<u64>,
+    ) {
+        let mut metadata = serde_json::json!({
+            "id": conversation_id,
+            "title": conversation_id,
+            "createdAt": created_at,
+        });
+        if let Some(short_id) = short_id {
+            metadata["shortId"] = serde_json::json!(short_id);
+        }
+        let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
+            .expect("open chat metadata");
+        conn.execute(
+            "INSERT OR REPLACE INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
+             VALUES(?1, ?2, 0, ?3, ?4)",
+            rusqlite::params![
+                conversation_id,
+                serde_json::to_string(&metadata).expect("serialize metadata"),
+                created_at,
+                short_id.map(|value| value as i64)
+            ],
+        )
+        .expect("insert conversation metadata");
+    }
+
+    fn conversation_short_id_of(state: &AppState, conversation_id: &str) -> Option<u64> {
+        use rusqlite::OptionalExtension as _;
+        let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
+            .expect("open chat metadata");
+        let value: Option<i64> = conn
+            .query_row(
+                "SELECT short_id FROM conversation_metadata WHERE conversation_id=?1",
+                rusqlite::params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("query short id");
+        value.map(|item| item as u64)
     }

@@ -312,6 +312,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -522,6 +523,7 @@
             + estimated_tokens_for_text(&latest_assistant_line).ceil() as usize
             + estimated_tokens_for_text("\n").ceil() as usize;
         let conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -817,6 +819,7 @@
         let with_avatar_id = format!("agent-save-existing-{}", Uuid::new_v4());
         let without_avatar_id = format!("agent-save-missing-{}", Uuid::new_v4());
         let make_agent = |id: &str, avatar: Option<String>, is_built_in_user: bool| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "我是设定".to_string(),
@@ -878,6 +881,7 @@
         let stale_missing_id = format!("agent-touched-stale-missing-{}", Uuid::new_v4());
         let new_missing_id = format!("agent-touched-new-missing-{}", Uuid::new_v4());
         let make_agent = |id: &str, avatar: Option<String>| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "我是设定".to_string(),
@@ -1014,6 +1018,7 @@
         // 人格必须进 system 且全文不截断：超出旧版 600 字摘录的长度也要一字不少。
         let persona = format!("我是设定。{}收尾句", "长".repeat(900));
         let prompt = agent_avatar_svg_prepared_prompt(&AgentProfile {
+            short_id: None,
             id: "agent-avatar-prompt".to_string(),
             name: "被折叠的名字".to_string(),
             system_prompt: persona.clone(),

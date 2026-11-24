@@ -168,6 +168,7 @@ mod runtime_organization_tests {
 
     fn agent_profile(id: &str, name: &str) -> AgentProfile {
         AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: name.to_string(),
             system_prompt: String::new(),

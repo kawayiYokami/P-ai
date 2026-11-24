@@ -782,6 +782,7 @@ mod message_store_persist_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

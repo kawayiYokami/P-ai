@@ -276,6 +276,7 @@ mod delegate_conversation_store_tests {
 
     fn test_delegate_conversation(conversation_id: &str) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

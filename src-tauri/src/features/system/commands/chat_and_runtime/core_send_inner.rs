@@ -1006,6 +1006,7 @@ async fn send_chat_message_inner(
             .ok_or_else(|| format!("指定临时会话不存在：{conversation_id}"))?
     } else {
         Conversation {
+            short_id: None,
             id: String::new(),
             title: String::new(),
             agent_id: String::new(),
@@ -3523,6 +3524,7 @@ mod core_send_inner_tests {
 
     fn test_chat_api(id: &str, enable_image: bool) -> ApiConfig {
         ApiConfig {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             request_format: RequestFormat::OpenAI,
@@ -3682,6 +3684,7 @@ mod core_send_inner_tests {
     fn test_remote_im_conversation_with_messages(messages: Vec<ChatMessage>) -> Conversation {
         let now = now_iso();
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -4409,6 +4412,7 @@ mod core_send_inner_tests {
     fn conversation_upsert_final_assistant_message_should_update_last_same_assistant() {
         let now = now_iso();
         let mut conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

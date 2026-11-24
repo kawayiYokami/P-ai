@@ -394,6 +394,7 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
                 continue;
             }
             expanded.push(ApiConfig {
+                short_id: None,
                 id: api_endpoint_id(&provider.id, &model.id),
                 name: format!("{}/{}", provider.name.trim(), model.model.trim()),
                 request_format: provider.request_format,
@@ -783,6 +784,7 @@ fn normalize_mcp_servers(config: &mut AppConfig) {
             });
         }
         out.push(McpServerConfig {
+            short_id: None,
             id,
             name,
             enabled: raw.enabled,
@@ -821,6 +823,7 @@ fn normalize_remote_im_channels(config: &mut AppConfig) {
             credentials = serde_json::json!({});
         }
         out.push(RemoteImChannelConfig {
+            short_id: None,
             id,
             name,
             platform: raw.platform.clone(),

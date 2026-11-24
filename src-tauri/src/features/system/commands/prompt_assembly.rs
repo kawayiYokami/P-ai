@@ -648,6 +648,7 @@ mod prompt_assembly_tests {
 
     fn build_test_conversation(workspaces: Vec<ShellWorkspaceConfig>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

@@ -452,6 +452,8 @@ fn create_unarchived_conversation_shared(
         conversation.is_draft = true;
         conversation.title = String::new();
     }
+    // 短 ID：会话域统一递增，新建即分配；随会话元数据一起持久化。
+    assign_conversation_short_id(state, &mut conversation)?;
     let conversation_id = conversation.id.clone();
     drop(guard);
     let persist_seq = state_schedule_conversation_persist(state, &conversation)?;
@@ -830,6 +832,7 @@ fn read_conversation_for_backup_cleanup(
     let messages = message_store::chat_store_read_all_messages(&store_paths)?
         .unwrap_or_default();
     Ok(Conversation {
+        short_id: None,
         id: conversation_meta.id,
         title: conversation_meta.title,
         agent_id: conversation_meta.agent_id,

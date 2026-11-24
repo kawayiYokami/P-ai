@@ -161,6 +161,7 @@ fn parse_workspace_mcp_server_from_file(path: &PathBuf) -> Result<McpServerConfi
         .unwrap_or(parsed_name);
 
     Ok(McpServerConfig {
+        short_id: None,
         id,
         name,
         enabled: false,

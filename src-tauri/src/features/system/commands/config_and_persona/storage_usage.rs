@@ -2202,6 +2202,7 @@ mod storage_usage_tests {
 
     fn storage_usage_test_conversation(conversation_id: &str, kind: &str) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

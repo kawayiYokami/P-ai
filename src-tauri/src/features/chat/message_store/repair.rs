@@ -802,6 +802,7 @@ mod chat_metadata_repair_tests {
 
     fn test_conversation(id: &str, message_count: usize) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

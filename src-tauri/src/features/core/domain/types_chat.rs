@@ -34,6 +34,9 @@ struct AgentProfile {
     /// 与结构不对（条目不是对象）。
     #[serde(default)]
     id: String,
+    /// 外部短 ID：人格域内全局单调递增，从 0 开始；内置人格占低位号。
+    #[serde(default)]
+    short_id: Option<u64>,
     #[serde(default)]
     name: String,
     #[serde(default)]
@@ -660,6 +663,10 @@ fn conversation_cumulative_usage_weighted_tokens(
 #[serde(rename_all = "camelCase")]
 struct Conversation {
     id: String,
+    /// 外部短 ID：全局单调递增、从 0 开始，会话域内所有会话（本地/委托/队友/追问/
+    /// 远程联系人/系统通知）共用一个连续空间。磁盘目录与既有主键仍是 `id` 的 UUID。
+    #[serde(default)]
+    short_id: Option<u64>,
     title: String,
     agent_id: String,
     #[serde(default)]

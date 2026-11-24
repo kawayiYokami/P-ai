@@ -2541,6 +2541,7 @@
         let state = test_chat_runtime_state();
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "remote-im-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -3561,6 +3562,7 @@
 
     pub(crate) fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
         Conversation {
+            short_id: None,
             loaded_mcp_tools: Vec::new(),
             id: conversation_id.to_string(),
             title: conversation_id.to_string(),
@@ -7705,6 +7707,7 @@
         let now = now_iso();
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "remote-channel-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -7929,6 +7932,7 @@
         };
         let mut config = state_read_config_cached(state).unwrap_or_default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "remote-channel-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -8383,6 +8387,7 @@
         let state = test_chat_runtime_state();
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "channel-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -10199,6 +10204,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -10599,6 +10605,7 @@
             ..AppConfig::default()
         };
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "channel-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -11573,6 +11580,7 @@
     fn delegate_target_chat_api_config_ids_should_only_keep_current_department_models() {
         let app_config = AppConfig {
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "provider-a::model-a".to_string(),
                 name: "provider-a/model-a".to_string(),
                 request_format: RequestFormat::OpenAI,
@@ -11622,6 +11630,7 @@
         let app_config = AppConfig {
             api_configs: vec![
                 ApiConfig {
+                    short_id: None,
                     id: expert_id.to_string(),
                     name: "provider-a/expert".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -11650,6 +11659,7 @@
                     failure_retry_count: 0,
                 },
                 ApiConfig {
+                    short_id: None,
                     id: quick_id.to_string(),
                     name: "provider-a/quick".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -11802,6 +11812,7 @@
     fn delegate_target_chat_api_config_ids_should_not_fallback_when_department_binding_invalid() {
         let app_config = AppConfig {
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "provider-a::model-a".to_string(),
                 name: "provider-a/model-a".to_string(),
                 request_format: RequestFormat::OpenAI,
@@ -11850,6 +11861,7 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         let mut conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -11914,6 +11926,7 @@
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -11991,6 +12004,7 @@
         let now = now_iso();
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -14094,6 +14108,7 @@
         let mut app_config = AppConfig::default();
         app_config.expert_api_config_id = "provider-a::expert".to_string();
         app_config.api_configs = vec![ApiConfig {
+            short_id: None,
             id: "provider-a::expert".to_string(),
             name: "provider-a/expert".to_string(),
             request_format: RequestFormat::OpenAI,
@@ -16846,6 +16861,7 @@
 
     fn test_model_api_config(id: &str) -> ApiConfig {
         ApiConfig {
+            short_id: None,
             id: id.to_string(),
             name: id.replace("::", "/"),
             request_format: RequestFormat::OpenAI,
@@ -17749,6 +17765,7 @@
         tools: Vec<McpToolDescriptor>,
     ) {
         let server = McpServerConfig {
+            short_id: None,
             id: server_id.to_string(),
             name: server_name.to_string(),
             enabled: true,

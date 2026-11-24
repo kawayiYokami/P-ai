@@ -522,6 +522,7 @@ fn ide_chat_model_payload_for_conversation(state: &AppState, conversation: &Conv
 
 fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView) -> Conversation {
     Conversation {
+        short_id: None,
         id: conversation_meta.id.clone(),
         title: conversation_meta.title.clone(),
         agent_id: conversation_meta.agent_id.clone(),

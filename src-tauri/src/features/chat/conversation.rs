@@ -678,6 +678,7 @@ fn conversation_real_user_message_texts(conversation: &Conversation) -> Vec<Stri
 #[cfg(test)]
 fn test_conversation_with_kind(kind: &str) -> Conversation {
     Conversation {
+        short_id: None,
         id: format!("conversation-kind-{kind}"),
         title: String::new(),
         agent_id: DEFAULT_AGENT_ID.to_string(),
@@ -794,6 +795,7 @@ mod summary_context_title_tests {
 
     fn test_conversation(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -1190,6 +1192,7 @@ fn build_conversation_record(
 ) -> Conversation {
     let now = now_iso();
     Conversation {
+        short_id: None,
         id: Uuid::new_v4().to_string(),
         title: title.trim().to_string(),
         agent_id: agent_id.to_string(),
@@ -3617,6 +3620,7 @@ fn build_prompt_with_mode(
     let enriched_messages = source_messages.to_vec();
 
     let enriched_conversation = Conversation {
+        short_id: None,
         id: conversation.id.clone(),
         title: conversation.title.clone(),
         agent_id: conversation.agent_id.clone(),

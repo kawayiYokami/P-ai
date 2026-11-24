@@ -118,6 +118,7 @@
     fn validate_enqueue_input_should_accept_parts_with_attachment_when_receive_files_enabled() {
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "wx-ch".to_string(),
             name: "微信渠道".to_string(),
             platform: RemoteImPlatform::WeixinOc,
@@ -355,6 +356,7 @@
             .expect("write main conversation id");
         let conversations = vec![
             Conversation {
+                short_id: None,
                 questions: Vec::new(),
                 question_next_number: 0,
                 issues: Vec::new(),
@@ -396,6 +398,7 @@
                 is_draft: false,
             },
             Conversation {
+                short_id: None,
                 questions: Vec::new(),
                 question_next_number: 0,
                 issues: Vec::new(),
@@ -525,6 +528,7 @@
             .expect("write main conversation id");
         let conversations = vec![
             Conversation {
+                short_id: None,
                 questions: Vec::new(),
                 question_next_number: 0,
                 issues: Vec::new(),
@@ -566,6 +570,7 @@
                 is_draft: false,
             },
             Conversation {
+                short_id: None,
                 questions: Vec::new(),
                 question_next_number: 0,
                 issues: Vec::new(),
@@ -704,6 +709,7 @@
     #[test]
     fn conversation_has_remote_im_platform_message_should_match_snake_case_origin_meta() {
         let conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -778,6 +784,7 @@
     #[test]
     fn conversation_has_remote_im_platform_message_should_ignore_legacy_origin_meta() {
         let conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -1489,6 +1496,7 @@
         behavior_settings: RemoteImChannelBehaviorSettings,
     ) -> RemoteImChannelConfig {
         RemoteImChannelConfig {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -1644,6 +1652,7 @@
 
     fn remote_im_test_agent(agent_id: &str, agent_name: &str) -> AgentProfile {
         AgentProfile {
+            short_id: None,
             id: agent_id.to_string(),
             name: agent_name.to_string(),
             system_prompt: String::new(),
@@ -1819,6 +1828,7 @@
         contact.remote_contact_id = "contact-42".to_string();
         contact.remote_contact_name = "陈先生".to_string();
         let agents = vec![AgentProfile {
+            short_id: None,
             id: "agent-sales".to_string(),
             name: "售前助理".to_string(),
             system_prompt: String::new(),
@@ -1981,6 +1991,7 @@
         let mut contact = remote_im_test_contact("contact-a", "conversation-a");
         contact.remote_contact_type = "group".to_string();
         let conversation = Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -2158,6 +2169,7 @@
     async fn remote_im_enqueue_should_discard_default_blocked_prefix_without_creating_contact() {
         let state = remote_im_test_state();
         let channel = RemoteImChannelConfig {
+            short_id: None,
             id: "channel-a".to_string(),
             name: "QQ".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -3300,6 +3312,7 @@
         let state = remote_im_test_state();
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
+            short_id: None,
             id: "channel-config-degraded".to_string(),
             name: "QQ".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -4786,6 +4799,7 @@
 
     fn cursor_test_conversation(conversation_id: &str, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -5328,6 +5342,7 @@
     async fn each_sent_text_should_charge_energy_once() {
         let state = remote_im_test_state();
         let channel = RemoteImChannelConfig {
+            short_id: None,
             id: "channel-a".to_string(),
             name: "测试渠道".to_string(),
             platform: RemoteImPlatform::OnebotV11,

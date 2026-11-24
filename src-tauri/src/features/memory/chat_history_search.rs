@@ -509,6 +509,7 @@ fn chat_history_collect_slices_for_state(
             continue;
         }
         let conversation = Conversation {
+            short_id: None,
             id: conversation_meta.id.clone(),
             title: conversation_meta.title.clone(),
             agent_id: conversation_meta.agent_id.clone(),

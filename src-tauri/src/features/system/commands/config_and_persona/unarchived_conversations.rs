@@ -4283,6 +4283,7 @@ mod unarchived_conversations_tests {
 
     fn build_test_conversation() -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -4634,6 +4635,7 @@ mod unarchived_conversations_tests {
     fn build_branch_conversation_record_should_copy_latest_compaction_and_selected_messages() {
         let mut data = AppData::default();
         data.agents.push(AgentProfile {
+            short_id: None,
             id: "agent-a".to_string(),
             name: "助手".to_string(),
             system_prompt: String::new(),

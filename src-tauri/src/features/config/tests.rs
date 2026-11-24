@@ -204,6 +204,7 @@
             search_mode: default_search_mode(),
             api_configs: vec![
                 ApiConfig {
+                    short_id: None,
                     id: "a1".to_string(),
                     name: "chat".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -232,6 +233,7 @@
                     failure_retry_count: 999,
                 },
                 ApiConfig {
+                    short_id: None,
                     id: "a2".to_string(),
                     name: "bad-stt".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -313,6 +315,7 @@
             search_mode: default_search_mode(),
             api_configs: vec![
                 ApiConfig {
+                    short_id: None,
                     id: "chat-a".to_string(),
                     name: "chat-a".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -341,6 +344,7 @@
                     failure_retry_count: 0,
                 },
                 ApiConfig {
+                    short_id: None,
                     id: "edit-b".to_string(),
                     name: "edit-b".to_string(),
                     request_format: RequestFormat::OpenAI,
@@ -514,6 +518,7 @@
             api_providers: Vec::new(),
             tool_review_api_config_id: None,
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "legacy-openai".to_string(),
                 name: "Legacy OpenAI".to_string(),
                 request_format: RequestFormat::OpenAI,
@@ -941,6 +946,7 @@ enableTools = true
 
         let mut agents = data.agents.clone();
         agents.push(AgentProfile {
+            short_id: None,
             id: "agent-added".to_string(),
             name: "Agent Added".to_string(),
             system_prompt: "test".to_string(),
@@ -1139,6 +1145,7 @@ enableTools = true
 
     fn build_test_conversation(id: &str, title: &str) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -1615,6 +1622,7 @@ enableTools = true
             .to_string();
 
         let make_agent = |id: &str, avatar: Option<String>| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "test".to_string(),
@@ -1672,6 +1680,7 @@ enableTools = true
     fn migration_should_remove_hr_persona_and_prune_child_references() {
         let state = config_test_state();
         let make_agent = |id: &str, child_agent_ids: Vec<String>| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "test".to_string(),
@@ -1837,6 +1846,7 @@ enableTools = true
 
     fn test_mcp_server_config(id: &str) -> McpServerConfig {
         McpServerConfig {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             enabled: true,
@@ -2169,6 +2179,7 @@ definitionJson = "{\"command\":\"npx\"}"
         std::fs::write(&broken_path, "{\"id\": \"broken\",").expect("写坏文件");
 
         let make_agent = |id: &str| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "test".to_string(),
@@ -2253,6 +2264,7 @@ definitionJson = "{\"command\":\"npx\"}"
     fn write_agents_dir_should_clean_stale_and_duplicate_files() {
         let state = config_test_state();
         let make_agent = |id: &str| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "test".to_string(),
@@ -2387,6 +2399,7 @@ definitionJson = "{\"command\":\"npx\"}"
     fn write_agents_dir_should_delete_files_of_removed_agents() {
         let state = config_test_state();
         let make_agent = |id: &str| AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: "test".to_string(),
@@ -2729,6 +2742,7 @@ definitionJson = "{\"command\":\"npx\"}"
         pai.name = "改名后的 Pai".to_string();
         // 自定义：落盘
         agents.push(AgentProfile {
+            short_id: None,
             id: "agent-custom".to_string(),
             name: "自定义".to_string(),
             system_prompt: "p".to_string(),

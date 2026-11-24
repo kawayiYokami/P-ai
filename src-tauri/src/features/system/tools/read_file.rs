@@ -2590,6 +2590,7 @@ fn builtin_read_file_should_redirect_image_input_to_read_media() {
         let config = AppConfig {
             expert_api_config_id: "vision-a".to_string(),
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "vision-a".to_string(),
                 name: "vision-a".to_string(),
                 request_format: RequestFormat::OpenAI,
@@ -2697,6 +2698,7 @@ fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
             expert_api_config_id: "vision-a".to_string(),
             vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "vision-a".to_string(),
                 name: "vision-a".to_string(),
                 request_format: RequestFormat::OpenAI,
@@ -2840,6 +2842,7 @@ fn builtin_read_media_should_not_return_original_audio_or_video() {
         let config = AppConfig {
             vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
+                short_id: None,
                 id: "vision-a".to_string(),
                 name: "vision-a".to_string(),
                 request_format: RequestFormat::OpenAI,

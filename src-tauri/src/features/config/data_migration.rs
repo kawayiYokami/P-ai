@@ -1598,6 +1598,7 @@ mod agent_org_migration_tests {
 
     fn test_agent(id: &str) -> AgentProfile {
         AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: String::new(),
@@ -1648,6 +1649,7 @@ mod agent_org_migration_tests {
         let plan = plan_agent_org_migration(&[department]);
 
         let mut agents = vec![AgentProfile {
+            short_id: None,
             id: "yae-miko".to_string(),
             name: "八重神子".to_string(),
             system_prompt: "existing".to_string(),

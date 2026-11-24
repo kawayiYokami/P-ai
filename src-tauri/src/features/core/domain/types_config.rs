@@ -169,6 +169,9 @@ struct McpCachedTool {
 #[serde(rename_all = "camelCase")]
 struct McpServerConfig {
     id: String,
+    /// 外部短 ID：MCP 域内全局单调递增，从 0 开始。
+    #[serde(default)]
+    short_id: Option<u64>,
     name: String,
     #[serde(default = "default_true")]
     enabled: bool,
@@ -725,6 +728,9 @@ fn default_api_providers() -> Vec<ApiProviderConfig> {
 #[serde(rename_all = "camelCase")]
 struct ApiConfig {
     id: String,
+    /// 外部短 ID：模型配置域内全局单调递增，从 0 开始。
+    #[serde(default)]
+    short_id: Option<u64>,
     name: String,
     #[serde(default = "default_request_format")]
     request_format: RequestFormat,
@@ -983,6 +989,7 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             id: "default-openai".to_string(),
+            short_id: None,
             name: "Default OpenAI".to_string(),
             request_format: RequestFormat::OpenAI,
             allow_concurrent_requests: true,
@@ -1070,6 +1077,9 @@ fn default_remote_im_channel_receive_files() -> bool {
 #[serde(rename_all = "camelCase")]
 struct RemoteImChannelConfig {
     id: String,
+    /// 外部短 ID：远程渠道域内全局单调递增，从 0 开始。
+    #[serde(default)]
+    short_id: Option<u64>,
     name: String,
     platform: RemoteImPlatform,
     #[serde(default = "default_true")]

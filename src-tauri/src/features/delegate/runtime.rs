@@ -88,6 +88,7 @@ fn delegate_parent_shell_workspace(
         .get_conversation_meta(app_state, root_conversation_id)
         .ok()
         .map(|conversation_meta| Conversation {
+            short_id: None,
             id: conversation_meta.id,
             title: conversation_meta.title,
             agent_id: conversation_meta.agent_id,

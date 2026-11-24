@@ -1739,6 +1739,7 @@ mod remote_im_adapter_tests {
 
     fn mock_channel(platform: RemoteImPlatform, credentials: Value) -> RemoteImChannelConfig {
         RemoteImChannelConfig {
+            short_id: None,
             id: "ch".to_string(),
             name: "test".to_string(),
             platform,

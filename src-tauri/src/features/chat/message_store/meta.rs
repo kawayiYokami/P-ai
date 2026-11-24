@@ -1189,6 +1189,7 @@ impl ConversationShardMeta {
 
     fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             id: self.id,
             title: self.title,
             agent_id: self.agent_id,
@@ -1306,6 +1307,7 @@ mod message_store_meta_tests {
 
     fn test_conversation() -> Conversation {
         Conversation {
+            short_id: None,
             loaded_mcp_tools: Vec::new(),
             id: "conversation-meta".to_string(),
             title: "元数据会话".to_string(),

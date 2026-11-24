@@ -813,6 +813,7 @@ mod message_store_migration_gate_tests {
 
     fn test_conversation(id: &str) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

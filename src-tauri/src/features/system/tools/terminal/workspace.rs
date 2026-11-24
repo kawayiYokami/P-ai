@@ -1693,6 +1693,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),
@@ -1781,6 +1782,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut data = AppData::default();
         data.conversations.push(Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

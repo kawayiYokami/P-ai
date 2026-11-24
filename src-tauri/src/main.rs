@@ -1192,6 +1192,11 @@ fn main() {
     if let Err(err) = run_state_migration_if_needed(&state) {
         runtime_log_error(format!("[系统] 启动 执行 state 迁移失败: {err}"));
     }
+    // 短 ID 基建：历史数据一次性补号 + 游标校准。只处理还没号的实体，
+    // 已分配的号原样保留，重跑幂等。
+    if let Err(err) = run_global_short_id_bootstrap(&state) {
+        runtime_log_error(format!("[系统] 启动 执行短 ID 迁移失败: {err}"));
+    }
     init_last_panic_snapshot_slot(state.last_panic_snapshot.clone());
     {
         let panic_slot = state.last_panic_snapshot.clone();

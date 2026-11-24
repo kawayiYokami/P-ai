@@ -914,6 +914,7 @@ mod jsonl_snapshot_conversation_block_tests {
 
     fn test_conversation_for_blocks(messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

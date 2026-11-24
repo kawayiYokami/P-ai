@@ -90,6 +90,7 @@ fn active_plan_records_in_progress_should_return_newest_first() {
     let data_path = root.join("config_mark");
     let paths = message_store_paths(&data_path, conversation_id).expect("message store paths");
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),

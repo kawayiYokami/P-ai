@@ -203,6 +203,7 @@ fn multi_server_definition_parse_first_for_single_api() {
 
 fn test_server_with_definition(definition_json: &str) -> McpServerConfig {
     McpServerConfig {
+        short_id: None,
         id: "mcp-test".to_string(),
         name: "测试组".to_string(),
         enabled: false,

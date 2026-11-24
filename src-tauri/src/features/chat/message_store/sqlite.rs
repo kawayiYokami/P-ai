@@ -175,7 +175,7 @@ fn chat_metadata_store_open_count(data_path: &PathBuf) -> usize {
         .unwrap_or(0)
 }
 
-fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
+pub(crate) fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
     #[cfg(test)]
     if let Ok(mut counters) = chat_metadata_store_open_counters().lock() {
         *counters.entry(data_path.clone()).or_insert(0) += 1;
@@ -207,6 +207,26 @@ fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection,
                 .map_err(|err| format!("升级聊天 locator schema 失败，column={column}，error={err}"))?;
         }
     }
+    // 会话短 ID 列：新库在建表语句里就有；老库在这里补上，并建部分唯一索引。
+    // 列只是索引（短 ID -> conversation_id 的寻址用），权威值仍写在 metadata_json 里，
+    // 两者由「新建会话分配」与「启动迁移」两处保持同步。
+    {
+        let mut statement = conn.prepare("PRAGMA table_info(conversation_metadata)")
+            .map_err(|err| format!("读取 conversation_metadata schema 失败: {err}"))?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))
+            .map_err(|err| format!("读取 conversation_metadata schema 列失败: {err}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("解析 conversation_metadata schema 列失败: {err}"))?;
+        if !columns.iter().any(|item| item == "short_id") {
+            conn.execute_batch("ALTER TABLE conversation_metadata ADD COLUMN short_id INTEGER")
+                .map_err(|err| format!("升级会话 short_id 列失败: {err}"))?;
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_metadata_short_id
+             ON conversation_metadata(short_id) WHERE short_id IS NOT NULL;",
+        )
+        .map_err(|err| format!("创建会话 short_id 索引失败: {err}"))?;
+    }
     Ok(conn)
 }
 
@@ -226,7 +246,8 @@ pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WA
            conversation_id TEXT PRIMARY KEY,
            metadata_json TEXT NOT NULL,
            storage_revision INTEGER NOT NULL DEFAULT 0,
-           updated_at TEXT NOT NULL
+           updated_at TEXT NOT NULL,
+           short_id INTEGER
          );
          CREATE TABLE IF NOT EXISTS conversation_blocks (
            conversation_id TEXT NOT NULL,
@@ -2599,6 +2620,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
     let trigger = message("trigger", "user", "现在需要回答");
     let following = message("following", "user", "同批后续消息");
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -3754,6 +3776,7 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_file
     let root = std::env::temp_dir().join(format!("eca-chat-v3-import-{}", Uuid::new_v4()));
     let data_path = root.join("config_mark");
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -3966,6 +3989,7 @@ fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_
         meme_annotations: None,
     };
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4016,6 +4040,7 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
         "message_meta": { "kind": "context_compaction" }
     }));
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4067,6 +4092,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4152,6 +4178,7 @@ fn v3_chat_metadata_append_should_open_store_constant_times() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4259,6 +4286,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4319,6 +4347,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-mutations-{}", Uuid::new_v4()));
     let data_path = root.join("config_mark");
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4511,6 +4540,7 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
     let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4680,6 +4710,7 @@ fn block_publication_failure_should_restore_replaced_block_file() {
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4826,6 +4857,7 @@ fn block_page_boundaries_should_match_per_block_full_read() {
         tool_call: None, mcp_call: None, meme_annotations: None,
     };
     let mut conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),
@@ -4889,6 +4921,7 @@ fn block_page_should_stay_empty_for_conversation_without_blocks() {
     let root = std::env::temp_dir().join(format!("eca-chat-block-page-empty-{}", Uuid::new_v4()));
     let data_path = root.join("config_mark");
     let conversation = Conversation {
+        short_id: None,
         questions: Vec::new(),
         question_next_number: 0,
         issues: Vec::new(),

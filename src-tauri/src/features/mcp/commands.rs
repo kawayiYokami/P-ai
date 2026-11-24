@@ -22,6 +22,7 @@ fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, 
     };
 
     Ok(McpServerConfig {
+        short_id: None,
         id,
         name,
         enabled: false,

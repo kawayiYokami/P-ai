@@ -728,6 +728,7 @@ fn acp_session_mcp_servers(
         })
         .to_string();
         configs.push(McpServerConfig {
+            short_id: None,
             id: format!("acp-{}-{index}", acp_mcp_id_slug(session_id)),
             name: label,
             enabled: true,

@@ -27,6 +27,7 @@ mod archive_host_selection_tests {
 
     fn mk_agent(id: &str) -> AgentProfile {
         AgentProfile {
+            short_id: None,
             id: id.to_string(),
             name: id.to_string(),
             system_prompt: String::new(),
@@ -73,6 +74,7 @@ mod archive_host_selection_tests {
 
     fn mk_source(agent_id: &str, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
+            short_id: None,
             questions: Vec::new(),
             question_next_number: 0,
             issues: Vec::new(),

@@ -132,6 +132,11 @@ fn state_db_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
          CREATE TABLE IF NOT EXISTS git_repo_history (
            repo_key TEXT PRIMARY KEY,
            history_json TEXT NOT NULL
+         );
+
+         CREATE TABLE IF NOT EXISTS global_short_id_sequences (
+           domain TEXT PRIMARY KEY,
+           next_val INTEGER NOT NULL DEFAULT 0
          );",
     )
     .map_err(|err| format!("初始化 state 数据库表结构失败，error={err}"))?;
