@@ -1508,3 +1508,132 @@
             .expect("query short id");
         value.map(|item| item as u64)
     }
+
+    /// 人格补号：全部未分配时按序补满，号唯一，重跑幂等。
+    #[test]
+    fn backfill_agent_short_ids_should_assign_and_stay_idempotent() {
+        let state = test_chat_runtime_state();
+        let mut agents = state_read_agents_cached(&state).expect("read agents");
+        for agent in &mut agents {
+            agent.short_id = None;
+        }
+        state_write_agents_cached(&state, &agents).expect("write agents");
+
+        let assigned = backfill_agent_short_ids(&state).expect("backfill agents");
+        assert_eq!(assigned, agents.len());
+        let after = state_read_agents_cached(&state).expect("read agents again");
+        assert!(
+            after.iter().all(|agent| agent.short_id.is_some()),
+            "补号之后每个人都该有号"
+        );
+        let numbers: std::collections::BTreeSet<u64> =
+            after.iter().filter_map(|agent| agent.short_id).collect();
+        assert_eq!(numbers.len(), after.len(), "号不得重复");
+        assert_eq!(
+            backfill_agent_short_ids(&state).expect("again"),
+            0,
+            "重跑不得再分配"
+        );
+        let again = state_read_agents_cached(&state).expect("read agents third time");
+        assert_eq!(
+            again
+                .iter()
+                .map(|agent| (agent.id.clone(), agent.short_id))
+                .collect::<Vec<_>>(),
+            after
+                .iter()
+                .map(|agent| (agent.id.clone(), agent.short_id))
+                .collect::<Vec<_>>(),
+            "重跑不得改动已分配的号"
+        );
+    }
+
+    /// 保存人格时同 id 必须沿用旧号：前端回传丢了 shortId 也不能重发。
+    #[test]
+    fn inherit_agent_short_ids_should_keep_previous_number_for_same_agent() {
+        let state = test_chat_runtime_state();
+        let mut previous = state_read_agents_cached(&state).expect("read agents");
+        assert!(!previous.is_empty(), "默认状态应至少内置一个人格");
+        for (index, agent) in previous.iter_mut().enumerate() {
+            agent.short_id = Some(100 + index as u64);
+        }
+        let expected = previous
+            .iter()
+            .map(|agent| (agent.id.clone(), agent.short_id))
+            .collect::<Vec<_>>();
+        let mut incoming = previous.clone();
+        for agent in &mut incoming {
+            // 模拟前端回传：结构里没有 shortId 字段。
+            agent.short_id = None;
+        }
+        let assigned =
+            inherit_or_assign_agent_short_ids(&state, &previous, &mut incoming).expect("inherit");
+        assert_eq!(assigned, 0, "同 id 不该重新分配");
+        assert_eq!(
+            incoming
+                .iter()
+                .map(|agent| (agent.id.clone(), agent.short_id))
+                .collect::<Vec<_>>(),
+            expected,
+            "每个人都必须沿用旧号"
+        );
+    }
+
+    /// 配置补号：模型配置与远程渠道各自按现有顺序补号，重跑幂等。
+    #[test]
+    fn backfill_app_config_short_ids_should_assign_in_order_and_be_idempotent() {
+        let state = test_chat_runtime_state();
+        let mut config = state_read_config_cached(&state).expect("read config");
+        assert!(
+            !config.api_configs.is_empty(),
+            "默认配置应至少有一条模型配置"
+        );
+        for api in &mut config.api_configs {
+            api.short_id = None;
+        }
+        for channel in &mut config.remote_im_channels {
+            channel.short_id = None;
+        }
+        let expected = config.api_configs.len() + config.remote_im_channels.len();
+        state_write_config_cached(&state, &config).expect("write config");
+
+        assert_eq!(
+            backfill_app_config_short_ids(&state).expect("backfill config"),
+            expected
+        );
+        let after = state_read_config_cached(&state).expect("read config again");
+        for (index, api) in after.api_configs.iter().enumerate() {
+            assert_eq!(api.short_id, Some(index as u64), "模型配置按顺序补号");
+        }
+        assert!(
+            after
+                .remote_im_channels
+                .iter()
+                .all(|channel| channel.short_id.is_some()),
+            "远程渠道也要补上号"
+        );
+        assert_eq!(
+            backfill_app_config_short_ids(&state).expect("backfill again"),
+            0,
+            "重跑不得再分配"
+        );
+    }
+
+    /// MCP 新建才分配：已有号原样保留，新服务按序取号。
+    #[test]
+    fn resolve_mcp_server_short_id_should_only_allocate_for_new_server() {
+        let state = test_chat_runtime_state();
+        assert_eq!(
+            resolve_mcp_server_short_id(&state, "mcp-test-new-a", None).expect("resolve"),
+            Some(0)
+        );
+        assert_eq!(
+            resolve_mcp_server_short_id(&state, "mcp-test-new-b", None).expect("resolve"),
+            Some(1)
+        );
+        // 已经带号（编辑既有服务）时原样沿用，不再取号。
+        assert_eq!(
+            resolve_mcp_server_short_id(&state, "mcp-test-new-a", Some(9)).expect("resolve"),
+            Some(9)
+        );
+    }

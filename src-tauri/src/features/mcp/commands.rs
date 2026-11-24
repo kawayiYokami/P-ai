@@ -480,7 +480,9 @@ fn mcp_save_server_inner(
     input: McpServerInput,
     state: &AppState,
 ) -> Result<McpServerConfig, String> {
-    let next = normalize_mcp_server_input(input)?;
+    let mut next = normalize_mcp_server_input(input)?;
+    // 短 ID：已有同名记录沿用旧号，新接入的服务才分配。
+    next.short_id = resolve_mcp_server_short_id(state, &next.id, next.short_id)?;
     save_workspace_mcp_server(state, &next)?;
     let mut saved = load_server_by_id(state, &next.id)?;
     saved = overlay_runtime_state_on_server(saved);

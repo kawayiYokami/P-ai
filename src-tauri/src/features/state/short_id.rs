@@ -53,7 +53,8 @@ fn allocate_next_short_id(data_path: &PathBuf, domain: &str) -> Result<u64, Stri
     Ok(current.max(0) as u64)
 }
 
-/// 读当前游标但**不分配**（只用于观测与迁移判定）。
+/// 读当前游标但**不分配**（观测与测试用：确认某个域下一个会发几号）。
+#[allow(dead_code)]
 fn peek_next_short_id(data_path: &PathBuf, domain: &str) -> Result<u64, String> {
     let conn = state_db_open(data_path)?;
     let value: Option<i64> = conn
@@ -85,16 +86,322 @@ fn advance_short_id_sequence(
     Ok(())
 }
 
+// ==================== 通用补号 ====================
+
+/// 给一批待补槽位挑号：从 0 开始挑当前未被占用的最小号，逐个向前。
+///
+/// `used` 里是已经发出去的号（含本次已挑的），挑完即写入，保证同一批内也不重复。
+fn pick_short_ids_for_pending(
+    used: &mut std::collections::BTreeSet<u64>,
+    pending_count: usize,
+) -> Vec<u64> {
+    let mut next = 0u64;
+    let mut picked = Vec::with_capacity(pending_count);
+    for _ in 0..pending_count {
+        while used.contains(&next) {
+            next += 1;
+        }
+        used.insert(next);
+        picked.push(next);
+        next += 1;
+    }
+    picked
+}
+
+// ==================== 人格域 ====================
+
+/// 给历史人格补号：内置人格占低位，自定义按创建时间升序（同时间按 id）。
+fn backfill_agent_short_ids(state: &AppState) -> Result<usize, String> {
+    let mut agents = state_read_agents_cached(state)?;
+    if agents.is_empty() {
+        return Ok(0);
+    }
+    let mut used = std::collections::BTreeSet::<u64>::new();
+    let mut pending = Vec::<(u8, String, String, usize)>::new();
+    for (index, agent) in agents.iter().enumerate() {
+        match agent.short_id {
+            Some(existing) => {
+                used.insert(existing);
+            }
+            None => {
+                let builtin_rank = u8::from(!(agent.is_built_in_user || agent.is_built_in_system));
+                pending.push((
+                    builtin_rank,
+                    agent.created_at.trim().to_string(),
+                    agent.id.clone(),
+                    index,
+                ));
+            }
+        }
+    }
+    if pending.is_empty() {
+        if let Some(max_used) = used.iter().next_back().copied() {
+            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_AGENT, max_used + 1)?;
+        }
+        return Ok(0);
+    }
+    pending.sort();
+    let picked = pick_short_ids_for_pending(&mut used, pending.len());
+    for ((_, _, _, index), short_id) in pending.iter().zip(picked) {
+        agents[*index].short_id = Some(short_id);
+    }
+    state_write_agents_cached(state, &agents)?;
+    if let Some(max_used) = used.iter().next_back().copied() {
+        advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_AGENT, max_used + 1)?;
+    }
+    Ok(pending.len())
+}
+
+/// 保存人格时保证短 ID 不丢：同 id 沿用旧号，只有真正的新人格才分配新号。
+///
+/// 前端回传的 AgentProfile 可能不带 `shortId`，所以不能按「传进来是 None 就当新人格」处理，
+/// 否则每次保存都会把所有人的号重发一遍。
+fn inherit_or_assign_agent_short_ids(
+    state: &AppState,
+    previous: &[AgentProfile],
+    agents: &mut [AgentProfile],
+) -> Result<usize, String> {
+    let mut assigned = 0usize;
+    let mut used = std::collections::BTreeSet::<u64>::new();
+    for agent in previous.iter().chain(agents.iter()) {
+        if let Some(existing) = agent.short_id {
+            used.insert(existing);
+        }
+    }
+    for agent in agents.iter_mut() {
+        if agent.short_id.is_some() {
+            continue;
+        }
+        if let Some(previous_agent) = previous.iter().find(|item| item.id == agent.id) {
+            if let Some(existing) = previous_agent.short_id {
+                agent.short_id = Some(existing);
+                continue;
+            }
+        }
+        let picked = pick_short_ids_for_pending(&mut used, 1);
+        agent.short_id = picked.first().copied();
+        assigned += 1;
+    }
+    if assigned > 0 {
+        if let Some(max_used) = used.iter().next_back().copied() {
+            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_AGENT, max_used + 1)?;
+        }
+    }
+    Ok(assigned)
+}
+
+// ==================== MCP 域 ====================
+
+/// 给历史 MCP 服务补号：按加载顺序（即配置目录中的接入顺序）依次补齐。
+fn backfill_mcp_short_ids(state: &AppState) -> Result<usize, String> {
+    let servers = load_workspace_mcp_servers(state)?;
+    if servers.is_empty() {
+        return Ok(0);
+    }
+    let mut used = std::collections::BTreeSet::<u64>::new();
+    let mut pending = Vec::<usize>::new();
+    for (index, server) in servers.iter().enumerate() {
+        match server.short_id {
+            Some(existing) => {
+                used.insert(existing);
+            }
+            None => pending.push(index),
+        }
+    }
+    if pending.is_empty() {
+        if let Some(max_used) = used.iter().next_back().copied() {
+            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_MCP, max_used + 1)?;
+        }
+        return Ok(0);
+    }
+    let picked = pick_short_ids_for_pending(&mut used, pending.len());
+    let mut assigned = 0usize;
+    for (index, short_id) in pending.iter().zip(picked) {
+        let mut server = servers[*index].clone();
+        server.short_id = Some(short_id);
+        save_workspace_mcp_server(state, &server)?;
+        assigned += 1;
+    }
+    if let Some(max_used) = used.iter().next_back().copied() {
+        advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_MCP, max_used + 1)?;
+    }
+    Ok(assigned)
+}
+
+/// 保存 MCP 服务时保证短 ID 不丢：已有记录沿用旧号，新接入的服务才分配。
+fn resolve_mcp_server_short_id(
+    state: &AppState,
+    server_id: &str,
+    incoming: Option<u64>,
+) -> Result<Option<u64>, String> {
+    if incoming.is_some() {
+        return Ok(incoming);
+    }
+    if let Ok(existing) = load_server_by_id(state, server_id) {
+        if let Some(existing_short_id) = existing.short_id {
+            return Ok(Some(existing_short_id));
+        }
+    }
+    Ok(Some(allocate_next_short_id(
+        &state.data_path,
+        SHORT_ID_DOMAIN_MCP,
+    )?))
+}
+
+// ==================== 模型配置与远程渠道 ====================
+
+/// 给历史模型配置与远程渠道补号：按配置里的现有顺序依次补齐。
+fn backfill_app_config_short_ids(state: &AppState) -> Result<usize, String> {
+    let mut config = state_read_config_cached(state)?;
+    let mut api_used = std::collections::BTreeSet::<u64>::new();
+    let mut api_pending = Vec::<usize>::new();
+    for (index, api) in config.api_configs.iter().enumerate() {
+        match api.short_id {
+            Some(existing) => {
+                api_used.insert(existing);
+            }
+            None => api_pending.push(index),
+        }
+    }
+    let mut channel_used = std::collections::BTreeSet::<u64>::new();
+    let mut channel_pending = Vec::<usize>::new();
+    for (index, channel) in config.remote_im_channels.iter().enumerate() {
+        match channel.short_id {
+            Some(existing) => {
+                channel_used.insert(existing);
+            }
+            None => channel_pending.push(index),
+        }
+    }
+    let mut assigned = 0usize;
+    if !api_pending.is_empty() {
+        let picked = pick_short_ids_for_pending(&mut api_used, api_pending.len());
+        for (index, short_id) in api_pending.iter().zip(picked) {
+            config.api_configs[*index].short_id = Some(short_id);
+            assigned += 1;
+        }
+    }
+    if !channel_pending.is_empty() {
+        let picked = pick_short_ids_for_pending(&mut channel_used, channel_pending.len());
+        for (index, short_id) in channel_pending.iter().zip(picked) {
+            config.remote_im_channels[*index].short_id = Some(short_id);
+            assigned += 1;
+        }
+    }
+    if assigned > 0 {
+        state_write_config_cached(state, &config)?;
+    }
+    if let Some(max_used) = api_used.iter().next_back().copied() {
+        advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_API_CONFIG, max_used + 1)?;
+    }
+    if let Some(max_used) = channel_used.iter().next_back().copied() {
+        advance_short_id_sequence(
+            &state.data_path,
+            SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL,
+            max_used + 1,
+        )?;
+    }
+    Ok(assigned)
+}
+
+/// 保存配置时保证短 ID 不丢：同 id 沿用旧号，新条目才分配。
+///
+/// 前端回传的配置同样可能不带 `shortId`，所以新号只发给「库里也没有同 id」的条目。
+fn inherit_or_assign_config_short_ids(
+    state: &AppState,
+    base: &AppConfig,
+    config: &mut AppConfig,
+) -> Result<usize, String> {
+    let mut api_used = std::collections::BTreeSet::<u64>::new();
+    for api in base.api_configs.iter().chain(config.api_configs.iter()) {
+        if let Some(existing) = api.short_id {
+            api_used.insert(existing);
+        }
+    }
+    let mut channel_used = std::collections::BTreeSet::<u64>::new();
+    for channel in base
+        .remote_im_channels
+        .iter()
+        .chain(config.remote_im_channels.iter())
+    {
+        if let Some(existing) = channel.short_id {
+            channel_used.insert(existing);
+        }
+    }
+    let mut assigned = 0usize;
+    for api in config.api_configs.iter_mut() {
+        if api.short_id.is_some() {
+            continue;
+        }
+        if let Some(previous) = base.api_configs.iter().find(|item| item.id == api.id) {
+            if let Some(existing) = previous.short_id {
+                api.short_id = Some(existing);
+                continue;
+            }
+        }
+        api.short_id = pick_short_ids_for_pending(&mut api_used, 1).first().copied();
+        assigned += 1;
+    }
+    for channel in config.remote_im_channels.iter_mut() {
+        if channel.short_id.is_some() {
+            continue;
+        }
+        if let Some(previous) = base
+            .remote_im_channels
+            .iter()
+            .find(|item| item.id == channel.id)
+        {
+            if let Some(existing) = previous.short_id {
+                channel.short_id = Some(existing);
+                continue;
+            }
+        }
+        channel.short_id = pick_short_ids_for_pending(&mut channel_used, 1)
+            .first()
+            .copied();
+        assigned += 1;
+    }
+    if assigned > 0 {
+        if let Some(max_used) = api_used.iter().next_back().copied() {
+            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_API_CONFIG, max_used + 1)?;
+        }
+        if let Some(max_used) = channel_used.iter().next_back().copied() {
+            advance_short_id_sequence(
+                &state.data_path,
+                SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL,
+                max_used + 1,
+            )?;
+        }
+    }
+    Ok(assigned)
+}
+
 /// 启动自检：给还没有短 ID 的历史实体补号，并把各域游标校准到 max+1。
 ///
 /// 只处理没有号的：已分配的号一律保留，所以中途失败后重启可以从断点继续，
-/// 不会重排用户已经看到的编号。
+/// 不会重排用户已经看到的编号。某个域失败只记日志，不影响其它域。
 fn run_global_short_id_bootstrap(state: &AppState) -> Result<(), String> {
     let started = std::time::Instant::now();
-    let conversations = backfill_conversation_short_ids(state)?;
+    let mut total = 0usize;
+    match backfill_conversation_short_ids(state) {
+        Ok(count) => total += count,
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=历史会话补号 原因={err}")),
+    }
+    match backfill_agent_short_ids(state) {
+        Ok(count) => total += count,
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=历史人格补号 原因={err}")),
+    }
+    match backfill_mcp_short_ids(state) {
+        Ok(count) => total += count,
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=历史 MCP 补号 原因={err}")),
+    }
+    match backfill_app_config_short_ids(state) {
+        Ok(count) => total += count,
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=历史配置补号 原因={err}")),
+    }
     runtime_log_info(format!(
-        "[短ID] 完成 任务=历史会话补号 新增={} 耗时={}ms",
-        conversations,
+        "[短ID] 完成 任务=历史实体补号 新增={} 耗时={}ms",
+        total,
         started.elapsed().as_millis()
     ));
     Ok(())

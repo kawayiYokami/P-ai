@@ -653,6 +653,13 @@ fn save_config_inner(
     let removed_remote_im_channels = removed_remote_im_channels(&base_config, &config);
     let provider_changed = config_provider_domain_changed(&base_config, &config);
     let shell_workspaces_changed = base_config.shell_workspaces != config.shell_workspaces;
+    // 短 ID：同 id 沿用旧号，只有真正的新条目才分配新号。
+    // 前端回传的配置可能不带 shortId，不能按「进来是 None 就当新配置」处理。
+    match inherit_or_assign_config_short_ids(&state, &base_config, &mut config) {
+        Ok(0) => {}
+        Ok(count) => runtime_log_info(format!("[短ID] 完成 任务=保存配置时分配短ID 新增={count}")),
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=保存配置时分配短ID 原因={err}")),
+    }
     let main_config = config.clone();
     state_write_config_cached(&state, &main_config)?;
     if shell_workspaces_changed {

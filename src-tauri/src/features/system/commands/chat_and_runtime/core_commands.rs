@@ -2221,7 +2221,13 @@ async fn stop_chat_message_inner(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+        // 纯数字按短 ID 寻址，其它（UUID / 文本）按主键原样使用。
+        // 解析不出来时保留原值，不在停止路径上因为寻址失败而丢掉参数。
+        .and_then(|value| match resolve_conversation_id_reference(state, value) {
+            Ok(Some(resolved)) => Some(resolved),
+            Ok(None) => Some(value.to_string()),
+            Err(_) => Some(value.to_string()),
+        });
     let agent_id = resolve_runtime_control_agent_id(
         state,
         Some(input.session.agent_id.as_str()),

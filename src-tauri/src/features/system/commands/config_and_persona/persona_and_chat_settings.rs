@@ -173,6 +173,13 @@ fn save_agents_inner(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    // 短 ID：同 id 沿用旧号，只有真正的新人格才分配新号。
+    // 前端回传的列表可能不带 shortId，不能按「进来是 None 就当新人格」处理。
+    match inherit_or_assign_agent_short_ids(&state, &previous_agents, &mut data.agents) {
+        Ok(0) => {}
+        Ok(count) => runtime_log_info(format!("[短ID] 完成 任务=保存人格时分配短ID 新增={count}")),
+        Err(err) => runtime_log_warn(format!("[短ID] 失败 任务=保存人格时分配短ID 原因={err}")),
+    }
     state_write_agents_cached(&state, &data.agents)?;
     if !affected_agent_ids.is_empty() {
         mark_prompt_cache_rebuild_for_system_sources_by_agents(&state, &affected_agent_ids);
