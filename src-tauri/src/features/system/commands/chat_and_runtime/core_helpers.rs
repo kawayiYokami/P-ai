@@ -347,31 +347,6 @@ fn inflight_completed_tool_history(
     Ok(inflight.get(chat_key).cloned().unwrap_or_default())
 }
 
-/// 该会话上是否有已登记句柄、正在跑的调度。
-///
-/// 键的三种形态与停止侧一致：`cid`、`agent::cid`、`agent::cid::子用途`。
-fn has_running_conversation_round(
-    state: &AppState,
-    conversation_id: &str,
-) -> Result<bool, String> {
-    let conversation_id = conversation_id.trim();
-    if conversation_id.is_empty() {
-        return Ok(false);
-    }
-    let inflight = state
-        .inflight_chat_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-    let suffix = format!("::{conversation_id}");
-    let infix = format!("::{conversation_id}::");
-    Ok(inflight.iter().any(|(key, entry)| {
-        matches!(entry, InflightChatAbortEntry::Running { .. })
-            && (key.as_str() == conversation_id
-                || key.ends_with(&suffix)
-                || key.contains(&infix))
-    }))
-}
-
 fn clear_inflight_completed_tool_history(state: &AppState, chat_key: &str) -> Result<(), String> {
     let mut inflight = state
         .inflight_completed_tool_history

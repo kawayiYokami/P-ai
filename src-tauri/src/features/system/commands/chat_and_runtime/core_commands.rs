@@ -2328,20 +2328,30 @@ async fn stop_chat_message_inner(
             &chat_key,
             requested_conversation_id.as_deref(),
         )?;
-    // 这一刻没有句柄可中止，不等于没有活要停。
+    // 没有句柄可中止，不等于没有活要停：轮次在「已确权」到「登记句柄」之间有一段空隙
+    // （广播事件、装配上下文、加载技能），此时表里还没有句柄，按句柄找必然落空。
     //
-    // 轮次在「已确权」到「登记句柄」之间有一段空隙（装配上下文、加载技能），此时表里还没有
-    // 句柄，按句柄找必然落空。但槽上已经压着这一轮的所有权——那就是活还在准备中的信号，
-    // 必须把这次打断算成立，去收走所有权；否则它会一路走进 send_chat_message_inner
-    // 把请求发给模型。
-    let conversation_round_in_progress = match requested_conversation_id.as_deref() {
-        Some(conversation_id) => conversation_round_has_owner(state, conversation_id)
-            .unwrap_or(false)
-            || has_running_conversation_round(state, conversation_id).unwrap_or(false),
+    // 但这里不许靠「扫一遍表看看有没有别人在跑」来预判——那样会击穿身份隔离：
+    // 停止带了不匹配的身份、句柄没命中，却因为槽上有别的轮次在跑而被判成打断成立，
+    // 前端收到 aborted=true，实际那一轮根本没被停掉，还顺手压了目标、清了待办。
+    // 所以是否算打断成立，只认认领的最终结果：认领拿到所有权，才算真的停住了这一轮。
+    let claimed_round = match requested_conversation_id.as_deref() {
+        Some(conversation_id) => {
+            match claim_conversation_round_for_interrupt(state, conversation_id, &stop_identity) {
+                Ok(claimed) => claimed,
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[聊天] 打断就地认领失败 会话={} 错误={}",
+                        conversation_id, err
+                    ));
+                    false
+                }
+            }
+        }
         None => false,
     };
     let aborted =
-        aborted_chat || aborted_tool || aborted_delegate_children > 0 || conversation_round_in_progress;
+        aborted_chat || aborted_tool || aborted_delegate_children > 0 || claimed_round;
     if aborted {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
             mark_goal_continue_suppressed_by_user_interrupt(
@@ -2368,87 +2378,73 @@ async fn stop_chat_message_inner(
     // 所以内容直接从现成的会话流式快照取，落盘由停止方自己做；协程那边随后怎么退、退到哪、
     // 退多久，都与这次停止无关——认领之后它已经不是这一轮的主人了。
     let mut interrupted_result: Option<SendChatResult> = None;
-    if aborted {
+    if claimed_round {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            match claim_conversation_round_for_interrupt(state, conversation_id, &stop_identity) {
-                Ok(true) => {
-                    let collect_started = std::time::Instant::now();
-                    match persist_aborted_chat_partial_result(
+            let collect_started = std::time::Instant::now();
+            match persist_aborted_chat_partial_result(
+                state,
+                Some(conversation_id),
+                &agent_id,
+                &chat_key,
+            ) {
+                Ok(persisted) => {
+                    let round_result = match persisted {
+                        Some(result) => result,
+                        None => {
+                            empty_chat_round_result(conversation_id, &stop_identity.request_id)
+                        }
+                    };
+                    runtime_log_info(format!(
+                        "[聊天] 打断就地落盘 完成 会话={} 已落盘={} 正文长度={} 耗时={}ms",
+                        conversation_id,
+                        round_result.assistant_message.is_some(),
+                        round_result.assistant_text.chars().count(),
+                        collect_started.elapsed().as_millis()
+                    ));
+                    if let Err(err) = release_conversation_after_interrupt(state, conversation_id) {
+                        runtime_log_warn(format!(
+                            "[聊天] 打断后就绪失败 会话={} 错误={}",
+                            conversation_id, err
+                        ));
+                    }
+                    // 轮次终态由停止方发出：旧协程已被认领短路，不会再发第二个。
+                    let identity = round_result
+                        .activation_request_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .or_else(|| {
+                            let request_id = stop_identity.request_id.trim();
+                            (!request_id.is_empty()).then_some(request_id)
+                        })
+                        .or_else(|| {
+                            let activation_id = stop_identity.activation_id.trim();
+                            (!activation_id.is_empty()).then_some(activation_id)
+                        });
+                    emit_round_completed_event(
                         state,
-                        Some(conversation_id),
-                        &agent_id,
-                        &chat_key,
-                    ) {
-                        Ok(persisted) => {
-                            let round_result = match persisted {
-                                Some(result) => result,
-                                None => empty_chat_round_result(
-                                    conversation_id,
-                                    &stop_identity.request_id,
-                                ),
-                            };
-                            runtime_log_info(format!(
-                                "[聊天] 打断就地落盘 完成 会话={} 已落盘={} 正文长度={} 耗时={}ms",
-                                conversation_id,
-                                round_result.assistant_message.is_some(),
-                                round_result.assistant_text.chars().count(),
-                                collect_started.elapsed().as_millis()
-                            ));
-                            if let Err(err) =
-                                release_conversation_after_interrupt(state, conversation_id)
-                            {
-                                runtime_log_warn(format!(
-                                    "[聊天] 打断后就绪失败 会话={} 错误={}",
-                                    conversation_id, err
-                                ));
-                            }
-                            // 轮次终态由停止方发出：旧协程已被认领短路，不会再发第二个。
-                            let identity = round_result
-                                .activation_request_id
-                                .as_deref()
-                                .map(str::trim)
-                                .filter(|value| !value.is_empty())
-                                .or_else(|| {
-                                    let request_id = stop_identity.request_id.trim();
-                                    (!request_id.is_empty()).then_some(request_id)
-                                })
-                                .or_else(|| {
-                                    let activation_id = stop_identity.activation_id.trim();
-                                    (!activation_id.is_empty()).then_some(activation_id)
-                                });
-                            emit_round_completed_event(
-                                state,
-                                conversation_id,
-                                &round_result,
-                                identity,
-                                identity,
-                            );
-                            interrupted_result = Some(round_result);
-                        }
-                        Err(err) => {
-                            // 落盘失败：撤掉认领凭据，让旧协程退出去时的兜底落盘照旧生效。
-                            runtime_log_error(format!(
-                                "[聊天] 打断就地落盘 失败 会话={} 错误={}",
-                                conversation_id, err
-                            ));
-                            if let Err(clear_err) =
-                                clear_conversation_interrupt_record(state, conversation_id)
-                            {
-                                runtime_log_warn(format!(
-                                    "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
-                                    conversation_id, clear_err
-                                ));
-                            }
-                        }
+                        conversation_id,
+                        &round_result,
+                        identity,
+                        identity,
+                    );
+                    interrupted_result = Some(round_result);
+                }
+                Err(err) => {
+                    // 落盘失败：撤掉认领凭据，让旧协程退出去时的兜底落盘照旧生效。
+                    runtime_log_error(format!(
+                        "[聊天] 打断就地落盘 失败 会话={} 错误={}",
+                        conversation_id, err
+                    ));
+                    if let Err(clear_err) =
+                        clear_conversation_interrupt_record(state, conversation_id)
+                    {
+                        runtime_log_warn(format!(
+                            "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
+                            conversation_id, clear_err
+                        ));
                     }
                 }
-                Ok(false) => runtime_log_debug(format!(
-                    "[聊天] 跳过 任务=打断就地落盘 原因=槽上没有可收走的轮次 会话={conversation_id}"
-                )),
-                Err(err) => runtime_log_warn(format!(
-                    "[聊天] 打断就地认领失败 会话={} 错误={}",
-                    conversation_id, err
-                )),
             }
         }
     }

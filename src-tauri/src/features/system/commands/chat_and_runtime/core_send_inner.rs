@@ -534,8 +534,6 @@ async fn send_chat_message_inner(
     state: &AppState,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
-    let dispatch_entered_at_ms = now_unix_ms();
-
     let mut runtime_context = input.runtime_context.clone().unwrap_or_default();
     let trace_id = runtime_context_request_id_or_new(
         Some(&runtime_context),
@@ -1453,18 +1451,17 @@ async fn send_chat_message_inner(
         });
     let chat_session_key = chat_key.clone();
     // 打断门栅（发请求前最后一道）：确权之后到这里登记句柄之间有一段空隙，
-    // 停止可能正好落在这段空隙里。这里自检一次——已被停止收走（所有权被夺、留下打断凭据），
-    // 或打断时间不早于本轮进入时间的，一律静默退出，绝不再把请求发给模型。
+    // 停止可能正好落在这段空隙里。自检只读会话槽里这一轮的真实启动时刻——
+    // 不能用本函数入口就地采样的时间，那比确权晚，会把确权后被停的轮次误放行。
     if let Some(conversation_id) = requested_conversation_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        match conversation_round_interrupted_since(state, conversation_id, dispatch_entered_at_ms) {
+        match conversation_round_interrupted_since(state, conversation_id) {
             Ok(true) => {
                 runtime_log_info(format!(
-                    "[聊天调度] 拦截：本轮已被打断，不再发起请求 会话={} 轮次进入时间={}",
-                    conversation_id, dispatch_entered_at_ms
+                    "[聊天调度] 拦截：本轮已被打断，不再发起请求 会话={conversation_id}"
                 ));
                 return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
             }

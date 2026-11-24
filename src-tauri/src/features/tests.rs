@@ -574,7 +574,11 @@
         });
     }
 
-    /// 发请求前的自检：被停止收走的轮次、以及打断晚于本轮进入时间的轮次，都必须短路。
+    /// 发请求前的自检必须用会话槽里这一轮的真实启动时刻，不能用发送入口的就地采样。
+    ///
+    /// 关键场景：本轮 `started_at_ms` 早于 `cutoff`，而发送入口的采样晚于 `cutoff`
+    /// （确权 → 广播 → 装配上下文这段空隙里被打断）。就地采样会把它判成「停完之后的新轮次」
+    /// 放行，槽内时基才拦得住。
     #[test]
     fn dispatch_should_short_circuit_when_round_already_interrupted() {
         let state = test_chat_runtime_state();
@@ -582,23 +586,40 @@
 
         // 没有任何打断：放行。
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id, 1_000)
+            !conversation_round_interrupted_since(&state, conversation_id)
                 .expect("check interrupted"),
             "没有打断时不许短路"
         );
 
-        // 打断发生在轮次进入之后：这一轮必须短路。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.entry(conversation_id.to_string()).or_default();
+            slot.stream_cache.started_at_ms = 1_000;
+        }
+
+        // 打断落在本轮启动之后（1000 <= 1100）：必须短路。
+        // 注意这里没有传任何「入口时间」——判据只取槽里的启动时刻。
         mark_conversation_interrupt_cutoff(&state, conversation_id, 1_100).expect("mark cutoff");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id, 1_000)
+            conversation_round_interrupted_since(&state, conversation_id)
                 .expect("check interrupted"),
-            "打断晚于本轮进入时间时必须短路"
+            "打断不早于本轮启动时刻时必须短路"
         );
-        // 打断早于轮次进入（停完才发的新消息）：放行。
+
+        // 打断早于本轮启动（停完才起的新轮次）：放行。
+        mark_conversation_interrupt_cutoff(&state, conversation_id, 900).expect("mark cutoff");
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id, 1_200)
+            !conversation_round_interrupted_since(&state, conversation_id)
                 .expect("check interrupted"),
-            "晚于截止时间的新轮次必须放行"
+            "晚于截止时间启动的新轮次必须放行"
+        );
+
+        // 同一毫秒也算旧（区间闭）。
+        mark_conversation_interrupt_cutoff(&state, conversation_id, 1_000).expect("mark cutoff");
+        assert!(
+            conversation_round_interrupted_since(&state, conversation_id)
+                .expect("check interrupted"),
+            "启动时刻与截止时间同一毫秒也必须拦"
         );
 
         // 本轮已被停止收走（留下落盘凭据）：与时间无关，一律短路。
@@ -609,11 +630,90 @@
                 .or_default()
                 .stop_persisted_at_ms = Some(1_300);
         }
+        mark_conversation_interrupt_cutoff(&state, conversation_id, 0).expect("mark cutoff");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id, 9_999)
+            conversation_round_interrupted_since(&state, conversation_id)
                 .expect("check interrupted"),
             "已被停止收走的轮次不论时间一律短路"
         );
+    }
+
+    /// 停止带了不匹配的身份时不许把「别人的轮次」当成停住了。
+    ///
+    /// 这一条钉的是身份隔离：句柄没命中、只是槽上有别的轮次在跑，`aborted` 必须为 false，
+    /// 既不能报给前端「已中止」，也不能顺手压目标、清队员待办，更不能把那一轮的所有权收走。
+    #[test]
+    fn stop_with_mismatched_identity_should_not_report_aborted() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let conversation_id = "conversation-stop-mismatch";
+            let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
+            state
+                .inflight_chat_abort_handles
+                .lock()
+                .expect("lock inflight chat abort handles")
+                .insert(
+                    chat_key.clone(),
+                    InflightChatAbortEntry::Running {
+                        handle: new_inflight_abort_handle(),
+                        request_id: "req-actually-running".to_string(),
+                        assistant_message_id: "assistant-actually-running".to_string(),
+                        retired_identities: Vec::new(),
+                    },
+                );
+            {
+                let mut slots =
+                    lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+                let slot = slots.entry(conversation_id.to_string()).or_default();
+                slot.state = MainSessionState::AssistantStreaming;
+                slot.round_owner = "owner-actually-running".to_string();
+                slot.stream_cache.activation_id = "req-actually-running".to_string();
+                slot.stream_cache.request_id = "req-actually-running".to_string();
+                slot.stream_cache.persisted_assistant_message_id =
+                    "assistant-actually-running".to_string();
+                slot.stream_cache.started_at_ms = 1_000;
+            }
+
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+                // 身份对不上任何在跑的调度：这次停止没有对象。
+                request_id: Some("req-stale".to_string()),
+                activation_id: Some("req-stale".to_string()),
+                assistant_message_id: Some("assistant-stale".to_string()),
+            };
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("停止不应失败");
+
+            assert!(!result.aborted, "身份对不上时不许报「已中止」");
+            assert!(
+                inflight_has_running(&state, &chat_key),
+                "别人那一轮的句柄不许被摘掉"
+            );
+            assert!(
+                !state
+                    .goal_continue_suppressed_conversation_ids
+                    .lock()
+                    .expect("lock suppressed ids")
+                    .contains(conversation_id),
+                "没停住任何东西时不许压目标继续"
+            );
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(conversation_id).expect("slot");
+            assert_eq!(
+                slot.round_owner, "owner-actually-running",
+                "别人那一轮的所有权不许被收走"
+            );
+            assert!(
+                slot.stop_persisted_at_ms.is_none(),
+                "没认领成功就不许留下打断落盘凭据"
+            );
+        });
     }
 
     /// 构造一次停止请求要终止的调度身份。
