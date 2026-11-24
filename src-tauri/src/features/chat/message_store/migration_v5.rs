@@ -12,6 +12,8 @@
 //   IMMEDIATE 事务里完成，不做锁外三段式；
 // - 坏条只记 warn、给列赋安全默认值、版本照常推进，绝不抛错阻断启动，也不设重试/deferred；
 // - 提取完立刻从 JSON 对象里 remove 掉旧键，避免「同一份数据两个真相」；
+// - 行级幂等：JSON 里已经没有旧骨键的行视为 V5 之后写入的新行，直接跳过，
+//   绝不拿默认值覆写它已经正确的列；
 // - 不发短号：短号序列住在 state.sqlite（另一个库），跨库拿不到同一把锁，
 //   short_id 只搬 JSON 里已有的值，缺号的由启动期 state 侧按列幂等补齐。
 
@@ -81,6 +83,8 @@ fn migration_v5_has_metadata_table(conn: &rusqlite::Connection) -> Result<bool, 
 
 /// 逐行无模式清洗：提取底座字段 -> 从 JSON 里删掉旧键 -> 回写列与瘦身 JSON。
 ///
+/// 行级幂等：JSON 里已经没有任何旧骨键的行，说明是 V5 之后写入的新行，原样跳过——
+/// 既不二次提取，也不拿默认值覆写它已经正确的列。
 /// 读、改、写全程在调用方给的同一事务内完成。
 fn migration_v5_extract_backbone(conn: &rusqlite::Connection) -> Result<usize, String> {
     let rows = {
@@ -97,9 +101,15 @@ fn migration_v5_extract_backbone(conn: &rusqlite::Connection) -> Result<usize, S
             .map_err(|err| format!("V5 迁移解析会话元数据行失败: {err}"))?
     };
 
+    let mut migrated = 0usize;
     for (conversation_id, raw) in &rows {
         match serde_json::from_str::<serde_json::Value>(raw) {
             Ok(mut value) => {
+                if !migration_v5_row_has_legacy_backbone(&value) {
+                    // 已经是 V5 之后写入的新行：JSON 只剩业务载荷，骨只在列里。
+                    // 重跑时绝不执行列覆写与 JSON 回写，免得把新行的列盖成默认值。
+                    continue;
+                }
                 let backbone = migration_v5_take_backbone(&mut value);
                 let slim_json = serde_json::to_string(&value).unwrap_or_else(|err| {
                     runtime_log_warn(format!(
@@ -130,6 +140,7 @@ fn migration_v5_extract_backbone(conn: &rusqlite::Connection) -> Result<usize, S
                 .map_err(|err| {
                     format!("V5 迁移写回会话元数据失败，会话={conversation_id}，error={err}")
                 })?;
+                migrated += 1;
             }
             Err(err) => {
                 // 坏条：迁移对它无能为力，记一条 warn，给底座列安全默认值，JSON 原样不动。
@@ -148,10 +159,31 @@ fn migration_v5_extract_backbone(conn: &rusqlite::Connection) -> Result<usize, S
                 .map_err(|err| {
                     format!("V5 迁移兜底写回会话元数据失败，会话={conversation_id}，error={err}")
                 })?;
+                migrated += 1;
             }
         }
     }
-    Ok(rows.len())
+    Ok(migrated)
+}
+
+/// 这一行的 JSON 里还留着旧骨键吗？
+///
+/// 旧结构里 `status` / `conversationKind` / `createdAt` 是必写字段，V5 之前落盘的每一行
+/// 都带着它们；V5 之后写入的行只剩业务载荷，三个键一个都没有。任何旧骨键在场就仍需清洗，
+/// 一个都不在场即视为已迁移。
+fn migration_v5_row_has_legacy_backbone(value: &serde_json::Value) -> bool {
+    [
+        "status",
+        "conversationKind",
+        "createdAt",
+        "agentId",
+        "parentConversationId",
+        "rootConversationId",
+        "delegateId",
+        "shortId",
+    ]
+    .iter()
+    .any(|key| value.get(*key).is_some())
 }
 
 /// 底座字段的一次性搬运行李，仅在迁移模块内活着。
@@ -458,6 +490,53 @@ mod migration_v5_tests {
             )
             .expect("read created_at column");
         assert_eq!(created_at, "2024-02-03T04:05:06Z");
+    }
+
+    /// P2 回归：版本号被重置后的极端重跑中，V5 之后写入的新行必须原样不动。
+    ///
+    /// 新行 JSON 只剩业务载荷、骨只在列里；若迁移仍按「缺键就给默认值」覆写，
+    /// 会把 `status='archived'` 这类真实骨值盖成 `active`。
+    #[test]
+    fn migration_v5_rerun_should_leave_post_v5_rows_untouched() {
+        let (_root, mut conn) = migration_v5_test_db("rerun-new-row");
+        conn.execute_batch(
+            "ALTER TABLE conversation_metadata ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
+             ALTER TABLE conversation_metadata ADD COLUMN status TEXT NOT NULL DEFAULT '';
+             ALTER TABLE conversation_metadata ADD COLUMN conversation_kind TEXT NOT NULL DEFAULT '';",
+        )
+        .expect("add backbone columns");
+        let slim = serde_json::json!({
+            "id": "conv-new",
+            "title": "V5 之后写入的新行",
+            "unreadCount": 2
+        });
+        insert_legacy(&conn, "conv-new", &slim);
+        conn.execute(
+            "UPDATE conversation_metadata
+                SET created_at='2024-06-07T08:09:10Z', status='archived', conversation_kind='delegate'
+              WHERE conversation_id='conv-new'",
+            [],
+        )
+        .expect("seed backbone columns");
+
+        assert!(migrate_chat_metadata_v5(&mut conn).expect("migrate v5"));
+
+        let (created_at, status, conversation_kind): (String, String, String) = conn
+            .query_row(
+                "SELECT created_at, status, conversation_kind
+                   FROM conversation_metadata WHERE conversation_id='conv-new'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("read backbone columns");
+        assert_eq!(created_at, "2024-06-07T08:09:10Z", "新行的创建时间不许被盖成默认值");
+        assert_eq!(status, "archived", "新行的状态不许被盖成 active");
+        assert_eq!(conversation_kind, "delegate");
+        assert_eq!(
+            metadata_json_of(&conn, "conv-new"),
+            serde_json::to_string(&slim).expect("serialize slim"),
+            "新行的 JSON 不该被改写"
+        );
     }
 
     /// 老库已经有部分底座列时不报错，缺的补上，多余的不动。

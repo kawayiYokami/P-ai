@@ -347,7 +347,8 @@ pub(super) struct ConversationShardMeta {
     issue_next_number: u32,
     #[serde(default)]
     loaded_mcp_tools: Vec<String>,
-    #[serde(default)]
+    /// 快速请求记录只在内存里存活：落盘不序列化，读回恒为空。
+    #[serde(skip)]
     fast_request_turns: Vec<FastRequestTurn>,
     #[serde(default)]
     last_message_id: Option<String>,
@@ -1476,9 +1477,43 @@ mod message_store_meta_tests {
         assert_eq!(meta.last_error(), Some("测试轮次失败"));
     }
 
+    /// 快速请求记录只活在内存：序列化时整键不出现，读回恒为空。
     #[test]
-    fn conversation_shell_recorded_branch_should_round_trip() {
-        let mut conversation = test_conversation();
+    fn fast_request_turns_should_never_reach_persisted_json() {
+        let conversation = test_conversation();
+        let mut meta = ConversationShardMeta::from_conversation(&conversation);
+        meta.push_fast_request_turn(FastRequestTurn {
+            id: "fast-request-mem".to_string(),
+            kind: "title_generation".to_string(),
+            request_text: "request".to_string(),
+            response_text: "response".to_string(),
+            success: true,
+            error: None,
+            model_name: Some("quick-model".to_string()),
+            duration_ms: Some(8),
+            created_at: "2026-04-24T00:00:30Z".to_string(),
+        });
+
+        let raw = serde_json::to_string(&meta).expect("serialize meta");
+        let value: serde_json::Value = serde_json::from_str(&raw).expect("parse meta json");
+        assert!(
+            value.get("fastRequestTurns").is_none(),
+            "快速请求不落盘，JSON 里不该出现 fastRequestTurns：{raw}"
+        );
+        assert!(
+            !meta.fast_request_turns().is_empty(),
+            "内存里仍要保留这份过程记录"
+        );
+
+        let restored: ConversationShardMeta = serde_json::from_str(&raw).expect("deserialize meta");
+        assert!(
+            restored.fast_request_turns().is_empty(),
+            "读回时快速请求必须为空"
+        );
+    }
+
+    #[test]
+    fn conversation_shell_recorded_branch_should_round_trip() {        let mut conversation = test_conversation();
         conversation.shell_recorded_branch = "feature/branch-guard".to_string();
 
         let meta = ConversationShardMeta::from_conversation(&conversation);
