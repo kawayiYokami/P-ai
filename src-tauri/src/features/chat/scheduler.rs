@@ -108,6 +108,12 @@ pub(crate) struct ChatPendingEvent {
     pub conversation_id: String,
     /// 入队时间，仅用于排队观测，不代表正式生效时间
     pub created_at: String,
+    /// 事件产生时刻（后端单一时基，`now_unix_ms()`）。
+    ///
+    /// 打断门栅只认它：不晚于会话截止时间的事件在门前就被拦下，
+    /// 不从事件里取前端时间，避免前后端两套时钟微偏造成误杀或漏拦。
+    #[serde(default)]
+    pub created_at_ms: u64,
     /// 来源类型
     pub source: ChatEventSource,
     /// 队列模式
@@ -834,6 +840,33 @@ async fn process_conversation_batch(
             should_activate && (!matches!(event.source, ChatEventSource::RemoteIm)
                 || !remote_im_event_requires_reply_delegate(event))
         });
+    // 本批最新的事件产生时间。同批里只要有一条晚于截止时间（用户停完立刻发的新消息），
+    // 这一批就该正常放行，所以比的是最大值，不是第一条。
+    let batch_created_at_ms = events
+        .iter()
+        .map(|event| event.created_at_ms)
+        .max()
+        .unwrap_or(0);
+    // 打断门栅（出队侧）：整批事件的产生时间都不晚于会话截止时间时，这一批在门口就作废。
+    // 放在这里是为了让后面的远程联系人秘书判断、上下文装配全部跳过——已经作废的活不该再花模型成本。
+    if should_activate {
+        match conversation_interrupt_cutoff_ms(state, conversation_id) {
+            Ok(cutoff) if round_blocked_by_interrupt_cutoff(cutoff, batch_created_at_ms) => {
+                should_activate = false;
+                runtime_log_info(format!(
+                    "[聊天调度] 拦截：本批事件产生时间旧于会话截止时间，跳过激活 会话={} 事件时间={} 截止时间={}",
+                    conversation_id,
+                    batch_created_at_ms,
+                    cutoff.unwrap_or_default()
+                ));
+            }
+            Ok(_) => {}
+            Err(err) => runtime_log_warn(format!(
+                "[聊天] 失败 任务=读取打断截止时间 原因={}",
+                err
+            )),
+        }
+    }
     let has_remote_group_messages = events.iter().any(remote_im_event_requires_reply_delegate);
     if has_remote_group_messages {
         process_persisted_remote_im_events_individually(
@@ -1199,6 +1232,7 @@ async fn process_conversation_batch(
                 activating_runtime_context.clone(),
                 activated_remote_im_sources.clone(),
                 oldest_queue_created_at,
+                batch_created_at_ms,
             )
             .await
             {
@@ -1262,6 +1296,9 @@ async fn process_conversation_batch(
                             Some(follow_up_context),
                             follow_up_sources.clone(),
                             &follow_up_started_at,
+                            // 续跑属于本批的派生轮次，时间基准必须继承本批：
+                            // 取当前时刻会让「上一轮途中被停止的活」穿透门卫继续回复。
+                            batch_created_at_ms,
                         )
                         .await
                         {
@@ -1423,7 +1460,29 @@ async fn activate_main_assistant(
     runtime_context: Option<RuntimeContext>,
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
+    round_created_at_ms: u64,
 ) -> Result<ActivatedAssistantResult, String> {
+    // 打断门栅（激活侧）：这一轮的产生时间若不晚于会话截止时间，它就是在被打断那一刻
+    // 之前就已经等待的活，已被停止方判过死刑。这里直接短路，不写空助理消息、不切流式、
+    // 不广播轮次开始——深度报错再回退会让界面出现「消失 → 冒出 → 消失」的抽搐。
+    if round_created_at_ms > 0 {
+        match conversation_interrupt_cutoff_ms(state, conversation_id) {
+            Ok(cutoff) if round_blocked_by_interrupt_cutoff(cutoff, round_created_at_ms) => {
+                runtime_log_info(format!(
+                    "[聊天调度] 拦截：轮次创建时间旧于会话截止时间，跳过激活 会话={} 轮次时间={} 截止时间={}",
+                    conversation_id,
+                    round_created_at_ms,
+                    cutoff.unwrap_or_default()
+                ));
+                return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
+            }
+            Ok(_) => {}
+            Err(err) => runtime_log_warn(format!(
+                "[聊天] 失败 任务=读取打断截止时间 原因={}",
+                err
+            )),
+        }
+    }
     let mut runtime_context = runtime_context.unwrap_or_default();
     if runtime_context.bound_remote_im_activation_source.is_none() {
         runtime_context.bound_remote_im_activation_source =
@@ -1505,6 +1564,9 @@ async fn activate_main_assistant(
     // 本轮所有权令牌：收尾只认它。停止命令会当场交还它、新一轮会换掉它，
     // 两种情况都意味着这一轮的收尾不许再动会话状态与流式缓存。
     let round_owner = begin_conversation_round_owner(state, conversation_id)?;
+    // 令牌随运行上下文一路带到发送入口：那里要在发请求前自检「本轮是否还持有所有权」。
+    // 停止命令认领会把槽上的令牌清掉，两处不一致就是「这一轮已被收走」。
+    runtime_context.round_owner = Some(round_owner.clone());
     emit_round_started_event(
         state,
         conversation_id,

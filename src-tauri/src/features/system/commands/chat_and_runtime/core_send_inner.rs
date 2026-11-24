@@ -534,8 +534,22 @@ async fn send_chat_message_inner(
     state: &AppState,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
-
     let mut runtime_context = input.runtime_context.clone().unwrap_or_default();
+    // 打断门栅（最早一道）：确权之后到这里之间隔着事件广播、状态推送与上下文装配，
+    // 停止可能正好落在这段空隙里。先自检一次，命中就不做任何后续工作（连队员预创建都省）。
+    if let Some(conversation_id) = input
+        .session
+        .as_ref()
+        .and_then(|session| session.conversation_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        reject_if_round_interrupted(
+            state,
+            conversation_id,
+            runtime_context.round_owner.as_deref(),
+        )?;
+    }
     let trace_id = runtime_context_request_id_or_new(
         Some(&runtime_context),
         input.trace_id.as_deref(),
@@ -632,17 +646,30 @@ async fn send_chat_message_inner(
                             compaction_preserved_messages: None,
                         },
                     )?;
+                    // 只有「本轮自己建消息」才算这一轮从这里开始，才允许重置流式缓存与
+                    // 清掉上一轮遗留的打断凭据。
+                    //
+                    // 前台主助理激活路径（带 assistant_message_id 进来）早在
+                    // activate_main_assistant 里初始化好了缓存，这里再重置会把确权时的
+                    // 启动时刻覆盖成更晚的时间，还会抹掉停止命令刚写下的落盘凭据——
+                    // 两道门栅随即全部失效，请求照样发出去。
+                    let _ = reset_conversation_stream_runtime_cache(
+                        state,
+                        cid,
+                        trace_id.as_str(),
+                        trace_id.as_str(),
+                        early_agent_id,
+                        &dispatch_assistant_message_id,
+                        &stream_started_at,
+                        stream_started_at_ms,
+                    );
+                    if let Err(err) = clear_conversation_interrupt_record(state, cid) {
+                        runtime_log_warn(format!(
+                            "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
+                            cid, err
+                        ));
+                    }
                 }
-                let _ = reset_conversation_stream_runtime_cache(
-                    state,
-                    cid,
-                    trace_id.as_str(),
-                    trace_id.as_str(),
-                    early_agent_id,
-                    &dispatch_assistant_message_id,
-                    &stream_started_at,
-                    stream_started_at_ms,
-                );
                 // 同样更新后端缓存中的可见状态，否则 has_visible_progress 仍为 false，
                 // 窗口最小化/最大化恢复时后端快照不会包含投影消息，导致所有气泡丢失。
                 // on_delta.send 只发往前端通道，不经过 dispatch loop 的 active_channel 回调，
@@ -1451,6 +1478,19 @@ async fn send_chat_message_inner(
             inflight_chat_key(&effective_agent_id, requested_conversation_id.as_deref())
         });
     let chat_session_key = chat_key.clone();
+    // 打断门栅（发请求前最后一道）：装配上下文、加载技能这一段也可能被打断，
+    // 这里再自检一次；命中同样以用户中止短路，不再登记句柄、不再发请求。
+    if let Some(conversation_id) = requested_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        reject_if_round_interrupted(
+            state,
+            conversation_id,
+            runtime_context.round_owner.as_deref(),
+        )?;
+    }
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     // 登记时带上本次调度的身份，停止请求按身份命中，不按会话猜。
     let stopped_before_start = register_inflight_chat_abort_handle(

@@ -251,6 +251,7 @@ fn task_enqueue_conversation_trigger(
         id: format!("task-event-{}", Uuid::new_v4()),
         conversation_id: session.conversation_id.clone(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::Task,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![build_task_trigger_message(task)],
