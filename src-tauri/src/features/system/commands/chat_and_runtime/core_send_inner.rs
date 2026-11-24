@@ -1971,18 +1971,11 @@ async fn send_chat_message_inner(
             &runtime_context,
             &remote_im_activation_sources,
         )?;
-        // 逐轮中间外发只服务远程应答委托：delegate_id 与激活来源齐了才有发送目标。
+        // 正文产出即发：无论群聊应答委托还是联系人绑定会话，有激活来源就有发送目标。
         // 单独构造、不挂压缩上下文：动态边界下压缩被禁用，正文仍要每轮发出。
         let remote_im_round_send_target = remote_im_auto_send_source
             .clone()
-            .and_then(|activation_source| {
-                runtime_context
-                    .remote_im_reply_delegate_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(|_| RemoteImRoundSendTarget { activation_source })
-            });
+            .map(|activation_source| RemoteImRoundSendTarget { activation_source });
         let tool_loop_auto_compaction_context = if snapshot.is_runtime_conversation
             || runtime_context.remote_im_dynamic_boundary
         {

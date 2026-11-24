@@ -122,13 +122,11 @@ fn maybe_spawn_remote_im_round_intermediate_send(
     target: &RemoteImRoundSendTarget,
     turn_text: &str,
 ) {
-    // 只服务远程应答委托：私聊自动推送由工具持久化路径负责，这里不能重复发。
-    // 「是不是委托」由调用方构造 target 时就定了，这里不再查上下文。
+    // 逐轮外发：正文一产出就先发出去（群聊应答委托与私聊绑定会话均统一走此通道）。
     let text = turn_text.trim();
     if text.is_empty() {
         return;
     }
-    // 逐轮外发：本轮正文一产出就先发出去，发完再执行这一轮的工具调用。
     // 发送是 fire-and-forget，失败只记日志，调度不等结果。
     spawn_remote_im_auto_send_intermediate_text(
         state.clone(),
@@ -144,34 +142,6 @@ fn maybe_spawn_remote_im_tool_persist_auto_send(
     assistant_tool_call_event: &Value,
     tool_result_event: &Value,
 ) {
-    if context.remote_im_reply_delegate_id.is_some() {
-        runtime_log_debug(format!(
-            "[聊天] 跳过 原因=group_reply_delegate_buffers_until_final"
-        ));
-        return;
-    }
-    let Some(activation_source) = context.remote_im_auto_send_source.clone() else {
-        return;
-    };
-    if !tool_loop_is_first_tool_result_in_group(assistant_tool_call_event, tool_result_event) {
-        runtime_log_debug(format!(
-            "[聊天] 跳过 任务=tool_persist_auto_send 原因=not_first_tool_result"
-        ));
-        return;
-    }
-    let assistant_text = tool_loop_assistant_tool_event_text(assistant_tool_call_event);
-    if assistant_text.is_empty() {
-        runtime_log_warn(format!(
-            "[聊天] 跳过 任务=tool_persist_auto_send 原因=empty_text"
-        ));
-        return;
-    }
-    spawn_remote_im_auto_send_contact_assistant_reply(
-        state.clone(),
-        activation_source,
-        context.conversation_id.clone(),
-        assistant_text,
-        None,
-        Some(assistant_message_id.to_string()),
-    );
+    // 逐轮外发已在正文产出点实时发出，工具持久化阶段不再重复发送正文。
+    let _ = (state, context, assistant_message_id, assistant_tool_call_event, tool_result_event);
 }
