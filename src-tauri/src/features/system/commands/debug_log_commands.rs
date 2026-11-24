@@ -1571,7 +1571,7 @@ where
 
 fn build_memory_conversation_meta_stats<'a, I>(items: I, limit: usize) -> Vec<MemoryConversationStat>
 where
-    I: IntoIterator<Item = &'a message_store::ConversationShardMeta>,
+    I: IntoIterator<Item = &'a message_store::ConversationStoredMeta>,
 {
     let mut stats = items
         .into_iter()

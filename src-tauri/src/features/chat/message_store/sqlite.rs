@@ -186,7 +186,7 @@ pub(crate) fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::
             format!("创建聊天元数据数据库目录失败，path={}，error={err}", parent.display())
         })?;
     }
-    let conn = rusqlite::Connection::open(&db_path)
+    let mut conn = rusqlite::Connection::open(&db_path)
         .map_err(|err| format!("打开聊天元数据数据库失败，path={}，error={err}", db_path.display()))?;
     conn.execute_batch(
         CHAT_METADATA_SCHEMA_SQL_PREFIX,
@@ -209,6 +209,12 @@ pub(crate) fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::
     }
     // 会话短 ID 列：新库在建表语句里就有；老库与 v3 迁移库在这里补上，并建部分唯一索引。
     chat_metadata_ensure_short_id_column(&conn)?;
+    // V5：把骨字段从 metadata_json 搬进 SQL 列。迁移不允许失败，失败只记 warn，不阻断打开。
+    if let Err(err) = migrate_chat_metadata_v5(&mut conn) {
+        runtime_log_warn(format!(
+            "[会话元数据V5] 失败 任务=骨字段搬列 原因={err}"
+        ));
+    }
     Ok(conn)
 }
 
@@ -237,6 +243,90 @@ fn chat_metadata_ensure_short_id_column(conn: &rusqlite::Connection) -> Result<(
     Ok(())
 }
 
+/// 会话元数据底座（骨）列：(列名, 建表定义)。新库建表、老库补列、V5 迁移共用这一份。
+///
+/// 这里没有 `title`：标题是高频变动的业务载荷，只住 `metadata_json`。
+pub(super) const CHAT_METADATA_BACKBONE_COLUMNS: &[(&str, &str)] = &[
+    ("short_id", "INTEGER"),
+    ("created_at", "TEXT NOT NULL DEFAULT ''"),
+    ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("conversation_kind", "TEXT NOT NULL DEFAULT 'regular'"),
+    ("agent_id", "TEXT NOT NULL DEFAULT ''"),
+    ("parent_conversation_id", "TEXT"),
+    ("root_conversation_id", "TEXT"),
+    ("delegate_id", "TEXT"),
+];
+
+/// 底座索引：全部 `IF NOT EXISTS`，重复执行无副作用。
+pub(super) const CHAT_METADATA_BACKBONE_INDEXES: &[&str] = &[
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_metadata_short_id
+       ON conversation_metadata(short_id) WHERE short_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_metadata_status
+       ON conversation_metadata(status)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_metadata_created_at
+       ON conversation_metadata(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_metadata_kind
+       ON conversation_metadata(conversation_kind)",
+    "CREATE INDEX IF NOT EXISTS idx_conversation_metadata_agent_id
+       ON conversation_metadata(agent_id)",
+];
+
+/// 老库缺哪列补哪列。三处建库路径与 V5 迁移共用。
+pub(super) fn chat_metadata_ensure_backbone_columns(
+    conn: &rusqlite::Connection,
+) -> Result<(), String> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(conversation_metadata)")
+        .map_err(|err| format!("读取会话元数据表结构失败: {err}"))?;
+    let existing = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| format!("读取会话元数据表结构列失败: {err}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("解析会话元数据表结构列失败: {err}"))?;
+    for (column, definition) in CHAT_METADATA_BACKBONE_COLUMNS {
+        if existing.iter().any(|item| item == column) {
+            continue;
+        }
+        conn.execute_batch(&format!(
+            "ALTER TABLE conversation_metadata ADD COLUMN {column} {definition}"
+        ))
+        .map_err(|err| format!("补齐会话元数据底座列失败，column={column}，error={err}"))?;
+    }
+    Ok(())
+}
+
+/// 建齐底座索引。
+pub(super) fn chat_metadata_ensure_backbone_indexes(
+    conn: &rusqlite::Connection,
+) -> Result<(), String> {
+    for statement in CHAT_METADATA_BACKBONE_INDEXES {
+        conn.execute_batch(statement)
+            .map_err(|err| format!("创建会话元数据底座索引失败: {err}"))?;
+    }
+    Ok(())
+}
+
+/// 会话元数据 upsert：骨（列）与肉（JSON）一次写完。
+///
+/// `short_id` 与 `created_at` 是不可变的：只在插入时生效，`ON CONFLICT` 里绝不出现，
+/// 从数据库物理层杜绝被日常写入改写。
+const CHAT_METADATA_UPSERT_SQL: &str =
+    "INSERT INTO conversation_metadata(
+         conversation_id, metadata_json, storage_revision, updated_at, short_id,
+         created_at, status, conversation_kind, agent_id,
+         parent_conversation_id, root_conversation_id, delegate_id)
+     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+     ON CONFLICT(conversation_id) DO UPDATE SET
+         metadata_json=excluded.metadata_json,
+         storage_revision=excluded.storage_revision,
+         updated_at=excluded.updated_at,
+         status=excluded.status,
+         conversation_kind=excluded.conversation_kind,
+         agent_id=excluded.agent_id,
+         parent_conversation_id=excluded.parent_conversation_id,
+         root_conversation_id=excluded.root_conversation_id,
+         delegate_id=excluded.delegate_id";
+
 /// 聊天索引库的建表语句与连接级 PRAGMA 合并为一份常量。
 /// 打开连接与损坏重建共用，避免两处 schema 各自演化。
 pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WAL;
@@ -254,7 +344,14 @@ pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WA
            metadata_json TEXT NOT NULL,
            storage_revision INTEGER NOT NULL DEFAULT 0,
            updated_at TEXT NOT NULL,
-           short_id INTEGER
+           short_id INTEGER,
+           created_at TEXT NOT NULL DEFAULT '',
+           status TEXT NOT NULL DEFAULT 'active',
+           conversation_kind TEXT NOT NULL DEFAULT 'regular',
+           agent_id TEXT NOT NULL DEFAULT '',
+           parent_conversation_id TEXT,
+           root_conversation_id TEXT,
+           delegate_id TEXT
          );
          CREATE TABLE IF NOT EXISTS conversation_blocks (
            conversation_id TEXT NOT NULL,
@@ -797,27 +894,54 @@ fn chat_metadata_store_chat_snapshot(
     })
 }
 
-fn chat_metadata_store_read_meta(paths: &MessageStorePaths) -> Result<Option<ConversationShardMeta>, String> {
+/// 从库里读一条会话元数据：骨来自列，肉来自 metadata_json。
+fn chat_metadata_store_read_meta(
+    paths: &MessageStorePaths,
+) -> Result<Option<ConversationStoredMeta>, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
     let row = conn
         .query_row(
-            "SELECT metadata_json, short_id FROM conversation_metadata WHERE conversation_id=?1",
+            "SELECT metadata_json, short_id, created_at, updated_at, status, conversation_kind,
+                    agent_id, parent_conversation_id, root_conversation_id, delegate_id
+               FROM conversation_metadata WHERE conversation_id=?1",
             [&paths.conversation_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ConversationBackbone {
+                        conversation_id: paths.conversation_id.clone(),
+                        short_id: row
+                            .get::<_, Option<i64>>(1)?
+                            .and_then(|value| u64::try_from(value).ok()),
+                        created_at: row.get(2)?,
+                        updated_at: row.get(3)?,
+                        status: row.get(4)?,
+                        conversation_kind: row.get(5)?,
+                        agent_id: row.get(6)?,
+                        parent_conversation_id: row.get(7)?,
+                        root_conversation_id: row.get(8)?,
+                        delegate_id: row.get(9)?,
+                    },
+                ))
+            },
         )
         .optional()
-        .map_err(|err| format!("读取会话 SQLite metadata 失败，conversation_id={}，error={err}", paths.conversation_id))?;
-    let Some((raw, short_id_column)) = row else {
+        .map_err(|err| {
+            format!(
+                "读取会话 SQLite metadata 失败，conversation_id={}，error={err}",
+                paths.conversation_id
+            )
+        })?;
+    let Some((raw, backbone)) = row else {
         return Ok(None);
     };
-    let mut meta = conversation_shard_meta_from_stored_json(&raw)
-        .map_err(|err| format!("解析会话 SQLite metadata 失败，conversation_id={}，error={err}", paths.conversation_id))?;
-    // 短 ID 只以库里的 `short_id` 列为权威：metadata_json 里根本不存它，
-    // 所以这里必须把列值填进内存投影，否则读回来的会话永远没有号。
-    if let Some(column_value) = short_id_column {
-        meta.short_id = Some(column_value.max(0) as u64);
-    }
-    Ok(Some(meta))
+    let payload = conversation_shard_meta_from_stored_json(&raw).map_err(|err| {
+        format!(
+            "解析会话 SQLite metadata 失败，conversation_id={}，error={err}",
+            paths.conversation_id
+        )
+    })?;
+    Ok(Some(ConversationStoredMeta::new(backbone, payload)))
 }
 
 fn chat_metadata_store_read_index(paths: &MessageStorePaths) -> Result<Option<MessageStoreIndexFile>, String> {
@@ -1000,20 +1124,32 @@ fn chat_metadata_store_list_chat_index_inner(
     data_path: &PathBuf,
 ) -> Result<Option<Vec<ChatIndexConversationItem>>, String> {
     let conn = chat_metadata_store_open(data_path)?;
-    let mut stmt = conn.prepare("SELECT metadata_json FROM conversation_metadata")
+    let mut stmt = conn
+        .prepare(
+            "SELECT conversation_id, updated_at, status, metadata_json FROM conversation_metadata",
+        )
         .map_err(|err| format!("准备读取 SQLite 会话列表失败: {err}"))?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0))
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
         .map_err(|err| format!("读取 SQLite 会话列表失败: {err}"))?;
     let mut items = Vec::new();
     for row in rows {
-        let raw = row.map_err(|err| format!("读取 SQLite 会话 metadata 失败: {err}"))?;
-        let meta = conversation_shard_meta_from_stored_json(&raw)
+        let (conversation_id, updated_at, status, raw) =
+            row.map_err(|err| format!("读取 SQLite 会话 metadata 失败: {err}"))?;
+        let payload = conversation_shard_meta_from_stored_json(&raw)
             .map_err(|err| format!("解析 SQLite 会话 metadata 失败: {err}"))?;
         items.push(ChatIndexConversationItem {
-            id: meta.id().to_string(),
-            updated_at: meta.updated_at().to_string(),
-            status: meta.status().to_string(),
-            archived_at: meta.archived_at().map(ToOwned::to_owned),
+            id: conversation_id,
+            updated_at,
+            status,
+            archived_at: payload.archived_at().map(ToOwned::to_owned),
         });
     }
     Ok(Some(items))
@@ -1046,31 +1182,45 @@ fn chat_metadata_store_list_search_conversations_inner(
 ) -> Result<Vec<ChatSearchConversationMeta>, String> {
     let conn = chat_metadata_store_open(data_path)?;
     let mut statement = conn
-        .prepare("SELECT metadata_json FROM conversation_metadata")
+        .prepare(
+            "SELECT conversation_id, agent_id, status, conversation_kind, updated_at, metadata_json
+               FROM conversation_metadata",
+        )
         .map_err(|err| format!("准备读取 SQLite 会话元数据失败: {err}"))?;
     let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
         .map_err(|err| format!("读取 SQLite 会话元数据失败: {err}"))?;
     let mut out = Vec::new();
     for row in rows {
-        let raw = row.map_err(|err| format!("读取 SQLite 会话 metadata 失败: {err}"))?;
-        let meta = match conversation_shard_meta_from_stored_json(&raw) {
-            Ok(meta) => meta,
+        let (conversation_id, agent_id, status, conversation_kind, updated_at, raw) =
+            row.map_err(|err| format!("读取 SQLite 会话 metadata 失败: {err}"))?;
+        let payload = match conversation_shard_meta_from_stored_json(&raw) {
+            Ok(payload) => payload,
             Err(err) => {
                 runtime_log_warn(format!("[聊天] 跳过无法解析的会话元数据：{err}"));
                 continue;
             }
         };
         out.push(ChatSearchConversationMeta {
-            conversation_id: meta.id.clone(),
-            title: meta.title.clone(),
-            summary_title: meta.latest_summary_title.clone(),
-            agent_id: meta.agent_id.clone(),
-            status: meta.status.clone(),
-            archived_at: meta.archived_at.clone(),
-            conversation_kind: meta.conversation_kind.clone(),
-            shell_workspace_path: meta.shell_workspace_path.clone(),
-            updated_at: meta.updated_at.clone(),
+            conversation_id,
+            // 标题是高频变动的业务载荷，只住在 metadata_json 里，不建列。
+            title: payload.title().to_string(),
+            summary_title: payload.latest_summary_title().map(ToOwned::to_owned),
+            agent_id,
+            status,
+            archived_at: payload.archived_at().map(ToOwned::to_owned),
+            conversation_kind,
+            shell_workspace_path: payload.shell_workspace_path().map(ToOwned::to_owned),
+            updated_at,
         });
     }
     Ok(out)
@@ -1531,16 +1681,30 @@ fn chat_metadata_store_with_delete_gate<T>(
 
 fn chat_metadata_store_write_meta_only(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
 ) -> Result<(), String> {
     chat_metadata_store_with_writer_gate(paths, || {
         let conn = chat_metadata_store_open(&paths.data_path)?;
-        let raw = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+        let raw = serde_json::to_string(meta.payload()).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+        let backbone = meta.backbone();
+        // 不可变列（short_id / created_at）不在这条 UPDATE 里：创建后谁都不许改。
         let updated = conn.execute(
             "UPDATE conversation_metadata
-             SET metadata_json=?1, storage_revision=storage_revision+1, updated_at=?2
-             WHERE conversation_id=?3",
-            rusqlite::params![raw, meta.updated_at(), paths.conversation_id],
+             SET metadata_json=?1, storage_revision=storage_revision+1, updated_at=?2,
+                 status=?3, conversation_kind=?4, agent_id=?5,
+                 parent_conversation_id=?6, root_conversation_id=?7, delegate_id=?8
+             WHERE conversation_id=?9",
+            rusqlite::params![
+                raw,
+                backbone.updated_at(),
+                backbone.status(),
+                backbone.conversation_kind(),
+                backbone.agent_id(),
+                backbone.parent_conversation_id(),
+                backbone.root_conversation_id(),
+                backbone.delegate_id(),
+                paths.conversation_id
+            ],
         ).map_err(|err| format!("更新 SQLite metadata 失败: {err}"))?;
         if updated != 1 {
             return Err(format!("写入 SQLite 会话 metadata 失败：会话不存在，conversation_id={}", paths.conversation_id));
@@ -1625,7 +1789,7 @@ fn chat_metadata_store_reconcile_block_tail(
 
 fn chat_metadata_store_publish_blocks(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     changed_blocks: &[JsonlSnapshotConversationBlock],
     retired_block_ids: &[u32],
     locator_rows: &[(i64, MessageStoreIndexItem)],
@@ -1739,7 +1903,7 @@ fn chat_metadata_store_publish_blocks(
 fn chat_metadata_store_apply_block_publication(
     conn: &mut rusqlite::Connection,
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     changed_blocks: &[JsonlSnapshotConversationBlock],
     retired_block_ids: &[u32],
     locator_rows: &[(i64, MessageStoreIndexItem)],
@@ -1761,11 +1925,26 @@ fn chat_metadata_store_apply_block_publication(
 
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开启 SQLite block 发布事务失败: {err}"))?;
-    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta.payload()).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
     let updated = transaction.execute(
-        "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
-         WHERE conversation_id=?4 AND storage_revision=?5",
-        rusqlite::params![meta_json, before_revision + 1, meta.updated_at(), paths.conversation_id, before_revision],
+        "UPDATE conversation_metadata
+         SET metadata_json=?1, storage_revision=?2, updated_at=?3,
+             status=?4, conversation_kind=?5, agent_id=?6,
+             parent_conversation_id=?7, root_conversation_id=?8, delegate_id=?9
+         WHERE conversation_id=?10 AND storage_revision=?11",
+        rusqlite::params![
+            meta_json,
+            before_revision + 1,
+            meta.updated_at(),
+            meta.status(),
+            meta.conversation_kind(),
+            meta.agent_id(),
+            meta.parent_conversation_id(),
+            meta.root_conversation_id(),
+            meta.delegate_id(),
+            paths.conversation_id,
+            before_revision
+        ],
     ).map_err(|err| format!("发布 SQLite metadata 失败: {err}"))?;
     if updated != 1 {
         return Err(format!("发布 SQLite metadata revision 冲突，conversation_id={}", paths.conversation_id));
@@ -1994,13 +2173,13 @@ fn chat_metadata_store_ensure_appended_messages_are_new(
 
 fn chat_metadata_store_append_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     messages: &[ChatMessage],
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if messages.is_empty() {
         return Err(format!("追加 SQLite 消息失败：消息为空，conversation_id={}", paths.conversation_id));
     }
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
+    let shard_meta = meta;
     chat_metadata_store_with_writer_gate(paths, || {
         // 读侧一次连接读完，随后立即释放：写路径（物理追加 / publish）各自要拿写事务与 publication gate，不复用读连接。
         let conn = chat_metadata_store_open(&paths.data_path)?;
@@ -2039,7 +2218,7 @@ fn chat_metadata_store_append_messages(
         if plan.continue_last_block && plan.groups.len() == 1 {
             let block_id = last_block_id.ok_or_else(|| "追加 SQLite 消息失败：缺少尾 block".to_string())?;
             let should_slim = should_slim_conversation_block(
-                meta.status.trim() == "archived",
+                meta.status().trim() == "archived",
                 block_id as usize,
                 total_block_count,
             );
@@ -2052,7 +2231,7 @@ fn chat_metadata_store_append_messages(
                 let first_sequence = tail_rows.last().map(|row| row.sequence + 1).unwrap_or(count as i64);
                 return chat_metadata_store_append_physical(
                     paths,
-                    &shard_meta,
+                    shard_meta,
                     block_id,
                     &tail_row,
                     &plan.groups[0],
@@ -2081,7 +2260,7 @@ fn chat_metadata_store_append_messages(
                 messages: merged.iter().collect(),
             };
             let should_slim = should_slim_conversation_block(
-                meta.status.trim() == "archived",
+                meta.status().trim() == "archived",
                 block_id as usize,
                 total_block_count,
             );
@@ -2123,11 +2302,11 @@ fn chat_metadata_store_append_messages(
                 block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
                 messages: group.iter().collect(),
             };
-            let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+            let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, total_block_count))?;
             for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
             changed_blocks.push(block);
         }
-        chat_metadata_store_publish_blocks(paths, &shard_meta, &changed_blocks, &[], &rows)
+        chat_metadata_store_publish_blocks(paths, shard_meta, &changed_blocks, &[], &rows)
     })
 }
 
@@ -2139,7 +2318,7 @@ fn chat_metadata_store_append_messages(
 /// 在下次追加前截断。不登记 storage_operations（追加是幂等自愈的，recover 机制不感知）。
 fn chat_metadata_store_append_physical(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     block_id: u32,
     tail_row: &ChatMetadataLocator,
     new_messages: &[ChatMessage],
@@ -2238,15 +2417,24 @@ fn chat_metadata_store_append_physical(
             paths.conversation_id, block_id
         ));
     }
-    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta.payload()).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
     let updated = transaction
         .execute(
-            "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
-             WHERE conversation_id=?4 AND storage_revision=?5",
+            "UPDATE conversation_metadata
+             SET metadata_json=?1, storage_revision=?2, updated_at=?3,
+                 status=?4, conversation_kind=?5, agent_id=?6,
+                 parent_conversation_id=?7, root_conversation_id=?8, delegate_id=?9
+             WHERE conversation_id=?10 AND storage_revision=?11",
             rusqlite::params![
                 meta_json,
                 before_revision + 1,
                 meta.updated_at(),
+                meta.status(),
+                meta.conversation_kind(),
+                meta.agent_id(),
+                meta.parent_conversation_id(),
+                meta.root_conversation_id(),
+                meta.delegate_id(),
                 paths.conversation_id,
                 before_revision
             ],
@@ -2293,7 +2481,7 @@ fn chat_metadata_store_append_physical(
 /// 与新增行匹配（工具事件追加工具行、正文累积追加正文行）。
 fn chat_metadata_store_append_line_to_group_physical(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     block_id: u32,
     target_row: &ChatMetadataLocator,
     new_lines: &[String],
@@ -2416,15 +2604,24 @@ fn chat_metadata_store_append_line_to_group_physical(
             paths.conversation_id, block_id
         ));
     }
-    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta.payload()).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
     let updated = transaction
         .execute(
-            "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
-             WHERE conversation_id=?4 AND storage_revision=?5",
+            "UPDATE conversation_metadata
+             SET metadata_json=?1, storage_revision=?2, updated_at=?3,
+                 status=?4, conversation_kind=?5, agent_id=?6,
+                 parent_conversation_id=?7, root_conversation_id=?8, delegate_id=?9
+             WHERE conversation_id=?10 AND storage_revision=?11",
             rusqlite::params![
                 meta_json,
                 before_revision + 1,
                 meta.updated_at(),
+                meta.status(),
+                meta.conversation_kind(),
+                meta.agent_id(),
+                meta.parent_conversation_id(),
+                meta.root_conversation_id(),
+                meta.delegate_id(),
                 paths.conversation_id,
                 before_revision
             ],
@@ -2497,7 +2694,7 @@ fn chat_metadata_store_read_all_block_ids(paths: &MessageStorePaths) -> Result<V
 
 fn chat_metadata_store_splice_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     start_index: usize,
     delete_count: usize,
     inserted_messages: &[ChatMessage],
@@ -2505,7 +2702,7 @@ fn chat_metadata_store_splice_messages(
     if start_index == 0 && delete_count == 0 && chat_metadata_store_message_count(paths)? == 0 {
         return chat_metadata_store_append_messages(paths, meta, inserted_messages);
     }
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
+    let shard_meta = meta;
     chat_metadata_store_with_writer_gate(paths, || {
         let count = chat_metadata_store_message_count(paths)?;
         if start_index > count || delete_count > count.saturating_sub(start_index) {
@@ -2555,7 +2752,7 @@ fn chat_metadata_store_splice_messages(
         let mut changed_blocks = Vec::new();
         let mut rows = Vec::new();
         let mut sequence = first_sequence;
-        let force_slim_closed_remote_blocks = meta.conversation_kind
+        let force_slim_closed_remote_blocks = meta.conversation_kind()
             == CONVERSATION_KIND_REMOTE_IM_CONTACT
             && inserted_messages.iter().any(|message| message_store_compaction_kind(message).is_some());
         for (offset, source) in raw_blocks.iter().enumerate() {
@@ -2569,7 +2766,7 @@ fn chat_metadata_store_splice_messages(
             let total_rebuilt_block_count = prefix_block_count + raw_blocks.len();
             let should_slim = should_slim_spliced_block(
                 force_slim_closed_remote_blocks,
-                meta.status.trim() == "archived",
+                meta.status().trim() == "archived",
                 absolute_block_index,
                 total_rebuilt_block_count,
             );
@@ -2583,7 +2780,7 @@ fn chat_metadata_store_splice_messages(
             }
             changed_blocks.push(block);
         }
-        chat_metadata_store_publish_blocks(paths, &shard_meta, &changed_blocks, &old_block_ids, &rows)
+        chat_metadata_store_publish_blocks(paths, shard_meta, &changed_blocks, &old_block_ids, &rows)
     })
 }
 
@@ -2701,7 +2898,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
     };
     chat_metadata_store_splice_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after),
+        &ConversationStoredMeta::from_conversation(&after),
         2,
         1,
         &[summary.clone(), trigger.clone()],
@@ -2732,7 +2929,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
 
 fn chat_metadata_store_append_messages_unlocked(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     messages: &[ChatMessage],
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if messages.is_empty() {
@@ -2759,7 +2956,7 @@ fn chat_metadata_store_append_messages_unlocked(
         let mut merged = tail_messages;
         merged.extend(plan.groups.first().cloned().unwrap_or_default());
         let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"), messages: merged.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
@@ -2772,19 +2969,19 @@ fn chat_metadata_store_append_messages_unlocked(
     for (index, group) in plan.groups.iter().enumerate().skip(first_new_group_index) {
         let block_id = new_block_ids[index - first_new_group_index];
         let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"), messages: group.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
-    chat_metadata_store_publish_blocks(paths, &ConversationShardMeta::from_persist_meta(meta), &changed_blocks, &[], &rows)
+    chat_metadata_store_publish_blocks(paths, meta, &changed_blocks, &[], &rows)
 }
 
 fn chat_metadata_store_replace_message(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     message: &ChatMessage,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
+    let shard_meta = meta;
     chat_metadata_store_with_writer_gate(paths, || {
         let locator = chat_metadata_store_read_locator_by_id(paths, message.id.trim())?
             .ok_or_else(|| format!("替换 SQLite 消息失败：消息不存在，conversation_id={}，message_id={}", paths.conversation_id, message.id))?;
@@ -2792,7 +2989,7 @@ fn chat_metadata_store_replace_message(
         let block_rows = chat_metadata_store_read_locators_for_block(paths, block_id)?;
         let block_count = chat_metadata_store_read_block_count(paths)?;
         let should_slim = should_slim_conversation_block(
-            meta.status.trim() == "archived",
+            meta.status().trim() == "archived",
             block_id as usize,
             block_count,
         );
@@ -2843,7 +3040,7 @@ fn chat_metadata_store_replace_message(
             let rows = rebuilt.index_items.iter().enumerate()
                 .map(|(index, item)| (block_rows[index].sequence, item.clone()))
                 .collect::<Vec<_>>();
-            return chat_metadata_store_publish_blocks(paths, &shard_meta, &[rebuilt], &[], &rows);
+            return chat_metadata_store_publish_blocks(paths, shard_meta, &[rebuilt], &[], &rows);
         }
         let mut messages = read_jsonl_snapshot_messages_by_index_items(
             &paths.messages_file,
@@ -2859,24 +3056,24 @@ fn chat_metadata_store_replace_message(
         };
         let rebuilt = build_jsonl_snapshot_conversation_block_v4(
             &refs,
-            should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
+            should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, block_count),
         )?;
         let rows = rebuilt.index_items.iter().enumerate()
             .map(|(index, item)| (block_rows[index].sequence, item.clone()))
             .collect::<Vec<_>>();
-        chat_metadata_store_publish_blocks(paths, &shard_meta, &[rebuilt], &[], &rows)
+        chat_metadata_store_publish_blocks(paths, shard_meta, &[rebuilt], &[], &rows)
     })
 }
 
 fn chat_metadata_store_replace_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     messages: &[ChatMessage],
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if messages.is_empty() {
         return Err(format!("批量替换 SQLite 消息失败：消息为空，conversation_id={}", paths.conversation_id));
     }
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
+    let shard_meta = meta;
     chat_metadata_store_with_writer_gate(paths, || {
         let mut replacements_by_block = std::collections::BTreeMap::<u32, Vec<&ChatMessage>>::new();
         let mut message_ids = std::collections::HashSet::<String>::new();
@@ -2912,30 +3109,30 @@ fn chat_metadata_store_replace_messages(
             };
             let rebuilt = build_jsonl_snapshot_conversation_block_v4(
                 &refs,
-                should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
+                should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, block_count),
             )?;
             for (index, item) in rebuilt.index_items.iter().enumerate() {
                 rows.push((block_rows[index].sequence, item.clone()));
             }
             changed_blocks.push(rebuilt);
         }
-        chat_metadata_store_publish_blocks(paths, &shard_meta, &changed_blocks, &[], &rows)
+        chat_metadata_store_publish_blocks(paths, shard_meta, &changed_blocks, &[], &rows)
     })
 }
 
 fn chat_metadata_store_truncate_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     keep_count: usize,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
+    let shard_meta = meta;
     chat_metadata_store_with_writer_gate(paths, || {
         let count = chat_metadata_store_message_count(paths)?;
         if keep_count > count {
             return Err(format!("截断 SQLite 消息失败：保留数量超过当前消息数，conversation_id={}，keep_count={keep_count}，message_count={count}", paths.conversation_id));
         }
         if keep_count == 0 {
-            return chat_metadata_store_publish_blocks(paths, &shard_meta, &[], &chat_metadata_store_read_all_block_ids(paths)?, &[]);
+            return chat_metadata_store_publish_blocks(paths, shard_meta, &[], &chat_metadata_store_read_all_block_ids(paths)?, &[]);
         }
         let last = chat_metadata_store_read_locator_at_sequence(paths, keep_count as i64 - 1)?
             .ok_or_else(|| format!("截断 SQLite 消息失败：保留位置不存在，conversation_id={}", paths.conversation_id))?;
@@ -2944,7 +3141,7 @@ fn chat_metadata_store_truncate_messages(
         let kept_rows = block_rows.iter().filter(|row| row.sequence < keep_count as i64).cloned().collect::<Vec<_>>();
         let retired = chat_metadata_store_read_block_ids_after(paths, block_id)?;
         if kept_rows.len() == block_rows.len() {
-            return chat_metadata_store_publish_blocks(paths, &shard_meta, &[], &retired, &[]);
+            return chat_metadata_store_publish_blocks(paths, shard_meta, &[], &retired, &[]);
         }
         let kept_messages = read_jsonl_snapshot_messages_by_index_items(
             &paths.messages_file,
@@ -2958,12 +3155,12 @@ fn chat_metadata_store_truncate_messages(
         };
         let rebuilt = build_jsonl_snapshot_conversation_block_v4(
             &refs,
-            should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count.saturating_sub(retired.len())),
+            should_slim_conversation_block(meta.status().trim() == "archived", block_id as usize, block_count.saturating_sub(retired.len())),
         )?;
         let rows = rebuilt.index_items.iter().enumerate()
             .map(|(index, item)| (kept_rows[index].sequence, item.clone()))
             .collect::<Vec<_>>();
-        chat_metadata_store_publish_blocks(paths, &shard_meta, &[rebuilt], &retired, &rows)
+        chat_metadata_store_publish_blocks(paths, shard_meta, &[rebuilt], &retired, &rows)
     })
 }
 
@@ -3476,7 +3673,7 @@ fn chat_metadata_store_write_snapshot_unlocked(
         blocks.blocks.len(),
     )?;
     chat_metadata_store_remap_snapshot_blocks(&mut blocks, &rebuilt_block_ids)?;
-    let meta = ConversationShardMeta::from_conversation(conversation);
+    let meta = ConversationStoredMeta::from_conversation(conversation);
     fs::create_dir_all(&paths.blocks_dir).map_err(|err| format!("创建 v3 会话块目录失败: {err}"))?;
     let operation_id = Uuid::new_v4().to_string();
     let operation_root = chat_metadata_operation_root(paths, &operation_id);
@@ -3554,7 +3751,7 @@ fn chat_metadata_store_write_snapshot_unlocked(
 fn chat_metadata_store_apply_v3_publication(
     conn: &mut rusqlite::Connection,
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     blocks: &JsonlSnapshotConversationBlocks,
     before_revision: i64,
     operation_id: &str,
@@ -3572,11 +3769,24 @@ fn chat_metadata_store_apply_v3_publication(
     }
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开启 v3 发布事务失败: {err}"))?;
-    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 v3 metadata 失败: {err}"))?;
+    let meta_json = serde_json::to_string(meta.payload()).map_err(|err| format!("序列化 v3 metadata 失败: {err}"))?;
+    let backbone = meta.backbone();
     transaction.execute(
-        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id) VALUES(?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
-        rusqlite::params![paths.conversation_id, meta_json, before_revision + 1, meta.updated_at(), meta.short_id.map(|value| value as i64)],
+        CHAT_METADATA_UPSERT_SQL,
+        rusqlite::params![
+            paths.conversation_id,
+            meta_json,
+            before_revision + 1,
+            backbone.updated_at(),
+            backbone.short_id().map(|value| value as i64),
+            backbone.created_at(),
+            backbone.status(),
+            backbone.conversation_kind(),
+            backbone.agent_id(),
+            backbone.parent_conversation_id(),
+            backbone.root_conversation_id(),
+            backbone.delegate_id(),
+        ],
     ).map_err(|err| format!("发布 v3 metadata 失败: {err}"))?;
     transaction.execute("DELETE FROM conversation_blocks WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 block 失败: {err}"))?;
     transaction.execute("DELETE FROM message_locator WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 locator 失败: {err}"))?;
@@ -4133,7 +4343,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     after_append.messages.push(message("m2", "assistant"));
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after_append),
+        &ConversationStoredMeta::from_conversation(&after_append),
         &after_append.messages[1..],
     )
     .expect("physical append");
@@ -4166,7 +4376,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     after_append2.messages.push(message("m3", "user"));
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after_append2),
+        &ConversationStoredMeta::from_conversation(&after_append2),
         &after_append2.messages[2..],
     )
     .expect("second physical append");
@@ -4218,7 +4428,7 @@ fn v3_chat_metadata_append_should_open_store_constant_times() {
     chat_metadata_store_reset_open_count(&data_path);
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&appended),
+        &ConversationStoredMeta::from_conversation(&appended),
         &appended.messages[1..],
     )
     .expect("append three messages");
@@ -4256,7 +4466,7 @@ fn v3_chat_metadata_append_should_open_store_constant_times() {
     chat_metadata_store_reset_open_count(&data_path);
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&appended_one),
+        &ConversationStoredMeta::from_conversation(&appended_one),
         &appended_one.messages[4..],
     )
     .expect("append one message");
@@ -4269,7 +4479,7 @@ fn v3_chat_metadata_append_should_open_store_constant_times() {
     // 4. 查重仍然生效：库内已存在的 id 拒绝，批内自重复也拒绝
     let duplicate_with_existing = chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&appended_one),
+        &ConversationStoredMeta::from_conversation(&appended_one),
         &[message("m2", "user")],
     )
     .expect_err("已存在的 message id 必须拒绝");
@@ -4279,7 +4489,7 @@ fn v3_chat_metadata_append_should_open_store_constant_times() {
     );
     let duplicate_in_batch = chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&appended_one),
+        &ConversationStoredMeta::from_conversation(&appended_one),
         &[message("batch-dup", "user"), message("batch-dup", "assistant")],
     )
     .expect_err("批内重复 message id 必须拒绝");
@@ -4332,7 +4542,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     after_append.messages.push(message("m2", "assistant"));
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after_append),
+        &ConversationStoredMeta::from_conversation(&after_append),
         &after_append.messages[1..],
     )
     .expect("append after orphan");
@@ -4413,7 +4623,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
 
     let mut after_append = conversation.clone();
     after_append.messages.push(message("m2", "assistant"));
-    chat_metadata_store_append_messages(&paths, &ConversationPersistMeta::from_conversation(&after_append), &after_append.messages[1..])
+    chat_metadata_store_append_messages(&paths, &ConversationStoredMeta::from_conversation(&after_append), &after_append.messages[1..])
         .expect("append through v3");
     assert_eq!(chat_metadata_store_read_recent_page(&paths, 10, false).expect("recent").messages.len(), 2);
     assert!(paths.manifest_file.exists() && paths.index_file.exists() && paths.meta_file.exists());
@@ -4421,7 +4631,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let mut replacement = after_append.messages[1].clone();
     replacement.parts = vec![MessagePart::Text { text: "replaced".to_string(), reasoning_content: None }];
     after_append.messages[1] = replacement.clone();
-    chat_metadata_store_replace_message(&paths, &ConversationPersistMeta::from_conversation(&after_append), &replacement)
+    chat_metadata_store_replace_message(&paths, &ConversationStoredMeta::from_conversation(&after_append), &replacement)
         .expect("replace through v3");
     assert_eq!(build_conversation_preview_text(&chat_metadata_store_read_message_by_id(&paths, "m2").expect("read replacement")), "replaced");
 
@@ -4431,7 +4641,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     after_append.messages = batch_replacements.clone();
     chat_metadata_store_replace_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after_append),
+        &ConversationStoredMeta::from_conversation(&after_append),
         &batch_replacements,
     ).expect("batch replace through one v3 publish");
     assert_eq!(
@@ -4449,14 +4659,14 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
 
     let mut after_truncate = after_append.clone();
     after_truncate.messages.truncate(1);
-    chat_metadata_store_truncate_messages(&paths, &ConversationPersistMeta::from_conversation(&after_truncate), 1)
+    chat_metadata_store_truncate_messages(&paths, &ConversationStoredMeta::from_conversation(&after_truncate), 1)
         .expect("truncate through v3");
     assert_eq!(chat_metadata_store_read_recent_page(&paths, 10, false).expect("recent after truncate").messages.len(), 1);
 
     let after_splice = message("m3", "assistant");
     chat_metadata_store_splice_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&Conversation { messages: vec![after_splice.clone()], ..after_truncate.clone() }),
+        &ConversationStoredMeta::from_conversation(&Conversation { messages: vec![after_splice.clone()], ..after_truncate.clone() }),
         0,
         1,
         std::slice::from_ref(&after_splice),
@@ -4466,7 +4676,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
 
     let concurrent_a = message("m4", "assistant");
     let concurrent_b = message("m5", "tool");
-    let concurrent_meta = ConversationPersistMeta::from_conversation(&Conversation {
+    let concurrent_meta = ConversationStoredMeta::from_conversation(&Conversation {
         messages: vec![after_splice.clone(), concurrent_a.clone(), concurrent_b.clone()],
         ..after_truncate.clone()
     });
@@ -4515,7 +4725,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     };
     chat_metadata_store_append_messages(
         &paths,
-        &ConversationPersistMeta::from_conversation(&after_compaction),
+        &ConversationStoredMeta::from_conversation(&after_compaction),
         &[summary, current_user],
     )
     .expect("append compaction and current user");
@@ -4773,7 +4983,7 @@ fn block_publication_failure_should_restore_replaced_block_file() {
     )];
     let err = chat_metadata_store_publish_blocks(
         &paths,
-        &ConversationShardMeta::from_conversation(&conversation),
+        &ConversationStoredMeta::from_conversation(&conversation),
         &changed_blocks,
         &[],
         &locator_rows,

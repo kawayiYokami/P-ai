@@ -132,7 +132,7 @@ pub(super) fn migration_v1_to_v2_conversation_classified(
     }
     let manifest = MessageStoreManifest::jsonl_snapshot_building(&normalized_conversation)
         .jsonl_snapshot_ready(blocks.total_bytes, 1);
-    let meta = ConversationShardMeta::from_conversation(&normalized_conversation);
+    let meta = ConversationStoredMeta::from_conversation(&normalized_conversation);
     if migration_v1_to_v2_target_matches(paths, &manifest, &meta, &blocks) {
         return Ok(());
     }
@@ -150,7 +150,7 @@ pub(super) fn migration_v1_to_v2_conversation_classified(
 fn migration_v1_to_v2_target_matches(
     paths: &MessageStorePaths,
     manifest: &MessageStoreManifest,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     blocks: &JsonlSnapshotConversationBlocks,
 ) -> bool {
     let stored_manifest = migration_read_v2_manifest(paths).ok();
@@ -236,7 +236,15 @@ fn migration_open_v3_database(data_path: &PathBuf) -> Result<rusqlite::Connectio
            conversation_id TEXT PRIMARY KEY,
            metadata_json TEXT NOT NULL,
            storage_revision INTEGER NOT NULL DEFAULT 0,
-           updated_at TEXT NOT NULL
+           updated_at TEXT NOT NULL,
+           short_id INTEGER,
+           created_at TEXT NOT NULL DEFAULT '',
+           status TEXT NOT NULL DEFAULT 'active',
+           conversation_kind TEXT NOT NULL DEFAULT 'regular',
+           agent_id TEXT NOT NULL DEFAULT '',
+           parent_conversation_id TEXT,
+           root_conversation_id TEXT,
+           delegate_id TEXT
          );
          CREATE TABLE IF NOT EXISTS conversation_blocks (
            conversation_id TEXT NOT NULL,
@@ -275,6 +283,9 @@ fn migration_open_v3_database(data_path: &PathBuf) -> Result<rusqlite::Connectio
     // v3 库 schema 与现役库必须一致：short_id 列与唯一索引在这里补齐，
     // 否则后面的 INSERT ... short_id 会直接报「表里没有这一列」。
     chat_metadata_ensure_short_id_column(&conn)?;
+    // 骨列与底座索引同样要对齐；老 v3 库缺哪列就在这一步补上。
+    chat_metadata_ensure_backbone_columns(&conn)?;
+    chat_metadata_ensure_backbone_indexes(&conn)?;
     Ok(conn)
 }
 
@@ -377,14 +388,14 @@ pub(super) fn migration_read_v2_status(
 
 fn migration_read_v2_meta(
     paths: &MessageStorePaths,
-) -> Result<ConversationShardMeta, MigrationV2ToV3Failure> {
+) -> Result<ConversationStoredMeta, MigrationV2ToV3Failure> {
     let raw = fs::read_to_string(&paths.meta_file).map_err(|err| {
         migration_v2_io_failure("迁移读取 V2 meta 失败", &paths.meta_file, err)
     })?;
-    let meta = conversation_shard_meta_from_stored_json(&raw).map_err(|err| {
+    let meta = conversation_stored_meta_from_legacy_json(&raw).map_err(|err| {
         migration_v2_parse_failure("迁移解析 V2 meta 失败", &paths.meta_file, err)
     })?;
-    validate_conversation_shard_meta_id(paths, &meta).map_err(|err| {
+    validate_conversation_shard_meta_id(paths, meta.payload()).map_err(|err| {
         migration_v2_parse_failure("迁移校验 V2 meta 失败", &paths.meta_file, err)
     })?;
     Ok(meta)
@@ -500,7 +511,7 @@ fn migration_rebuild_v2_snapshot(
 }
 
 struct MigrationV2ConversationSource {
-    meta: ConversationShardMeta,
+    meta: ConversationStoredMeta,
     index: MessageStoreIndexFile,
     rebuilt: RebuiltReadyMessageStoreSnapshot,
     plans: Vec<ActivePlanRecord>,
@@ -563,13 +574,37 @@ fn migration_v2_to_v3_conversation(
     let transaction = conn
         .unchecked_transaction()
         .map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("开启 V3 迁移事务失败: {err}")))?;
-    let meta_json = serde_json::to_string(&meta)
+    let meta_json = serde_json::to_string(meta.payload())
         .map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("序列化 V2 metadata 失败: {err}")))?;
     transaction.execute(
-        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
-         VALUES(?1, ?2, 1, ?3, ?4)
-         ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
-        rusqlite::params![paths.conversation_id, meta_json, meta.updated_at(), meta.short_id.map(|value| value as i64)],
+        "INSERT INTO conversation_metadata(
+             conversation_id, metadata_json, storage_revision, updated_at, short_id,
+             created_at, status, conversation_kind, agent_id,
+             parent_conversation_id, root_conversation_id, delegate_id)
+         VALUES(?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT(conversation_id) DO UPDATE SET
+             metadata_json=excluded.metadata_json,
+             storage_revision=excluded.storage_revision,
+             updated_at=excluded.updated_at,
+             status=excluded.status,
+             conversation_kind=excluded.conversation_kind,
+             agent_id=excluded.agent_id,
+             parent_conversation_id=excluded.parent_conversation_id,
+             root_conversation_id=excluded.root_conversation_id,
+             delegate_id=excluded.delegate_id",
+        rusqlite::params![
+            paths.conversation_id,
+            meta_json,
+            meta.updated_at(),
+            meta.short_id().map(|value| value as i64),
+            meta.created_at(),
+            meta.status(),
+            meta.conversation_kind(),
+            meta.agent_id(),
+            meta.parent_conversation_id(),
+            meta.root_conversation_id(),
+            meta.delegate_id()
+        ],
     ).map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("导入 V3 metadata 失败: {err}")))?;
     transaction.execute(
         "DELETE FROM conversation_blocks WHERE conversation_id=?1",

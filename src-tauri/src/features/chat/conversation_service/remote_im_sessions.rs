@@ -749,7 +749,7 @@ impl ConversationServiceV2 {
                     })?;
                     message_store::chat_store_replace_messages(
                         &store_paths,
-                        &ready_meta.to_persist_meta(),
+                        &ready_meta,
                         &changed_messages,
                     )?;
                     service.mark_conversation_metadata_cached_persisted(

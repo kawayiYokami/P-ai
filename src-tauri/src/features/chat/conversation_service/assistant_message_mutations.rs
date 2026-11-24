@@ -431,7 +431,7 @@ impl ConversationServiceV2 {
             })?;
             message_store::chat_store_replace_messages(
                 &paths,
-                &ready_meta.to_persist_meta(),
+                &ready_meta,
                 &updated_messages,
             )?;
             self.mark_conversation_metadata_cached_persisted(state, conversation_id)?;

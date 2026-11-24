@@ -4333,8 +4333,12 @@
             .expect("ready meta exists");
         let mut ready_meta_json = serde_json::to_value(&ready_meta).expect("serialize ready meta");
         ready_meta_json["previewMessages"] = serde_json::Value::Array(Vec::new());
-        let cleared_meta: message_store::ConversationPersistMeta =
-            serde_json::from_value(ready_meta_json).expect("deserialize cleared meta");
+        let cleared_payload: message_store::ConversationShardMeta =
+            serde_json::from_value(ready_meta_json).expect("deserialize cleared payload");
+        let cleared_meta = message_store::ConversationStoredMeta::new(
+            ready_meta.backbone().clone(),
+            cleared_payload,
+        );
         message_store::chat_store_write_meta(&store_paths, &cleared_meta)
             .expect("write cleared meta");
 
@@ -4782,7 +4786,7 @@
                 .expect("cached meta exists");
             let broken_conversation = conversation_service_v2()
                 .build_conversation_snapshot_from_meta(&current, Vec::new());
-            let broken = message_store::ConversationShardMeta::from_conversation(
+            let broken = message_store::ConversationStoredMeta::from_conversation(
                 &broken_conversation,
             );
             cached.insert(conversation.id.clone(), broken);
@@ -4935,7 +4939,7 @@
                 .expect("cached meta exists");
             let broken_conversation = conversation_service_v2()
                 .build_conversation_snapshot_from_meta(&current, Vec::new());
-            let broken = message_store::ConversationShardMeta::from_conversation(
+            let broken = message_store::ConversationStoredMeta::from_conversation(
                 &broken_conversation,
             );
             cached.insert(conversation.id.clone(), broken);
@@ -8699,7 +8703,7 @@
                 test_text_message("assistant", "伪造四", &now),
                 test_text_message("user", "伪造五", &now),
             ];
-            let broken = message_store::ConversationShardMeta::from_conversation(
+            let broken = message_store::ConversationStoredMeta::from_conversation(
                 &broken_conversation,
             );
             cached.insert(conversation.id.clone(), broken);

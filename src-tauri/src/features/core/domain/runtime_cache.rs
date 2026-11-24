@@ -218,7 +218,7 @@ fn sync_cached_conversation_metadata(
         .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
     metadata.insert(
         conversation.id.clone(),
-        message_store::ConversationShardMeta::from_conversation(conversation),
+        message_store::ConversationStoredMeta::from_conversation(conversation),
     );
     Ok(())
 }
@@ -239,7 +239,7 @@ fn lock_cached_conversation_field_metadata_ids(
 }
 
 fn conversation_meta_needs_message_derived_repair(
-    meta: &message_store::ConversationShardMeta,
+    meta: &message_store::ConversationStoredMeta,
 ) -> bool {
     if meta.message_count() > 0 && meta.preview_messages().is_empty() {
         return true;
@@ -258,8 +258,8 @@ fn conversation_meta_needs_message_derived_repair(
 fn repair_conversation_metadata_message_derived_fields_if_needed(
     state: &AppState,
     conversation_id: &str,
-    meta: &message_store::ConversationShardMeta,
-) -> Result<message_store::ConversationShardMeta, String> {
+    meta: &message_store::ConversationStoredMeta,
+) -> Result<message_store::ConversationStoredMeta, String> {
     if !conversation_meta_needs_message_derived_repair(meta) {
         return Ok(meta.clone());
     }
@@ -348,7 +348,7 @@ fn apply_cached_conversation_questions(
 fn state_read_conversation_metadata_cached(
     state: &AppState,
     conversation_id: &str,
-) -> Result<message_store::ConversationShardMeta, String> {
+) -> Result<message_store::ConversationStoredMeta, String> {
     let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() {
         return Err("Conversation id is empty".to_string());
@@ -421,7 +421,7 @@ fn state_read_conversation_metadata_cached(
                 .map_err(|_| "Failed to lock pending conversation persist".to_string())?
                 .as_ref()
                 .and_then(|slot| slot.conversations.get(conversation_id))
-                .map(message_store::ConversationShardMeta::from_conversation);
+                .map(message_store::ConversationStoredMeta::from_conversation);
             let cached_meta = pending_meta.or_else(|| {
                 state
                 .cached_conversation_metadata
@@ -516,7 +516,7 @@ fn state_mark_conversation_direct_persisted(
 fn state_mark_conversation_metadata_direct_persisted(
     state: &AppState,
     conversation_id: &str,
-) -> Result<message_store::ConversationShardMeta, String> {
+) -> Result<message_store::ConversationStoredMeta, String> {
     let mutation_gate = conversation_mutation_gate(&state.data_path, conversation_id)?;
     let _guard = mutation_gate.lock().map_err(|err| {
         named_lock_error("conversation_mutation_gate", file!(), line!(), module_path!(), &err)
@@ -582,7 +582,7 @@ fn state_mark_conversation_metadata_direct_persisted(
 fn state_override_conversation_metadata_cached(
     state: &AppState,
     conversation_id: &str,
-    meta: &message_store::ConversationShardMeta,
+    meta: &message_store::ConversationStoredMeta,
 ) -> Result<(), String> {
     let mut metadata = state
         .cached_conversation_metadata
@@ -667,7 +667,7 @@ fn state_update_conversation_metadata_cached_unlocked<T>(
     let mut conversation = conversation_service_v2()
         .build_conversation_snapshot_from_meta(&conversation_meta, Vec::new());
     let result = updater(&mut conversation)?;
-    let mut updated_meta = message_store::ConversationShardMeta::from_conversation(&conversation);
+    let mut updated_meta = message_store::ConversationStoredMeta::from_conversation(&conversation);
     updated_meta.preserve_message_derived_fields_from(&conversation_meta);
     {
         let mut metadata = state
@@ -732,8 +732,8 @@ fn state_update_conversation_metadata_cached_unlocked<T>(
 fn state_update_conversation_meta_cached_unlocked<T>(
     state: &AppState,
     normalized_conversation_id: &str,
-    updater: impl FnOnce(&mut message_store::ConversationShardMeta) -> Result<T, String>,
-) -> Result<(message_store::ConversationShardMeta, T, u64), String> {
+    updater: impl FnOnce(&mut message_store::ConversationStoredMeta) -> Result<T, String>,
+) -> Result<(message_store::ConversationStoredMeta, T, u64), String> {
     let mut conversation_meta =
         state_read_conversation_metadata_cached(state, normalized_conversation_id)?;
     let result = updater(&mut conversation_meta)?;

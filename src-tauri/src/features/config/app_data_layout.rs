@@ -678,7 +678,7 @@ fn read_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<Conv
 fn read_conversation_meta_shard(
     path: &PathBuf,
     conversation_id: &str,
-) -> Result<message_store::ConversationShardMeta, String> {
+) -> Result<message_store::ConversationStoredMeta, String> {
     let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() {
         return Err("Conversation id is empty".to_string());
@@ -753,7 +753,7 @@ fn write_conversation_shard(path: &PathBuf, conversation: &Conversation) -> Resu
         // 后台 metadata 刷新不得整读或重建 locator 与 JSONL block。
         write_conversation_meta_shard_from_meta(
             path,
-            &message_store::ConversationShardMeta::from_conversation(conversation),
+            &message_store::ConversationStoredMeta::from_conversation(conversation),
         )?;
         return Ok(true);
     }
@@ -763,15 +763,14 @@ fn write_conversation_shard(path: &PathBuf, conversation: &Conversation) -> Resu
 
 fn write_conversation_meta_shard_from_meta(
     path: &PathBuf,
-    meta: &message_store::ConversationShardMeta,
+    meta: &message_store::ConversationStoredMeta,
 ) -> Result<(), String> {
     let paths = message_store::message_store_paths(path, meta.id())?;
     let mut meta_to_persist = meta.clone();
     if let Some(ready_meta) = message_store::chat_store_read_meta(&paths)? {
-        meta_to_persist.preserve_message_derived_fields_from(&ready_meta);
+        meta_to_persist.preserve_message_derived_fields_from(ready_meta.payload());
     }
-    let persist_meta = meta_to_persist.to_persist_meta();
-    message_store::chat_store_write_meta(&paths, &persist_meta)
+    message_store::chat_store_write_meta(&paths, &meta_to_persist)
 }
 
 fn delete_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<bool, String> {
@@ -1118,8 +1117,8 @@ fn state_write_conversation_shell_workspace_metadata_direct(
     {
         return Ok(false);
     }
-    let mut updated_meta = message_store::ConversationShardMeta::from_conversation(&conversation);
-    updated_meta.preserve_message_derived_fields_from(&conversation_meta);
+    let mut updated_meta = message_store::ConversationStoredMeta::from_conversation(&conversation);
+    updated_meta.preserve_message_derived_fields_from(conversation_meta.payload());
     write_conversation_meta_shard_from_meta(&state.data_path, &updated_meta)?;
     let _ = state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
     Ok(true)
