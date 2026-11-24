@@ -276,6 +276,7 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                 let duty = value_string(member, "duty").unwrap_or_default();
                 let branch = value_string(member, "workBranch").unwrap_or_default();
                 let conversation = value_string(member, "conversationId").unwrap_or_default();
+                let short_id = member.get("shortId").and_then(Value::as_u64);
                 let mut line = format!("- {role} [{status}]");
                 if !state.is_empty() && !state.eq_ignore_ascii_case("idle") {
                     line.push_str(&format!(" {state}"));
@@ -287,7 +288,9 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                 if !branch.is_empty() {
                     line.push_str(&format!(" (branch {branch})"));
                 }
-                if !conversation.is_empty() {
+                if let Some(short_id) = short_id {
+                    line.push_str(&format!("  conv:#{short_id}"));
+                } else if !conversation.is_empty() {
                     line.push_str(&format!("  conv:{conversation}"));
                 }
                 lines.push(line);
@@ -560,7 +563,15 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
                 let id = value_string(item, "session_id")
                     .or_else(|| value_string(item, "sessionId"))
                     .unwrap_or_default();
-                lines.push(format!("- {title} [{kind}] {id}"));
+                let short_id = item
+                    .get("shortId")
+                    .and_then(Value::as_u64)
+                    .or_else(|| item.get("short_id").and_then(Value::as_u64));
+                if let Some(short_id) = short_id {
+                    lines.push(format!("- #{short_id} {title} [{kind}]"));
+                } else {
+                    lines.push(format!("- {title} [{kind}] {id}"));
+                }
             }
             Some(lines.join("\n"))
         }

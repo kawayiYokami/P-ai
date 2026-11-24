@@ -1474,6 +1474,10 @@
             Some("conv-resolve".to_string())
         );
         assert_eq!(
+            resolve_conversation_id_reference(&state, "#42").expect("resolve short id with prefix"),
+            Some("conv-resolve".to_string())
+        );
+        assert_eq!(
             resolve_conversation_id_reference(&state, "conv-resolve").expect("resolve primary key"),
             Some("conv-resolve".to_string())
         );

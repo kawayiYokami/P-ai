@@ -1491,7 +1491,7 @@ impl RuntimeToolMetadata for BuiltinGetSessionTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "get_session",
-            "查询可投递的会话。默认返回本地普通未归档会话和远程联系人会话；可用 keyword 按标题、联系人、人格筛选。每条结果含 sessionId（完整会话主键）与 shortId（数字短 ID，可直接作为 inform_session 的 session_id）。",
+            "查询可投递的会话。默认返回本地普通未归档会话和远程联系人会话；可用 keyword 按标题、联系人、人格筛选。每条结果含 shortId（数字短 ID，可直接作为 inform_session 的 session_id）、类型和标题。",
             serde_json::json!({
               "type": "object",
               "properties": {
@@ -1582,7 +1582,7 @@ impl RuntimeToolMetadata for BuiltinInformSessionTool {
             serde_json::json!({
               "type": "object",
               "properties": {
-                "session_id": { "type": "string", "description": "目标会话：数字短 ID（如 0、1，取自 get_session 的 shortId）或完整会话 UUID。" },
+                "session_id": { "type": "string", "description": "目标会话的数字短 ID（如 0、1 或 #0，取自 get_session）。" },
                 "content": { "type": "string", "description": "要通知的正文。" }
               },
               "required": ["session_id", "content"],

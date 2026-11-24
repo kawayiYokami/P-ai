@@ -12,14 +12,18 @@ fn builtin_get_session(
         state,
         args.keyword.as_deref(),
     )?;
-    // 只留定位与识别用得到的几项：会话主键、数字短号、类型、标题。
+    // 只留定位与识别用得到的几项：数字短号（优先作为 sessionId 与 shortId）、类型、标题。
     // 人格名与标题重复，三个远程联系人字段合成的信息标题里已经有了，更新时间没人看。
-    // shortId 是给模型与脚本用的短寻址入口：能直接回填进 inform_session 的 session_id。
+    // 有了数字短 ID 之后，对外呈现与回执中彻底杜绝 36 位长 UUID，降低模型认知负担。
     let rows = items
         .into_iter()
         .map(|item| {
+            let session_id_str = item
+                .short_id
+                .map(|id| id.to_string())
+                .unwrap_or(item.session_id);
             serde_json::json!({
-                "sessionId": item.session_id,
+                "sessionId": session_id_str,
                 "shortId": item.short_id,
                 "kind": item.kind,
                 "title": item.title,
@@ -48,8 +52,11 @@ fn builtin_inform_session(
         &target_conversation_id,
         &args.content,
     )?;
+    // 回执展示目标标识：优先使用短号或调用方传入的引用，避免将底层长 UUID 暴露给模型
+    let display_id = target_reference.to_string();
     Ok(serde_json::json!({
-        "session_id": result.target_conversation_id,
+        "session_id": display_id,
+        "target_conversation_id": result.target_conversation_id,
         "pushed_to_remote": result.pushed_to_remote,
     }))
 }

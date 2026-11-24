@@ -483,7 +483,8 @@ fn resolve_conversation_id_reference(
     if reference.is_empty() {
         return Ok(None);
     }
-    if let Ok(short_id) = reference.parse::<u64>() {
+    let candidate = reference.strip_prefix('#').unwrap_or(reference).trim();
+    if let Ok(short_id) = candidate.parse::<u64>() {
         return chat_metadata_conversation_id_by_short_id(&state.data_path, short_id);
     }
     Ok(Some(reference.to_string()))

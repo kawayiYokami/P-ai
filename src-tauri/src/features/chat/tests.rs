@@ -7944,8 +7944,13 @@
         let rows = value.as_array().expect("回执是数组");
         let local_row = rows
             .iter()
-            .find(|row| row["sessionId"] == local_target_id)
+            .find(|row| row["shortId"] == serde_json::json!(local_short_id))
             .expect("回执里有本地目标");
+        assert_eq!(
+            local_row["sessionId"],
+            serde_json::json!(local_short_id.to_string()),
+            "回执 sessionId 优先使用短号字符串，杜绝长 UUID"
+        );
         assert_eq!(
             local_row["shortId"],
             serde_json::json!(local_short_id),
@@ -7954,9 +7959,30 @@
         assert!(local_row.get("kind").is_some(), "原有字段不许被删");
         let remote_row = rows
             .iter()
-            .find(|row| row["sessionId"] == remote_target_id)
+            .find(|row| row["shortId"] == serde_json::json!(remote_short_id))
             .expect("回执里有远程目标");
-        assert_eq!(remote_row["shortId"], serde_json::json!(remote_short_id));
+        assert_eq!(
+            remote_row["sessionId"],
+            serde_json::json!(remote_short_id.to_string())
+        );
+
+        let receipt_text = provider_tool_output_from_value("get_session", &value);
+        assert!(
+            receipt_text.contains(&format!("#{local_short_id}")),
+            "给模型与界面的回执文本必须带出 #{local_short_id} 短号：{receipt_text}"
+        );
+        assert!(
+            receipt_text.contains(&format!("#{remote_short_id}")),
+            "给模型与界面的回执文本必须带出 #{remote_short_id} 短号：{receipt_text}"
+        );
+        assert!(
+            !receipt_text.contains(&local_target_id),
+            "给模型与界面的回执文本绝对禁止露出 36 位长 UUID：{receipt_text}"
+        );
+        assert!(
+            !receipt_text.contains(&remote_target_id),
+            "给模型与界面的回执文本绝对禁止露出 36 位长 UUID：{receipt_text}"
+        );
     }
 
     /// inform_session 传纯数字短号：工具入口先解析成主键，通知照常写进目标会话。
@@ -7984,8 +8010,13 @@
 
         assert_eq!(
             result["session_id"],
-            serde_json::json!(local_target_id),
-            "回执里的会话主键必须是解析后的真实主键"
+            serde_json::json!(short_id.to_string()),
+            "回执里的会话标识必须优先使用短号引用，杜绝长 UUID"
+        );
+        let receipt_text = provider_tool_output_from_value("inform_session", &result);
+        assert!(
+            !receipt_text.contains(&local_target_id),
+            "inform_session 回执文本严禁泄露底层长 UUID：{receipt_text}"
         );
         let target = wait_for_session_notification(&state, &local_target_id);
         assert!(
