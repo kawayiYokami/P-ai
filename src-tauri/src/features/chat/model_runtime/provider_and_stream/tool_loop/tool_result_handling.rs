@@ -613,11 +613,13 @@ fn persist_completed_tool_group_result(
             Ok(())
         }
         Err(err) => {
-            runtime_log_error(format!(
-                "[聊天] 失败 任务=append_tool_group_result 原因={}",
+            // 追加被拒说明目标消息已经收口（正文已落盘）。这条路径只负责补写，
+            // 补不进去就不补：不重试、不上报，它不是错误，是终态。
+            runtime_log_warn(format!(
+                "[聊天] 跳过 任务=append_tool_group_result 原因={}",
                 err
             ));
-            Err(format!("{TOOL_HISTORY_PERSIST_FAILED_PREFIX}：{err}"))
+            Ok(())
         }
     }
 }

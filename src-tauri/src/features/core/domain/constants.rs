@@ -43,9 +43,6 @@ const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const DELEGATE_TOOL_KIND_USER_MENTION: &str = "user_async_delegate";
 /// 用户在 UI 上发起的自定义委托。
 const DELEGATE_TOOL_KIND_USER_CUSTOM_DELEGATE: &str = "user_custom_delegate";
-/// 工具历史写入失败的统一前缀。调度层据此判定为数据层致命错误：
-/// 不再重试、不切换候选模型，直接终止本轮并把错误回报给前端。
-const TOOL_HISTORY_PERSIST_FAILED_PREFIX: &str = "工具历史写入失败";
 /// 深度回忆委托：仅此类委托会话挂载 deeprecall_search / deeprecall_context。
 const DELEGATE_TOOL_KIND_DEEP_RECALL: &str = "deeprecall";
 /// 代码审查委托：用户从 UI 发起，不是 AI 的工具调用，因此用自己的 kind。

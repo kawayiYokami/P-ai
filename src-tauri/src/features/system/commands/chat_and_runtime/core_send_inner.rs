@@ -2487,21 +2487,13 @@ async fn send_chat_message_inner(
 
             let retry_kind = classify_retry_kind_for_result(&chat_round_execution.result);
             // 用户中止不是模型失败：若按失败处理，收尾层会走失败落盘，把本轮已产生的流式正文
-            // 与工具行整段丢掉，还会回报成「所有候选模型均失败」。所以中止和数据层致命错误同路：
-            // 立刻收束、原样上抛、不重试、不切换候选模型。
+            // 与工具行整段丢掉，还会回报成「所有候选模型均失败」。所以中止要立刻收束、
+            // 原样上抛、不重试、不切换候选模型。
             if let Err(error) = &chat_round_execution.result {
                 if is_user_abort_error(error) {
                     runtime_log_info(format!(
                         "[聊天] 用户中止，收束本轮调度 任务=dispatch_stopped_by_user 模型配置={} 尝试={}",
                         candidate_selected_api.id, attempt
-                    ));
-                    fatal_error = Some(error.clone());
-                    break;
-                }
-                if is_fatal_dispatch_error(error) {
-                    runtime_log_error(format!(
-                        "[聊天] 终止调度 任务=dispatch_aborted_on_tool_history_persist_failure 模型配置={} 错误={}",
-                        candidate_selected_api.id, error
                     ));
                     fatal_error = Some(error.clone());
                     break;
@@ -3365,11 +3357,6 @@ async fn send_chat_message_inner(
     final_result
 }
 
-/// 调度失败是否属于不可继续的数据层错误：命中后既不重试，也不切换候选模型。
-fn is_fatal_dispatch_error(message: &str) -> bool {
-    message.contains(TOOL_HISTORY_PERSIST_FAILED_PREFIX)
-}
-
 /// 用户是否主动中止了本轮。
 ///
 /// 中止不是模型失败：它同样不该重试、不该切换候选模型，收尾也必须走 partial 落盘。
@@ -3428,15 +3415,6 @@ fn should_create_assistant_provider_meta(
 #[cfg(test)]
 mod core_send_inner_tests {
     use super::*;
-
-    #[test]
-    fn fatal_dispatch_error_covers_tool_history_persist_failures() {
-        assert!(is_fatal_dispatch_error(
-            "工具历史写入失败：磁盘只读，写入分片失败"
-        ));
-        assert!(!is_fatal_dispatch_error("网络连接异常：connection reset"));
-        assert!(!is_fatal_dispatch_error("所有候选模型均失败：模型请求失败"));
-    }
 
     #[test]
     fn user_abort_error_is_not_retryable() {
