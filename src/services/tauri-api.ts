@@ -2481,6 +2481,8 @@ export const PROBE_NOTIFICATION_METHODS = new Set([
   "chat.roundFailed",
   "chat.streamRebindRequired",
   "chat.historyFlushed",
+  // 会话提问卡：到没到、被哪个 id 拦下，是这条链路唯一说不清的一跳
+  "question.itemsUpdated",
 ]);
 
 /** 统一事件订阅；Tauri event 与 Web bridge notification 的名字映射只在此处维护。 */

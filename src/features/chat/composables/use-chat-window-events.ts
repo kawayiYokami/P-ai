@@ -1,6 +1,7 @@
 import { onBeforeUnmount, onMounted } from "vue";
 import { onTransportNotification } from "../../../services/tauri-api";
 import { chatFlowRuntimesForConversation } from "./chat-flow-runtime-registry";
+import { publishConversationQuestionItems } from "./conversation-question-signal";
 
 /**
  * 窗口级事件胶水只负责把非流式会话通知交给当前运行时。
@@ -147,6 +148,11 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       const conversationId = String((payload as any)?.conversationId || "").trim();
       const count = Array.isArray((payload as any)?.items) ? (payload as any).items.length : 0;
       if (!conversationId) return;
+      // 视图层的问题卡片读这份快照，不依赖它自己那份事件订阅是否注册成功
+      publishConversationQuestionItems(
+        conversationId,
+        Array.isArray((payload as any)?.items) ? (payload as any).items : [],
+      );
       const target = bindings.unarchivedConversations.value.find(
         (item: any) => String(item?.conversationId || "").trim() === conversationId,
       );

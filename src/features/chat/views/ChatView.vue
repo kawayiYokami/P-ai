@@ -933,6 +933,7 @@ import {
 } from "../../shell/composables/use-chat-composer-appearance";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import {
+  appendTransportProbeLog,
   copyTransportChatImageToClipboard,
   getTransportHostContext,
   invokeTauri,
@@ -987,6 +988,7 @@ import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
+import { peekConversationQuestionItems } from "../composables/conversation-question-signal";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatVirtualStartMargin } from "../composables/use-chat-virtual-start-margin";
 import { probeChatScroll } from "../composables/chat-scroll-probe";
@@ -1502,6 +1504,14 @@ const conversationQuestionItems = computed(() =>
 );
 
 /**
+ * 题目列表的写入序号。
+ *
+ * 拉取与推送是两条并行来路：一个在推送之前发出的 `question_list` 完全可能在推送之后
+ * 才返回，把刚拿到的题目覆盖成旧快照。每次写入都推进序号，在途请求返回时对不上就丢弃。
+ */
+let conversationQuestionWriteSeq = 0;
+
+/**
  * 用后端返回的题目列表刷新面板。
  *
  * `resetAnswers` 只给「切会话」与「发送成功」用：前者已选内容全部失效，后者已经发出去了。
@@ -1513,6 +1523,7 @@ function applyConversationQuestionItems(
   items: ConversationQuestionView[] | undefined,
   resetAnswers: boolean,
 ) {
+  conversationQuestionWriteSeq += 1;
   const next = Array.isArray(items) ? items : [];
   conversationQuestions.value = next;
   conversationQuestionAnswers.value = resetAnswers
@@ -1526,11 +1537,13 @@ async function loadConversationQuestions(conversationId?: string) {
     conversationQuestions.value = [];
     return;
   }
+  const writeSeq = conversationQuestionWriteSeq;
   try {
     const items = await invokeTauri<ConversationQuestionView[]>("question_list", {
       conversationId: cid,
     });
-    // 请求返回时用户可能已切走，丢弃过期结果。
+    // 请求返回时用户可能已切走；期间若已有推送写入，这次结果就是旧的，一并丢弃。
+    if (writeSeq !== conversationQuestionWriteSeq) return;
     if (String(props.activeConversationId || "").trim() !== cid) return;
     applyConversationQuestionItems(items, true);
   } catch {
@@ -1603,13 +1616,31 @@ watch(
   { immediate: true },
 );
 
+// 窗口层的问题快照：事件走哪条路进来都不影响这里，
+// 不再依赖本组件那份 question.itemsUpdated 订阅有没有注册成功。
+watch(
+  () => peekConversationQuestionItems(String(props.activeConversationId || "").trim()),
+  (items) => {
+    if (!items) return;
+    applyConversationQuestionItems(items, false);
+  },
+);
+
 onMounted(() => {
   unlistenConversationQuestions = onTransportNotification<Record<string, unknown>>(
     "question.itemsUpdated",
     (payload) => {
       const conversationId = String((payload as any)?.conversationId || "").trim();
-      if (!conversationId || conversationId !== String(props.activeConversationId || "").trim()) return;
-      applyConversationQuestionItems((payload as any)?.items, false);
+      const activeConversationId = String(props.activeConversationId || "").trim();
+      const items = (payload as any)?.items;
+      appendTransportProbeLog("[会话问题]", "事件到达", {
+        payloadConversationId: conversationId,
+        activeConversationId,
+        matched: conversationId === activeConversationId,
+        itemCount: Array.isArray(items) ? items.length : -1,
+      });
+      if (!conversationId || conversationId !== activeConversationId) return;
+      applyConversationQuestionItems(items, false);
     },
   );
 });
