@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-24T11:03:37.044Z",
-  "latestVersion": "v0.98.7",
+  "generatedAt": "2026-11-24T15:33:47.226Z",
+  "latestVersion": "v0.98.8",
   "releases": [
+    {
+      "version": "v0.98.8",
+      "path": "docs/changelog/releases/v0.98.8.md",
+      "summary": "远程私聊（微信、飞书等联系人会话）里助手的回复发不出去"
+    },
     {
       "version": "v0.98.7",
       "path": "docs/changelog/releases/v0.98.7.md",
