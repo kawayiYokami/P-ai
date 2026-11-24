@@ -272,6 +272,9 @@ fn migration_open_v3_database(data_path: &PathBuf) -> Result<rusqlite::Connectio
          );",
     )
     .map_err(|err| format!("迁移初始化 V3 数据库失败: {err}"))?;
+    // v3 库 schema 与现役库必须一致：short_id 列与唯一索引在这里补齐，
+    // 否则后面的 INSERT ... short_id 会直接报「表里没有这一列」。
+    chat_metadata_ensure_short_id_column(&conn)?;
     Ok(conn)
 }
 
@@ -563,10 +566,10 @@ fn migration_v2_to_v3_conversation(
     let meta_json = serde_json::to_string(&meta)
         .map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("序列化 V2 metadata 失败: {err}")))?;
     transaction.execute(
-        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at)
-         VALUES(?1, ?2, 1, ?3)
+        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
+         VALUES(?1, ?2, 1, ?3, ?4)
          ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
-        rusqlite::params![paths.conversation_id, meta_json, meta.updated_at()],
+        rusqlite::params![paths.conversation_id, meta_json, meta.updated_at(), meta.short_id.map(|value| value as i64)],
     ).map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("导入 V3 metadata 失败: {err}")))?;
     transaction.execute(
         "DELETE FROM conversation_blocks WHERE conversation_id=?1",

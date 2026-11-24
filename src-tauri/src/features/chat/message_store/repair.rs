@@ -168,6 +168,8 @@ pub(super) fn chat_metadata_store_repair_conversation(
     target
         .execute_batch(CHAT_METADATA_SCHEMA_SQL_PREFIX)
         .map_err(|err| format!("初始化修复用临时库失败: {err}"))?;
+    // 修复库与正常库 schema 必须一致，否则搬运时 short_id 列会缺。
+    chat_metadata_ensure_short_id_column(&target)?;
 
     let repaired = chat_metadata_store_repair_into(data_path, &source, &mut target);
     let outcome = match repaired {
@@ -351,7 +353,8 @@ fn chat_metadata_store_repair_into(
     for (conversation_id, metadata_json, storage_revision, updated_at) in &metas {
         transaction
             .execute(
-                "INSERT OR REPLACE INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at) VALUES(?1, ?2, ?3, ?4)",
+                "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at) VALUES(?1, ?2, ?3, ?4)
+                 ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
                 rusqlite::params![conversation_id, metadata_json, storage_revision, updated_at],
             )
             .map_err(|err| format!("写入会话元数据失败，conversation_id={conversation_id}，error={err}"))?;
@@ -883,7 +886,7 @@ mod chat_metadata_repair_tests {
             let meta = read_conversation_shard_meta(&paths.meta_file).expect("read meta");
             let conn = chat_metadata_store_open(&data_path).expect("open db");
             conn.execute(
-                "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at) VALUES(?1, ?2, ?3, ?4)",
+                "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id) VALUES(?1, ?2, ?3, ?4, NULL)",
                 rusqlite::params![
                     &conversation_id,
                     serde_json::to_string(&meta).expect("serialize meta"),

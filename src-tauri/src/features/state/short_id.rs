@@ -162,30 +162,33 @@ fn inherit_or_assign_agent_short_ids(
     agents: &mut [AgentProfile],
 ) -> Result<usize, String> {
     let mut assigned = 0usize;
-    let mut used = std::collections::BTreeSet::<u64>::new();
+    let mut taken = std::collections::BTreeSet::<u64>::new();
     for agent in previous.iter().chain(agents.iter()) {
         if let Some(existing) = agent.short_id {
-            used.insert(existing);
+            taken.insert(existing);
         }
     }
     for agent in agents.iter_mut() {
         if agent.short_id.is_some() {
             continue;
         }
-        if let Some(previous_agent) = previous.iter().find(|item| item.id == agent.id) {
-            if let Some(existing) = previous_agent.short_id {
-                agent.short_id = Some(existing);
-                continue;
-            }
+        if let Some(existing) = previous
+            .iter()
+            .find(|item| item.id == agent.id)
+            .and_then(|item| item.short_id)
+        {
+            agent.short_id = Some(existing);
+            continue;
         }
-        let picked = pick_short_ids_for_pending(&mut used, 1);
-        agent.short_id = picked.first().copied();
+        // 真正的新人格：走原子序列取号，绝不复用旧号。
+        let mut short_id = allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_AGENT)?;
+        while taken.contains(&short_id) {
+            // 游标落后于已发出的号（手工导入、旧库直改）时跳过，避免撞号。
+            short_id = allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_AGENT)?;
+        }
+        taken.insert(short_id);
+        agent.short_id = Some(short_id);
         assigned += 1;
-    }
-    if assigned > 0 {
-        if let Some(max_used) = used.iter().next_back().copied() {
-            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_AGENT, max_used + 1)?;
-        }
     }
     Ok(assigned)
 }
@@ -333,45 +336,46 @@ fn inherit_or_assign_config_short_ids(
         if api.short_id.is_some() {
             continue;
         }
-        if let Some(previous) = base.api_configs.iter().find(|item| item.id == api.id) {
-            if let Some(existing) = previous.short_id {
-                api.short_id = Some(existing);
-                continue;
-            }
+        if let Some(existing) = base
+            .api_configs
+            .iter()
+            .find(|item| item.id == api.id)
+            .and_then(|item| item.short_id)
+        {
+            api.short_id = Some(existing);
+            continue;
         }
-        api.short_id = pick_short_ids_for_pending(&mut api_used, 1).first().copied();
+        // 新条目走原子序列，不复用旧号。
+        let mut short_id = allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_API_CONFIG)?;
+        while api_used.contains(&short_id) {
+            short_id = allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_API_CONFIG)?;
+        }
+        api_used.insert(short_id);
+        api.short_id = Some(short_id);
         assigned += 1;
     }
     for channel in config.remote_im_channels.iter_mut() {
         if channel.short_id.is_some() {
             continue;
         }
-        if let Some(previous) = base
+        if let Some(existing) = base
             .remote_im_channels
             .iter()
             .find(|item| item.id == channel.id)
+            .and_then(|item| item.short_id)
         {
-            if let Some(existing) = previous.short_id {
-                channel.short_id = Some(existing);
-                continue;
-            }
+            channel.short_id = Some(existing);
+            continue;
         }
-        channel.short_id = pick_short_ids_for_pending(&mut channel_used, 1)
-            .first()
-            .copied();
+        let mut short_id =
+            allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL)?;
+        while channel_used.contains(&short_id) {
+            short_id =
+                allocate_next_short_id(&state.data_path, SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL)?;
+        }
+        channel_used.insert(short_id);
+        channel.short_id = Some(short_id);
         assigned += 1;
-    }
-    if assigned > 0 {
-        if let Some(max_used) = api_used.iter().next_back().copied() {
-            advance_short_id_sequence(&state.data_path, SHORT_ID_DOMAIN_API_CONFIG, max_used + 1)?;
-        }
-        if let Some(max_used) = channel_used.iter().next_back().copied() {
-            advance_short_id_sequence(
-                &state.data_path,
-                SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL,
-                max_used + 1,
-            )?;
-        }
     }
     Ok(assigned)
 }
@@ -467,25 +471,10 @@ fn chat_metadata_conversation_id_by_short_id(
     .map_err(|err| format!("按短 ID 查会话失败，短ID={short_id}，error={err}"))
 }
 
-/// 按短 ID 扫元数据兜底查会话主键。
-///
-/// 索引列是加速用的，老库、迁移中断、或落库早于列同步时都可能没有值；
-/// 这时候回到元数据里找，保证「短 ID 一定能寻址」。
-fn conversation_id_by_short_id_scan(
-    state: &AppState,
-    short_id: u64,
-) -> Result<Option<String>, String> {
-    let conversations = read_all_conversation_metadata_rows(&state.data_path)?;
-    for (conversation_id, metadata) in conversations {
-        let value = metadata.get("shortId").and_then(serde_json::Value::as_u64);
-        if value == Some(short_id) {
-            return Ok(Some(conversation_id));
-        }
-    }
-    Ok(None)
-}
-
 /// 会话引用双解析：纯数字按短 ID 寻址，其它一律当作既有主键原样返回。
+///
+/// 短 ID 的唯一权威是 `conversation_metadata.short_id` 列，查不到就是查不到，
+/// 没有 JSON 兜底扫描（metadata_json 里根本不存短 ID）。
 fn resolve_conversation_id_reference(
     state: &AppState,
     reference: &str,
@@ -495,80 +484,55 @@ fn resolve_conversation_id_reference(
         return Ok(None);
     }
     if let Ok(short_id) = reference.parse::<u64>() {
-        if let Some(conversation_id) =
-            chat_metadata_conversation_id_by_short_id(&state.data_path, short_id)?
-        {
-            return Ok(Some(conversation_id));
-        }
-        return conversation_id_by_short_id_scan(state, short_id);
+        return chat_metadata_conversation_id_by_short_id(&state.data_path, short_id);
     }
     Ok(Some(reference.to_string()))
 }
 
-/// 读出会话库里全部 (conversation_id, metadata_json)。
-fn read_all_conversation_metadata_rows(
-    data_path: &PathBuf,
-) -> Result<Vec<(String, serde_json::Value)>, String> {
-    let conn = crate::message_store::chat_metadata_store_open(data_path)?;
-    let mut stmt = conn
-        .prepare("SELECT conversation_id, metadata_json FROM conversation_metadata")
-        .map_err(|err| format!("准备读取会话元数据失败: {err}"))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|err| format!("查询会话元数据失败: {err}"))?
-        .collect::<Result<Vec<(String, String)>, _>>()
-        .map_err(|err| format!("读取会话元数据行失败: {err}"))?;
-    let mut result = Vec::with_capacity(rows.len());
-    for (conversation_id, raw) in rows {
-        match serde_json::from_str::<serde_json::Value>(&raw) {
-            Ok(value) => result.push((conversation_id, value)),
-            Err(err) => runtime_log_warn(format!(
-                "[短ID] 跳过 任务=解析会话元数据 会话={} 原因={}",
-                conversation_id, err
-            )),
-        }
-    }
-    Ok(result)
-}
-
-/// 历史会话迁移：按创建时间升序（同时间按主键字典序）给未分配 short_id 的会话补号。
+/// 历史会话迁移：只认 SQLite 的 `short_id` 列。
 ///
-/// 从 0 起挑未被占用的号依次分配，已分配的号原样保留——迁移中断后重跑不会重算，
-/// 也不会打乱用户已经看到的号。返回本次新分配的条数。
+/// 读写在同一个 IMMEDIATE 事务里完成，全程不反序列化、不写回 `metadata_json`：
+/// 排序键 `createdAt` 交给 SQL 层 `json_extract` 取，写入只动 `short_id` 列。
+/// 列上已有值的行视为永久锁定，绝不重算、绝不覆盖。返回本次新分配的条数。
 fn backfill_conversation_short_ids(state: &AppState) -> Result<usize, String> {
-    let rows = read_all_conversation_metadata_rows(&state.data_path)?;
+    let mut conn = crate::message_store::chat_metadata_store_open(&state.data_path)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|err| format!("开启会话短 ID 补号事务失败: {err}"))?;
+
     let mut used = std::collections::BTreeSet::<u64>::new();
     let mut pending = Vec::<(String, String)>::new();
-    for (conversation_id, metadata) in rows {
-        match metadata.get("shortId").and_then(serde_json::Value::as_u64) {
-            Some(existing) => {
-                used.insert(existing);
-            }
-            None => {
-                let created_at = metadata
-                    .get("createdAt")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                pending.push((created_at, conversation_id));
+    {
+        let mut stmt = tx
+            .prepare(
+                "SELECT conversation_id, short_id,
+                        COALESCE(json_extract(metadata_json, '$.createdAt'), '')
+                   FROM conversation_metadata",
+            )
+            .map_err(|err| format!("准备读取会话短 ID 列失败: {err}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|err| format!("查询会话短 ID 列失败: {err}"))?
+            .collect::<Result<Vec<(String, Option<i64>, Option<String>)>, _>>()
+            .map_err(|err| format!("读取会话短 ID 列失败: {err}"))?;
+        for (conversation_id, short_id, created_at) in rows {
+            match short_id.and_then(|value| u64::try_from(value).ok()) {
+                Some(existing) => {
+                    used.insert(existing);
+                }
+                None => pending.push((created_at.unwrap_or_default(), conversation_id)),
             }
         }
     }
-    if pending.is_empty() {
-        // 没有待分配的，只把游标校准到 max+1。
-        if let Some(max_used) = used.iter().next_back().copied() {
-            advance_short_id_sequence(
-                &state.data_path,
-                SHORT_ID_DOMAIN_CONVERSATION,
-                max_used + 1,
-            )?;
-        }
-        return Ok(0);
-    }
+
+    // 按创建时间升序补号，同时间按主键字典序，保证重跑顺序稳定。
     pending.sort();
-    let conn = crate::message_store::chat_metadata_store_open(&state.data_path)?;
     let mut next_candidate = 0u64;
     let mut assigned = 0usize;
     for (_, conversation_id) in pending {
@@ -578,32 +542,28 @@ fn backfill_conversation_short_ids(state: &AppState) -> Result<usize, String> {
         let short_id = next_candidate;
         used.insert(short_id);
         next_candidate += 1;
-        // 元数据里的值是权威，先解析出来插字段再写回；索引列同一次事务里一起更新。
-        let raw: String = conn
-            .query_row(
-                "SELECT metadata_json FROM conversation_metadata WHERE conversation_id=?1",
-                rusqlite::params![conversation_id],
-                |row| row.get(0),
+        let updated = tx
+            .execute(
+                "UPDATE conversation_metadata SET short_id=?1 \
+                 WHERE conversation_id=?2 AND short_id IS NULL",
+                rusqlite::params![short_id as i64, conversation_id],
             )
-            .map_err(|err| format!("读取会话元数据失败，会话={conversation_id}，error={err}"))?;
-        let mut metadata: serde_json::Value = serde_json::from_str(&raw)
-            .map_err(|err| format!("解析会话元数据失败，会话={conversation_id}，error={err}"))?;
-        if let Some(object) = metadata.as_object_mut() {
-            object.insert(
-                "shortId".to_string(),
-                serde_json::Value::from(short_id),
-            );
+            .map_err(|err| format!("写会话短 ID 列失败，会话={conversation_id}，error={err}"))?;
+        if updated == 0 {
+            // 列已被别处写好了（不可变），把预占的号还回去，不留空洞。
+            used.remove(&short_id);
+            next_candidate = short_id;
+            continue;
         }
-        let metadata_json = serde_json::to_string(&metadata)
-            .map_err(|err| format!("序列化会话元数据失败，会话={conversation_id}，error={err}"))?;
-        conn.execute(
-            "UPDATE conversation_metadata SET metadata_json=?1, short_id=?2 WHERE conversation_id=?3",
-            rusqlite::params![metadata_json, short_id as i64, conversation_id],
-        )
-        .map_err(|err| format!("写回会话短 ID 失败，会话={conversation_id}，error={err}"))?;
         assigned += 1;
     }
-    if let Some(max_used) = used.iter().next_back().copied() {
+
+    let max_used = used.iter().next_back().copied();
+    tx.commit()
+        .map_err(|err| format!("提交会话短 ID 补号失败: {err}"))?;
+    if let Some(max_used) = max_used {
+        // 游标在 state.sqlite（另一个库），只能在提交后单独推进；
+        // 即使这一步中断，重跑补号也是幂等的：列已有值 -> 只做游标校准。
         advance_short_id_sequence(
             &state.data_path,
             SHORT_ID_DOMAIN_CONVERSATION,

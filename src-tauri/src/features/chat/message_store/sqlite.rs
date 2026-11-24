@@ -207,27 +207,34 @@ pub(crate) fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::
                 .map_err(|err| format!("升级聊天 locator schema 失败，column={column}，error={err}"))?;
         }
     }
-    // 会话短 ID 列：新库在建表语句里就有；老库在这里补上，并建部分唯一索引。
-    // 列只是索引（短 ID -> conversation_id 的寻址用），权威值仍写在 metadata_json 里，
-    // 两者由「新建会话分配」与「启动迁移」两处保持同步。
-    {
-        let mut statement = conn.prepare("PRAGMA table_info(conversation_metadata)")
-            .map_err(|err| format!("读取 conversation_metadata schema 失败: {err}"))?;
-        let columns = statement.query_map([], |row| row.get::<_, String>(1))
-            .map_err(|err| format!("读取 conversation_metadata schema 列失败: {err}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| format!("解析 conversation_metadata schema 列失败: {err}"))?;
-        if !columns.iter().any(|item| item == "short_id") {
-            conn.execute_batch("ALTER TABLE conversation_metadata ADD COLUMN short_id INTEGER")
-                .map_err(|err| format!("升级会话 short_id 列失败: {err}"))?;
-        }
-        conn.execute_batch(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_metadata_short_id
-             ON conversation_metadata(short_id) WHERE short_id IS NOT NULL;",
-        )
-        .map_err(|err| format!("创建会话 short_id 索引失败: {err}"))?;
-    }
+    // 会话短 ID 列：新库在建表语句里就有；老库与 v3 迁移库在这里补上，并建部分唯一索引。
+    chat_metadata_ensure_short_id_column(&conn)?;
     Ok(conn)
+}
+
+/// 确保 `conversation_metadata.short_id` 列与它的部分唯一索引存在。
+///
+/// 三处建库路径（正常打开、损坏重建、v3 迁移）共用这一份，避免 schema 各自演化。
+/// 短 ID 只以这一列为权威，`metadata_json` 里不存它。
+fn chat_metadata_ensure_short_id_column(conn: &rusqlite::Connection) -> Result<(), String> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(conversation_metadata)")
+        .map_err(|err| format!("读取 conversation_metadata schema 失败: {err}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| format!("读取 conversation_metadata schema 列失败: {err}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("解析 conversation_metadata schema 列失败: {err}"))?;
+    if !columns.iter().any(|item| item == "short_id") {
+        conn.execute_batch("ALTER TABLE conversation_metadata ADD COLUMN short_id INTEGER")
+            .map_err(|err| format!("升级会话 short_id 列失败: {err}"))?;
+    }
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_metadata_short_id
+         ON conversation_metadata(short_id) WHERE short_id IS NOT NULL;",
+    )
+    .map_err(|err| format!("创建会话 short_id 索引失败: {err}"))?;
+    Ok(())
 }
 
 /// 聊天索引库的建表语句与连接级 PRAGMA 合并为一份常量。
@@ -792,17 +799,25 @@ fn chat_metadata_store_chat_snapshot(
 
 fn chat_metadata_store_read_meta(paths: &MessageStorePaths) -> Result<Option<ConversationShardMeta>, String> {
     let conn = chat_metadata_store_open(&paths.data_path)?;
-    let raw = conn
+    let row = conn
         .query_row(
-            "SELECT metadata_json FROM conversation_metadata WHERE conversation_id=?1",
+            "SELECT metadata_json, short_id FROM conversation_metadata WHERE conversation_id=?1",
             [&paths.conversation_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
         )
         .optional()
         .map_err(|err| format!("读取会话 SQLite metadata 失败，conversation_id={}，error={err}", paths.conversation_id))?;
-    raw.map(|value| conversation_shard_meta_from_stored_json(&value)
-        .map_err(|err| format!("解析会话 SQLite metadata 失败，conversation_id={}，error={err}", paths.conversation_id)))
-        .transpose()
+    let Some((raw, short_id_column)) = row else {
+        return Ok(None);
+    };
+    let mut meta = conversation_shard_meta_from_stored_json(&raw)
+        .map_err(|err| format!("解析会话 SQLite metadata 失败，conversation_id={}，error={err}", paths.conversation_id))?;
+    // 短 ID 只以库里的 `short_id` 列为权威：metadata_json 里根本不存它，
+    // 所以这里必须把列值填进内存投影，否则读回来的会话永远没有号。
+    if let Some(column_value) = short_id_column {
+        meta.short_id = Some(column_value.max(0) as u64);
+    }
+    Ok(Some(meta))
 }
 
 fn chat_metadata_store_read_index(paths: &MessageStorePaths) -> Result<Option<MessageStoreIndexFile>, String> {
@@ -3559,9 +3574,9 @@ fn chat_metadata_store_apply_v3_publication(
         .map_err(|err| format!("开启 v3 发布事务失败: {err}"))?;
     let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 v3 metadata 失败: {err}"))?;
     transaction.execute(
-        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at) VALUES(?1, ?2, ?3, ?4)
+        "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id) VALUES(?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, storage_revision=excluded.storage_revision, updated_at=excluded.updated_at",
-        rusqlite::params![paths.conversation_id, meta_json, before_revision + 1, meta.updated_at()],
+        rusqlite::params![paths.conversation_id, meta_json, before_revision + 1, meta.updated_at(), meta.short_id.map(|value| value as i64)],
     ).map_err(|err| format!("发布 v3 metadata 失败: {err}"))?;
     transaction.execute("DELETE FROM conversation_blocks WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 block 失败: {err}"))?;
     transaction.execute("DELETE FROM message_locator WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 locator 失败: {err}"))?;

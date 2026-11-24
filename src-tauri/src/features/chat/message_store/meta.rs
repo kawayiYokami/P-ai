@@ -8,6 +8,9 @@ const FAST_REQUEST_TURNS_MEMORY_LIMIT: usize = 10;
 pub(super) struct ConversationPersistMeta {
     meta_schema_version: u32,
     id: String,
+    /// 会话短 ID：只在内存里随投影搬运，序列化时被 skip；权威值在 SQLite 的 short_id 列。
+    #[serde(skip)]
+    short_id: Option<u64>,
     title: String,
     agent_id: String,
     bound_conversation_id: Option<String>,
@@ -106,6 +109,11 @@ impl ConversationPersistMeta {
         let meta = serde_json::from_value::<ConversationShardMeta>(raw)
             .map_err(|err| format!("解析会话持久化 metadata 失败: {err}"))?;
         meta.apply_to_conversation(target);
+        // 短 ID 是 serde skip 字段，不参与 JSON 往返，必须在这里单独搬运；
+        // 为空表示这一行还没补号，不能反过来把目标上的号清掉。
+        if self.short_id.is_some() {
+            target.short_id = self.short_id;
+        }
         Ok(())
     }
 }
@@ -150,6 +158,10 @@ pub(super) struct ConversationShardMeta {
     #[serde(default)]
     meta_schema_version: u32,
     id: String,
+    /// 会话短 ID：只走内存与 SQLite 的 `short_id` 列，**绝不进 metadata_json**。
+    /// 列是唯一权威：JSON 覆写（改消息、摘要、时间戳）与短 ID 完全解耦。
+    #[serde(skip)]
+    short_id: Option<u64>,
     title: String,
     agent_id: String,
     #[serde(default)]
@@ -561,6 +573,10 @@ impl ConversationShardMeta {
     }
 
     pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
+        // 短 ID 只有 SQLite 列是权威，这里只在有值时覆盖，绝不反向清空。
+        if self.short_id.is_some() {
+            target.short_id = self.short_id;
+        }
         target.title = self.title.clone();
         target.agent_id = self.agent_id.clone();
         target.bound_conversation_id = self.bound_conversation_id.clone();
@@ -973,6 +989,7 @@ impl ConversationShardMeta {
         Self {
             meta_schema_version: CONVERSATION_META_SCHEMA_VERSION,
             id: conversation.id.clone(),
+            short_id: conversation.short_id,
             title: conversation.title.clone(),
             agent_id: conversation.agent_id.clone(),
             bound_conversation_id: conversation.bound_conversation_id.clone(),
@@ -1078,6 +1095,7 @@ impl ConversationShardMeta {
                 meta.meta_schema_version
             },
             id: meta.id.clone(),
+            short_id: meta.short_id,
             title: meta.title.clone(),
             agent_id: meta.agent_id.clone(),
             bound_conversation_id: meta.bound_conversation_id.clone(),
@@ -1134,6 +1152,7 @@ impl ConversationShardMeta {
         ConversationPersistMeta {
             meta_schema_version: self.meta_schema_version,
             id: self.id.clone(),
+            short_id: self.short_id,
             title: self.title.clone(),
             agent_id: self.agent_id.clone(),
             bound_conversation_id: self.bound_conversation_id.clone(),
@@ -1189,7 +1208,7 @@ impl ConversationShardMeta {
 
     fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
-            short_id: None,
+            short_id: self.short_id,
             id: self.id,
             title: self.title,
             agent_id: self.agent_id,

@@ -1465,25 +1465,25 @@
     }
 
     /// 手工往会话库写一条元数据：迁移与解析只依赖库里的行，不依赖内存缓存。
+    ///
+    /// 短 ID 只写 `short_id` 列，绝不进 metadata_json —— 与生产落盘口径一致。
     fn insert_test_conversation_metadata(
         state: &AppState,
         conversation_id: &str,
         created_at: &str,
         short_id: Option<u64>,
     ) {
-        let mut metadata = serde_json::json!({
+        let metadata = serde_json::json!({
             "id": conversation_id,
             "title": conversation_id,
             "createdAt": created_at,
         });
-        if let Some(short_id) = short_id {
-            metadata["shortId"] = serde_json::json!(short_id);
-        }
         let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
             .expect("open chat metadata");
         conn.execute(
-            "INSERT OR REPLACE INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
-             VALUES(?1, ?2, 0, ?3, ?4)",
+            "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
+             VALUES(?1, ?2, 0, ?3, ?4)
+             ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, updated_at=excluded.updated_at",
             rusqlite::params![
                 conversation_id,
                 serde_json::to_string(&metadata).expect("serialize metadata"),
@@ -1494,8 +1494,7 @@
         .expect("insert conversation metadata");
     }
 
-    fn conversation_short_id_of(state: &AppState, conversation_id: &str) -> Option<u64> {
-        use rusqlite::OptionalExtension as _;
+    fn conversation_short_id_of(state: &AppState, conversation_id: &str) -> Option<u64> {        use rusqlite::OptionalExtension as _;
         let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
             .expect("open chat metadata");
         let value: Option<i64> = conn
@@ -1507,6 +1506,117 @@
             .optional()
             .expect("query short id");
         value.map(|item| item as u64)
+    }
+
+    /// 读出会话库里某条行的 metadata_json 原文（用来断言短 ID 没被塞进 JSON）。
+    fn conversation_metadata_json_of(state: &AppState, conversation_id: &str) -> String {
+        let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
+            .expect("open chat metadata");
+        conn.query_row(
+            "SELECT metadata_json FROM conversation_metadata WHERE conversation_id=?1",
+            rusqlite::params![conversation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("query metadata json")
+    }
+
+    /// 端到端：分配 -> 真实落盘 -> 从存储读回一致 -> 二次写盘不抹列 -> 重跑 bootstrap 号不漂移。
+    ///
+    /// 短 ID 只以 `conversation_metadata.short_id` 列为权威，metadata_json 里不许出现它。
+    #[test]
+    fn conversation_short_id_should_persist_in_column_and_survive_bootstrap() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conv-short-id-e2e", "active", &now);
+        conversation.short_id = None;
+        let assigned = assign_conversation_short_id(&state, &mut conversation).expect("assign");
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+
+        let raw = conversation_metadata_json_of(&state, "conv-short-id-e2e");
+        assert!(
+            !raw.contains("shortId"),
+            "metadata_json 里不许出现 shortId，实际={raw}"
+        );
+        assert_eq!(
+            conversation_short_id_of(&state, "conv-short-id-e2e"),
+            Some(assigned),
+            "落盘后列上必须有号"
+        );
+
+        let read_back =
+            state_read_conversation_cached(&state, "conv-short-id-e2e").expect("read back");
+        assert_eq!(
+            read_back.short_id,
+            Some(assigned),
+            "读回的会话必须带上列里的号（投影不能掉件）"
+        );
+
+        // 模拟重启：内存缓存与待落盘队列全部作废，只剩磁盘 shard + SQLite 列。
+        {
+            state
+                .cached_conversation_metadata
+                .lock()
+                .expect("lock metadata cache")
+                .clear();
+            state
+                .cached_conversation_mtimes
+                .lock()
+                .expect("lock mtime cache")
+                .clear();
+            state
+                .cached_conversation_dirty_ids
+                .lock()
+                .expect("lock dirty ids")
+                .clear();
+            state
+                .cached_deleted_conversation_ids
+                .lock()
+                .expect("lock deleted ids")
+                .clear();
+            *state
+                .conversation_persist_pending
+                .lock()
+                .expect("lock pending persist") = None;
+        }
+        let restarted = state_read_conversation_cached(&state, "conv-short-id-e2e")
+            .expect("read back after restart");
+        assert_eq!(
+            restarted.short_id,
+            Some(assigned),
+            "重启后必须从 short_id 列把号还原回来"
+        );
+
+        // 模拟后续保存（改标题、追加消息）：UPDATE 绝不改列。
+        let mut updated = read_back.clone();
+        updated.title = "改过标题".to_string();
+        state_write_conversation_cached(&state, &updated).expect("write again");
+        assert_eq!(
+            conversation_short_id_of(&state, "conv-short-id-e2e"),
+            Some(assigned),
+            "再次写入不得改动已锁定的号"
+        );
+
+        // 模拟重启：号不重排、游标不跳。
+        run_global_short_id_bootstrap(&state).expect("bootstrap");
+        assert_eq!(
+            conversation_short_id_of(&state, "conv-short-id-e2e"),
+            Some(assigned),
+            "启动自检不得覆盖已分配的号"
+        );
+        assert_eq!(
+            peek_next_short_id(&state.data_path, SHORT_ID_DOMAIN_CONVERSATION).expect("peek"),
+            assigned + 1,
+            "游标应停在已发号的下一个"
+        );
+
+        // 新会话继续向前取号，绝不回收。
+        let mut another = test_chat_conversation("conv-short-id-e2e-2", "active", &now);
+        another.short_id = None;
+        assert_eq!(
+            assign_conversation_short_id(&state, &mut another).expect("assign second"),
+            assigned + 1,
+            "新会话的号必须单调前进"
+        );
     }
 
     /// 人格补号：全部未分配时按序补满，号唯一，重跑幂等。
