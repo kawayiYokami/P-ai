@@ -574,7 +574,7 @@
         });
     }
 
-    /// 发请求前的自检必须用会话槽里这一轮的真实启动时刻，不能用发送入口的就地采样。
+    /// 发请求前的自检必须用会话槽里这一轮的真实启动时刻与所有权令牌，不能用发送入口的就地采样。
     ///
     /// 关键场景：本轮 `started_at_ms` 早于 `cutoff`，而发送入口的采样晚于 `cutoff`
     /// （确权 → 广播 → 装配上下文这段空隙里被打断）。就地采样会把它判成「停完之后的新轮次」
@@ -586,7 +586,7 @@
 
         // 没有任何打断：放行。
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id)
+            !conversation_round_interrupted_since(&state, conversation_id, None)
                 .expect("check interrupted"),
             "没有打断时不许短路"
         );
@@ -594,6 +594,7 @@
         {
             let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.entry(conversation_id.to_string()).or_default();
+            slot.round_owner = "owner-current".to_string();
             slot.stream_cache.started_at_ms = 1_000;
         }
 
@@ -601,7 +602,7 @@
         // 注意这里没有传任何「入口时间」——判据只取槽里的启动时刻。
         mark_conversation_interrupt_cutoff(&state, conversation_id, 1_100).expect("mark cutoff");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id)
+            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
                 .expect("check interrupted"),
             "打断不早于本轮启动时刻时必须短路"
         );
@@ -609,7 +610,7 @@
         // 打断早于本轮启动（停完才起的新轮次）：放行。
         mark_conversation_interrupt_cutoff(&state, conversation_id, 900).expect("mark cutoff");
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id)
+            !conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
                 .expect("check interrupted"),
             "晚于截止时间启动的新轮次必须放行"
         );
@@ -617,12 +618,27 @@
         // 同一毫秒也算旧（区间闭）。
         mark_conversation_interrupt_cutoff(&state, conversation_id, 1_000).expect("mark cutoff");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id)
+            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
                 .expect("check interrupted"),
             "启动时刻与截止时间同一毫秒也必须拦"
         );
 
-        // 本轮已被停止收走（留下落盘凭据）：与时间无关，一律短路。
+        // 令牌已被剥离（停止认领会清空槽上的令牌）：即使时间对不上也必须拦。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots
+                .entry(conversation_id.to_string())
+                .or_default();
+            slot.round_owner.clear();
+            slot.interrupt_cutoff_ms = None;
+        }
+        assert!(
+            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
+                .expect("check interrupted"),
+            "令牌被剥离后必须短路，不许靠时间侥幸放行"
+        );
+
+        // 本轮已被停止收走（留下落盘凭据）：与时间、令牌无关，一律短路。
         {
             let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             slots
@@ -632,10 +648,133 @@
         }
         mark_conversation_interrupt_cutoff(&state, conversation_id, 0).expect("mark cutoff");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id)
+            conversation_round_interrupted_since(&state, conversation_id, None)
                 .expect("check interrupted"),
             "已被停止收走的轮次不论时间一律短路"
         );
+    }
+
+    /// 端到端时序：主助理确权（T1）→ 中途被打断（认领、落盘、清缓存、留凭据）→
+    /// 旧协程继续走进 send_chat_message_inner，必须在发请求前被拦下，
+    /// 且不得把确权时的时基与凭据二次改写。
+    ///
+    /// 这条钉的是历史缺陷：发送入口曾经无条件重置流式缓存（把 started_at_ms 覆盖成更晚的
+    /// 时间、并把打断凭据抹成 None），导致两道门栅同时失效、请求照样发给模型。
+    #[test]
+    fn interrupted_round_should_not_be_resurrected_by_send_entry() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let now = now_iso();
+            let conversation = test_chat_conversation("conversation-send-gate", "active", &now);
+            state_schedule_conversation_persist(&state, &conversation)
+                .expect("persist conversation");
+            conversation_service_v2()
+                .bootstrap_streaming_assistant_message(
+                    &state,
+                    &AssistantMessageBootstrapInput {
+                        conversation_id: conversation.id.clone(),
+                        assistant_message_id: "assistant-send-gate".to_string(),
+                        speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                        created_at: Some(now.clone()),
+                        provider_meta_patch: None,
+                        compaction_preserved_messages: None,
+                    },
+                )
+                .expect("bootstrap assistant message");
+
+            let confirmed_started_at_ms = 1_700_000_000_000u64;
+            {
+                let mut slots =
+                    lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+                let slot = slots.entry(conversation.id.clone()).or_default();
+                slot.state = MainSessionState::AssistantStreaming;
+                slot.round_owner = "owner-send-gate".to_string();
+                slot.stream_cache.activation_id = "req-send-gate".to_string();
+                slot.stream_cache.request_id = "req-send-gate".to_string();
+                slot.stream_cache.persisted_assistant_message_id =
+                    "assistant-send-gate".to_string();
+                slot.stream_cache.started_at_ms = confirmed_started_at_ms;
+            }
+            let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation.id.as_str()));
+            state
+                .inflight_chat_abort_handles
+                .lock()
+                .expect("lock inflight chat abort handles")
+                .insert(
+                    chat_key,
+                    InflightChatAbortEntry::Running {
+                        handle: new_inflight_abort_handle(),
+                        request_id: "req-send-gate".to_string(),
+                        assistant_message_id: "assistant-send-gate".to_string(),
+                        retired_identities: Vec::new(),
+                    },
+                );
+
+            // 打断：认领成功、落盘、会话置就绪、缓存被清、凭据留下。
+            let stop_input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation.id.clone()),
+                },
+                request_id: Some("req-send-gate".to_string()),
+                activation_id: Some("req-send-gate".to_string()),
+                assistant_message_id: Some("assistant-send-gate".to_string()),
+            };
+            let stop_result = stop_chat_message_inner(stop_input, &state)
+                .await
+                .expect("停止不应失败");
+            assert!(stop_result.aborted, "应当认领并停住这一轮");
+
+            // 旧协程继续走到发送入口（带着本轮确权时的令牌）。
+            let channel = tauri::ipc::Channel::new(|_| Ok(()));
+            let request = SendChatRequest {
+                trigger_only: false,
+                session: Some(SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation.id.clone()),
+                }),
+                payload: ChatInputPayload {
+                    text: None,
+                    display_text: None,
+                    parts: None,
+                    images: None,
+                    audios: None,
+                    attachments: None,
+                    model: None,
+                    extra_text_blocks: None,
+                    mentions: None,
+                    provider_meta: None,
+                },
+                speaker_agent_id: None,
+                trace_id: Some("req-send-gate".to_string()),
+                assistant_message_id: Some("assistant-send-gate".to_string()),
+                oldest_queue_created_at: None,
+                remote_im_activation_sources: Vec::new(),
+                runtime_context: Some(RuntimeContext {
+                    request_id: Some("req-send-gate".to_string()),
+                    round_owner: Some("owner-send-gate".to_string()),
+                    ..RuntimeContext::default()
+                }),
+            };
+            let send_err = send_chat_message_inner(request, &state, &channel)
+                .await
+                .expect_err("被打断的轮次不许走到模型请求");
+            assert_eq!(send_err, CHAT_ABORTED_BY_USER_ERROR);
+
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(&conversation.id).expect("slot");
+            assert_eq!(
+                slot.stream_cache.started_at_ms, 0,
+                "停止已清空缓存，发送入口不得把它重写成更晚的时间（重写会让 cutoff 判定失效）"
+            );
+            assert!(
+                slot.stop_persisted_at_ms.is_some(),
+                "打断落盘凭据不许被发送入口抹掉"
+            );
+        });
     }
 
     /// 停止带了不匹配的身份时不许把「别人的轮次」当成停住了。

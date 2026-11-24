@@ -1564,6 +1564,9 @@ async fn activate_main_assistant(
     // 本轮所有权令牌：收尾只认它。停止命令会当场交还它、新一轮会换掉它，
     // 两种情况都意味着这一轮的收尾不许再动会话状态与流式缓存。
     let round_owner = begin_conversation_round_owner(state, conversation_id)?;
+    // 令牌随运行上下文一路带到发送入口：那里要在发请求前自检「本轮是否还持有所有权」。
+    // 停止命令认领会把槽上的令牌清掉，两处不一致就是「这一轮已被收走」。
+    runtime_context.round_owner = Some(round_owner.clone());
     emit_round_started_event(
         state,
         conversation_id,
