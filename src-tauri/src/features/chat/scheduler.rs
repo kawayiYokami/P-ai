@@ -1296,7 +1296,9 @@ async fn process_conversation_batch(
                             Some(follow_up_context),
                             follow_up_sources.clone(),
                             &follow_up_started_at,
-                            now_unix_ms(),
+                            // 续跑属于本批的派生轮次，时间基准必须继承本批：
+                            // 取当前时刻会让「上一轮途中被停止的活」穿透门卫继续回复。
+                            batch_created_at_ms,
                         )
                         .await
                         {

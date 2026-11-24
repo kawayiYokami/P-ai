@@ -980,6 +980,38 @@ fn round_blocked_by_interrupt_cutoff(cutoff_ms: Option<u64>, round_created_at_ms
     }
 }
 
+/// 会话槽上是否压着一轮（已经确权，但句柄可能还没登记）。
+fn conversation_round_has_owner(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .map(|slot| !slot.round_owner.trim().is_empty())
+        .unwrap_or(false))
+}
+
+/// 这一轮是否已经被打断收下。
+///
+/// 两个信号，任一成立即算：
+/// - 停止命令当场把它收走了：所有权被夺、槽上留下打断落盘凭据；
+/// - 打断时间落在本轮开始之后：截止时间不早于本轮进入时间。
+///
+/// 供「准备发请求」的入口自检：确权之后、句柄登记之前的空隙里被停止的轮次，
+/// 在这里被拦下，不会再把请求发出去。
+fn conversation_round_interrupted_since(
+    state: &AppState,
+    conversation_id: &str,
+    round_entered_at_ms: u64,
+) -> Result<bool, String> {
+    if conversation_interrupt_persisted(state, conversation_id)? {
+        return Ok(true);
+    }
+    let cutoff = conversation_interrupt_cutoff_ms(state, conversation_id)?;
+    Ok(round_blocked_by_interrupt_cutoff(cutoff, round_entered_at_ms))
+}
+
 /// 打断时在会话槽上立下截止时间。
 ///
 /// 单一时基：调用方传后端 `now_unix_ms()`，不接受前端时间。

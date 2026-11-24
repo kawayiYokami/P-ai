@@ -527,6 +527,95 @@
         );
     }
 
+    /// 确权之后、句柄登记之前被打断：表里没有句柄可中止，也必须把这次打断算成立。
+    ///
+    /// 这一段空隙里轮次已经在装配上下文但还没登记句柄，按句柄找必然落空；
+    /// 若不看会话所有权，打断会被判成「什么也没停」，那一轮随后就把请求发给模型了。
+    #[test]
+    fn stop_chat_message_should_claim_round_before_handle_registered() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let conversation_id = "conversation-stop-before-handle";
+            {
+                let mut slots =
+                    lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+                let slot = slots.entry(conversation_id.to_string()).or_default();
+                slot.state = MainSessionState::AssistantStreaming;
+                slot.round_owner = "owner-before-handle".to_string();
+            }
+
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+                request_id: None,
+                activation_id: None,
+                assistant_message_id: None,
+            };
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("停止不应失败");
+
+            assert!(result.aborted, "没有句柄时也必须把这次打断算成立");
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(conversation_id).expect("slot");
+            assert!(slot.round_owner.is_empty(), "所有权必须当场收走");
+            assert!(
+                slot.stop_persisted_at_ms.is_some(),
+                "必须留下打断落盘凭据，发请求前的自检才拦得住"
+            );
+            assert!(
+                slot.interrupt_cutoff_ms.is_some(),
+                "无身份的打断必须立下会话截止时间"
+            );
+        });
+    }
+
+    /// 发请求前的自检：被停止收走的轮次、以及打断晚于本轮进入时间的轮次，都必须短路。
+    #[test]
+    fn dispatch_should_short_circuit_when_round_already_interrupted() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-dispatch-guard";
+
+        // 没有任何打断：放行。
+        assert!(
+            !conversation_round_interrupted_since(&state, conversation_id, 1_000)
+                .expect("check interrupted"),
+            "没有打断时不许短路"
+        );
+
+        // 打断发生在轮次进入之后：这一轮必须短路。
+        mark_conversation_interrupt_cutoff(&state, conversation_id, 1_100).expect("mark cutoff");
+        assert!(
+            conversation_round_interrupted_since(&state, conversation_id, 1_000)
+                .expect("check interrupted"),
+            "打断晚于本轮进入时间时必须短路"
+        );
+        // 打断早于轮次进入（停完才发的新消息）：放行。
+        assert!(
+            !conversation_round_interrupted_since(&state, conversation_id, 1_200)
+                .expect("check interrupted"),
+            "晚于截止时间的新轮次必须放行"
+        );
+
+        // 本轮已被停止收走（留下落盘凭据）：与时间无关，一律短路。
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            slots
+                .entry(conversation_id.to_string())
+                .or_default()
+                .stop_persisted_at_ms = Some(1_300);
+        }
+        assert!(
+            conversation_round_interrupted_since(&state, conversation_id, 9_999)
+                .expect("check interrupted"),
+            "已被停止收走的轮次不论时间一律短路"
+        );
+    }
+
     /// 构造一次停止请求要终止的调度身份。
     fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
         StopDispatchIdentity {

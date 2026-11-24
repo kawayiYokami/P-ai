@@ -2328,7 +2328,20 @@ async fn stop_chat_message_inner(
             &chat_key,
             requested_conversation_id.as_deref(),
         )?;
-    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    // 这一刻没有句柄可中止，不等于没有活要停。
+    //
+    // 轮次在「已确权」到「登记句柄」之间有一段空隙（装配上下文、加载技能），此时表里还没有
+    // 句柄，按句柄找必然落空。但槽上已经压着这一轮的所有权——那就是活还在准备中的信号，
+    // 必须把这次打断算成立，去收走所有权；否则它会一路走进 send_chat_message_inner
+    // 把请求发给模型。
+    let conversation_round_in_progress = match requested_conversation_id.as_deref() {
+        Some(conversation_id) => conversation_round_has_owner(state, conversation_id)
+            .unwrap_or(false)
+            || has_running_conversation_round(state, conversation_id).unwrap_or(false),
+        None => false,
+    };
+    let aborted =
+        aborted_chat || aborted_tool || aborted_delegate_children > 0 || conversation_round_in_progress;
     if aborted {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
             mark_goal_continue_suppressed_by_user_interrupt(
