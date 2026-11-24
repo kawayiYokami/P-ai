@@ -1364,20 +1364,24 @@ enableTools = true
                    conversation_id TEXT PRIMARY KEY,
                    metadata_json TEXT NOT NULL,
                    storage_revision INTEGER NOT NULL DEFAULT 0,
-                   updated_at TEXT NOT NULL
+                   updated_at TEXT NOT NULL,
+                   status TEXT NOT NULL DEFAULT 'active',
+                   conversation_kind TEXT NOT NULL DEFAULT 'regular'
                  );",
             )
             .expect("create metadata table");
-            let insert = |id: &str, meta: serde_json::Value| {
+            let insert = |id: &str, kind: &str, status: &str, meta: serde_json::Value| {
                 conn.execute(
-                    "INSERT INTO conversation_metadata (conversation_id, metadata_json, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![id, serde_json::to_string(&meta).expect("serialize meta"), "2026-01-01T00:00:00Z"],
+                    "INSERT INTO conversation_metadata (conversation_id, metadata_json, updated_at, status, conversation_kind) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![id, serde_json::to_string(&meta).expect("serialize meta"), "2026-01-01T00:00:00Z", status, kind],
                 )
                 .expect("insert metadata row");
             };
             // 空壳普通会话：该补工作区。
             insert(
                 "c-empty",
+                "chat",
+                "active",
                 serde_json::json!({
                     "id": "c-empty",
                     "conversationKind": "chat",
@@ -1388,6 +1392,8 @@ enableTools = true
             // 归档会话：不补。
             insert(
                 "c-archived",
+                "chat",
+                "archived",
                 serde_json::json!({
                     "id": "c-archived",
                     "conversationKind": "chat",
@@ -1398,6 +1404,8 @@ enableTools = true
             // 已有工作区的会话：不动。
             insert(
                 "c-has-workspace",
+                "chat",
+                "active",
                 serde_json::json!({
                     "id": "c-has-workspace",
                     "conversationKind": "chat",

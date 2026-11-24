@@ -326,21 +326,31 @@ fn migrate_v1_to_v2_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
         .map_err(|err| format!("打开会话元数据库失败: {err}"))?;
     let rows = {
         let mut statement = conn
-            .prepare("SELECT conversation_id, metadata_json FROM conversation_metadata")
+            .prepare(
+                "SELECT conversation_id, metadata_json, status, conversation_kind
+                   FROM conversation_metadata",
+            )
             .map_err(|err| format!("准备会话元数据查询失败: {err}"))?;
         let mapped = statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
             })
             .map_err(|err| format!("查询会话元数据失败: {err}"))?;
         mapped.filter_map(Result::ok).collect::<Vec<_>>()
     };
     let mut conversation_writes = 0usize;
-    for (conversation_id, raw) in rows {
+    for (conversation_id, raw, column_status, column_kind) in rows {
         let Ok(mut value) = serde_json::from_str::<Value>(&raw) else {
             continue;
         };
-        let Some(shell_workspaces) = migration_empty_workspace_fill(context, &value) else {
+        let Some(shell_workspaces) =
+            migration_empty_workspace_fill(context, &value, &column_status, &column_kind)
+        else {
             continue;
         };
         value["shellWorkspaces"] = serde_json::to_value(&shell_workspaces)
@@ -370,9 +380,21 @@ fn migrate_v1_to_v2_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
 fn migration_empty_workspace_fill(
     context: &DataMigrationContext<'_>,
     value: &Value,
+    column_status: &str,
+    column_kind: &str,
 ) -> Option<Vec<ShellWorkspaceConfig>> {
     let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").trim();
-    let kind = text("conversationKind");
+    // 骨以 SQL 列为权威；列还没被 V5 填过的老库（空串）回退读 JSON 老键。
+    let kind = if column_kind.trim().is_empty() {
+        text("conversationKind")
+    } else {
+        column_kind.trim()
+    };
+    let status = if column_status.trim().is_empty() {
+        text("status")
+    } else {
+        column_status.trim()
+    };
     // 追问、委托、远程联系人都不在会话前台列表里，也就不该被补工作区。
     if matches!(
         kind,
@@ -388,7 +410,7 @@ fn migration_empty_workspace_fill(
     {
         return None;
     }
-    if text("status") == "archived" || !text("archivedAt").is_empty() {
+    if status == "archived" || !text("archivedAt").is_empty() {
         return None;
     }
     if value

@@ -276,20 +276,29 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
         .transaction()
         .map_err(|err| format!("开启用量台账迁移事务失败: {err}"))?;
     let mut statement = tx
-        .prepare("SELECT conversation_id, metadata_json FROM conversation_metadata")
+        .prepare(
+            "SELECT conversation_id, metadata_json, agent_id, conversation_kind, delegate_id
+               FROM conversation_metadata",
+        )
         .map_err(|err| format!("准备读取会话元数据失败: {err}"))?;
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
         })
         .map_err(|err| format!("读取会话元数据失败: {err}"))?;
-    let mut pending = Vec::<(String, String)>::new();
+    let mut pending = Vec::<(String, String, String, String, Option<String>)>::new();
     for row in rows {
         pending.push(row.map_err(|err| format!("解析会话元数据行失败: {err}"))?);
     }
     drop(statement);
     let mut migrated_row_count = 0_usize;
-    for (conversation_id, metadata_json) in pending {
+    for (conversation_id, metadata_json, agent_id, conversation_kind, delegate_id) in pending {
         let meta = match conversation_shard_meta_from_stored_json(&metadata_json) {
             Ok(meta) => meta,
             Err(_) => continue,
@@ -298,10 +307,17 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
         if cumulative.is_empty() {
             continue;
         }
-        let api_config_id = usage_trail_resolve_api_config_id_from_meta(&meta, config, agents);
+        let api_config_id =
+            usage_trail_resolve_api_config_id(&agent_id, &meta, config, agents);
         let provider_key = usage_trail_provider_key_from_api_config_id(&api_config_id, config);
         let provider_label = usage_trail_provider_label_from_provider_key(&provider_key, config);
         let model_name = usage_trail_resolve_model_name(&api_config_id, config);
+        let kind_key = usage_trail_kind_key(
+            &conversation_id,
+            &conversation_kind,
+            delegate_id.as_deref(),
+            meta.archived_at.as_deref(),
+        );
         let mut written = false;
         for (trail_provider_key, models) in &cumulative.by_provider_model {
             for (trail_model_name, bucket) in models {
@@ -310,8 +326,8 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
                 }
                 let delta = UsageTrailDelta {
                     conversation_id: conversation_id.clone(),
-                    agent_id: meta.agent_id.clone(),
-                    conversation_kind: usage_trail_kind_key_from_meta(&meta),
+                    agent_id: agent_id.clone(),
+                    conversation_kind: kind_key.clone(),
                     api_config_id: api_config_id.clone(),
                     provider_key: trail_provider_key.clone(),
                     provider_label: usage_trail_provider_label_from_provider_key(
@@ -336,8 +352,8 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
         if !remainder.is_empty() {
             let delta = UsageTrailDelta {
                 conversation_id: conversation_id.clone(),
-                agent_id: meta.agent_id.clone(),
-                conversation_kind: usage_trail_kind_key_from_meta(&meta),
+                agent_id: agent_id.clone(),
+                conversation_kind: kind_key.clone(),
                 api_config_id: api_config_id.clone(),
                 provider_key: provider_key.clone(),
                 provider_label: provider_label.clone(),
@@ -382,31 +398,35 @@ fn chat_metadata_store_run_usage_trail_migration_inner(
     Ok(())
 }
 
-fn usage_trail_kind_key_from_meta(meta: &ConversationShardMeta) -> String {
-    if meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
-        || meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
+fn usage_trail_kind_key(
+    conversation_id: &str,
+    conversation_kind: &str,
+    delegate_id: Option<&str>,
+    archived_at: Option<&str>,
+) -> String {
+    if conversation_id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
     {
         return "system_notification".to_string();
     }
-    if meta
-        .delegate_id
-        .as_deref()
+    if delegate_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_some()
     {
         return "delegate".to_string();
     }
-    if meta.conversation_kind.trim() == "remote_im_contact" {
+    if conversation_kind.trim() == "remote_im_contact" {
         return "remote_im_contact".to_string();
     }
-    if meta.archived_at.is_some() {
+    if archived_at.is_some() {
         return "archived".to_string();
     }
     "normal".to_string()
 }
 
-fn usage_trail_resolve_api_config_id_from_meta(
+fn usage_trail_resolve_api_config_id(
+    agent_id: &str,
     meta: &ConversationShardMeta,
     config: &AppConfig,
     agents: &[AgentProfile],
@@ -421,7 +441,7 @@ fn usage_trail_resolve_api_config_id_from_meta(
         return value;
     }
     // 会话未固化模型时回退到负责人格的主模型（旧口径是所属部门的主模型）。
-    let agent_id = meta.agent_id.trim();
+    let agent_id = agent_id.trim();
     if agent_id.is_empty() {
         return String::new();
     }

@@ -318,7 +318,7 @@ fn chat_store_exists(paths: &MessageStorePaths) -> Result<bool, String> {
 
 pub(super) fn chat_store_read_meta(
     paths: &MessageStorePaths,
-) -> Result<Option<ConversationShardMeta>, String> {
+) -> Result<Option<ConversationStoredMeta>, String> {
     chat_metadata_store_read_meta(paths)
 }
 
@@ -1063,7 +1063,7 @@ fn message_store_index_total_bytes(
 
 pub(super) fn delegate_directory_store_read_meta(
     paths: &MessageStorePaths,
-) -> Result<Option<ConversationShardMeta>, String> {
+) -> Result<Option<ConversationStoredMeta>, String> {
     let Some(manifest) = read_message_store_manifest(&paths.manifest_file)? else {
         return Ok(None);
     };
@@ -1076,8 +1076,8 @@ pub(super) fn delegate_directory_store_read_meta(
     ) {
         return Ok(None);
     }
-    let meta = read_conversation_shard_meta(&paths.meta_file)?;
-    validate_conversation_shard_meta_id(paths, &meta)?;
+    let meta = read_conversation_stored_meta(&paths.meta_file)?;
+    validate_conversation_shard_meta_id(paths, meta.payload())?;
     Ok(Some(meta))
 }
 
@@ -1200,8 +1200,8 @@ fn read_message_store_directory_conversation_with_manifest(
     validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
     let manifest = read_message_store_manifest(&paths.manifest_file)?
         .ok_or_else(|| format!("目录型会话缺少 manifest，path={}", paths.manifest_file.display()))?;
-    let meta = read_conversation_shard_meta(&paths.meta_file)?;
-    validate_conversation_shard_meta_id(paths, &meta)?;
+    let meta = read_conversation_stored_meta(&paths.meta_file)?;
+    validate_conversation_shard_meta_id(paths, meta.payload())?;
     let messages = JsonlSnapshotMessageStore::with_index(
         paths.messages_file.clone(),
         paths.index_file.clone(),
@@ -1210,7 +1210,7 @@ fn read_message_store_directory_conversation_with_manifest(
     if manifest.source_message_count != messages.len() {
         return Err(format!(
             "目录型会话消息数量不一致，conversation_id={}，manifest={}，actual={}",
-            meta.id,
+            meta.id(),
             manifest.source_message_count,
             messages.len()
         ));
@@ -1222,7 +1222,7 @@ fn read_message_store_directory_conversation_with_manifest(
     if manifest.last_message_id.trim() != actual_last_message_id {
         return Err(format!(
             "目录型会话最后消息不一致，conversation_id={}，manifest={}，actual={}",
-            meta.id, manifest.last_message_id, actual_last_message_id
+            meta.id(), manifest.last_message_id, actual_last_message_id
         ));
     }
     Ok(meta.into_conversation(messages))
@@ -3009,7 +3009,7 @@ mod message_store_reader_tests {
 
         let appended = test_message("a2", "assistant");
         conversation.messages.push(appended.clone());
-        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
         chat_store_append_messages_from_meta(
             &paths,
             &meta,
@@ -3158,7 +3158,7 @@ mod message_store_reader_tests {
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("run migration");
         let mut wrong_conversation = conversation.clone();
         wrong_conversation.id = "wrong-conversation".to_string();
-        let wrong_meta = ConversationShardMeta::from_conversation(&wrong_conversation);
+        let wrong_meta = ConversationStoredMeta::from_conversation(&wrong_conversation);
         write_conversation_shard_meta_atomic(&paths.meta_file, &wrong_meta)
             .expect("write wrong meta");
 
@@ -3284,7 +3284,7 @@ mod message_store_reader_tests {
 
         let appended = test_compaction_message("m2", "context_compaction");
         conversation.messages.push(appended.clone());
-        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
         chat_store_append_messages_from_meta(&paths, &meta, std::slice::from_ref(&appended))
             .expect("append V3 message without overwriting unmanaged block");
 
@@ -3320,7 +3320,7 @@ mod message_store_reader_tests {
 
         let boundary = test_compaction_message("m2", "context_compaction");
         conversation.messages = vec![first.clone(), boundary.clone()];
-        let meta = ConversationPersistMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
         chat_store_splice_messages(
             &paths,
             &meta,

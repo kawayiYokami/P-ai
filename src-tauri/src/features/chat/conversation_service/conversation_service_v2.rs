@@ -271,7 +271,7 @@ struct MessageProviderMetaBatchPatchInput {
 }
 
 impl ConversationMetaView {
-    fn from_meta(meta: &message_store::ConversationShardMeta) -> Self {
+    fn from_meta(meta: &message_store::ConversationStoredMeta) -> Self {
         let preview_messages = meta
             .preview_messages()
             .iter()
@@ -715,7 +715,7 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         conversation_id: &str,
-    ) -> Result<message_store::ConversationShardMeta, String> {
+    ) -> Result<message_store::ConversationStoredMeta, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required.".to_string());
@@ -1156,14 +1156,14 @@ impl ConversationServiceV2 {
             PersistReadyMessageMode::Replace => {
                 message_store::chat_store_replace_message(
                     &paths,
-                    &ready_meta.to_persist_meta(),
+                    &ready_meta,
                     updated_message,
                 )?;
             }
             PersistReadyMessageMode::AppendLineToGroup => {
                 message_store::chat_store_append_line_to_group(
                     &paths,
-                    &ready_meta.to_persist_meta(),
+                    &ready_meta,
                     &previous_message,
                     updated_message,
                 )?;
@@ -1348,7 +1348,7 @@ impl ConversationServiceV2 {
                         "[聊天] 消息仓库轻量读取失败，使用当前运行时缓存继续 原因={}",
                         meta_err
                     ));
-                    message_store::ConversationShardMeta::from_conversation(&conversation)
+                    message_store::ConversationStoredMeta::from_conversation(&conversation)
                 }
                 Err(_) => {
                     return Err(ConversationServiceV2Error::new(
@@ -1393,7 +1393,7 @@ impl ConversationServiceV2 {
 
     fn conversation_meta_is_delegate(
         &self,
-        conversation_meta: &message_store::ConversationShardMeta,
+        conversation_meta: &message_store::ConversationStoredMeta,
     ) -> bool {
         conversation_meta.conversation_kind().trim() == CONVERSATION_KIND_DELEGATE
     }
@@ -1422,7 +1422,7 @@ impl ConversationServiceV2 {
 
     fn conversation_meta_visible_in_foreground_lists(
         &self,
-        conversation_meta: &message_store::ConversationShardMeta,
+        conversation_meta: &message_store::ConversationStoredMeta,
     ) -> bool {
         !self.conversation_meta_is_delegate(conversation_meta)
             && !self.conversation_meta_is_remote_im_contact(conversation_meta)
@@ -1431,7 +1431,7 @@ impl ConversationServiceV2 {
 
     fn conversation_meta_is_remote_im_contact(
         &self,
-        conversation_meta: &message_store::ConversationShardMeta,
+        conversation_meta: &message_store::ConversationStoredMeta,
     ) -> bool {
         conversation_meta.conversation_kind().trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
     }
@@ -1461,7 +1461,7 @@ impl ConversationServiceV2 {
 
     fn build_conversation_snapshot_from_meta(
         &self,
-        conversation_meta: &message_store::ConversationShardMeta,
+        conversation_meta: &message_store::ConversationStoredMeta,
         messages: Vec<ChatMessage>,
     ) -> Conversation {
         let mut conversation = build_conversation_record("", "", "", "", None, None);

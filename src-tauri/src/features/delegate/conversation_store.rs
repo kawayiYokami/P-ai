@@ -96,7 +96,7 @@ fn validate_delegate_conversation_for_write(conversation: &Conversation) -> Resu
 }
 
 fn validate_delegate_conversation_meta(
-    meta: &message_store::ConversationShardMeta,
+    meta: &message_store::ConversationStoredMeta,
     requested_conversation_id: &str,
 ) -> Result<(), String> {
     if meta.conversation_kind().trim() != CONVERSATION_KIND_DELEGATE {
@@ -119,7 +119,7 @@ fn validate_delegate_conversation_meta(
 fn delegate_conversation_store_read_meta(
     paths: &message_store::MessageStorePaths,
     conversation_id: &str,
-) -> Result<Option<message_store::ConversationShardMeta>, String> {
+) -> Result<Option<message_store::ConversationStoredMeta>, String> {
     let Some(meta) = message_store::delegate_directory_store_read_meta(paths)? else {
         return Ok(None);
     };

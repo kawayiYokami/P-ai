@@ -1415,10 +1415,33 @@
         assert_eq!(conversation_short_id_of(&state, "conv-late"), Some(2));
     }
 
+    /// P1 回归：V5 瘦身后 JSON 里已经没有 createdAt，补号必须按 `created_at` 列升序，
+    /// 不能退化成「按主键字典序」。
+    #[test]
+    fn backfill_conversation_short_ids_should_order_by_created_at_column_after_v5_slim() {
+        let state = test_chat_runtime_state();
+        // 主键字典序 a < b < c，创建时间序 b < c < a：两种排法结果不同，能钉住依据。
+        insert_test_conversation_metadata(&state, "conv-a", "2024-03-01T00:00:00Z", None);
+        insert_test_conversation_metadata(&state, "conv-b", "2024-01-01T00:00:00Z", None);
+        insert_test_conversation_metadata(&state, "conv-c", "2024-02-01T00:00:00Z", None);
+
+        let raw = conversation_metadata_json_of(&state, "conv-a");
+        let value: serde_json::Value = serde_json::from_str(&raw).expect("parse metadata json");
+        assert!(
+            value.get("createdAt").is_none(),
+            "V5 瘦身后 JSON 不该再有 createdAt，时间只住在列里：{raw}"
+        );
+
+        let assigned = backfill_conversation_short_ids(&state).expect("backfill");
+        assert_eq!(assigned, 3);
+        assert_eq!(conversation_short_id_of(&state, "conv-b"), Some(0));
+        assert_eq!(conversation_short_id_of(&state, "conv-c"), Some(1));
+        assert_eq!(conversation_short_id_of(&state, "conv-a"), Some(2));
+    }
+
     /// 已有短 ID 的会话在迁移中不得被覆盖：模拟迁移中断后重启继续。
     #[test]
-    fn backfill_should_keep_existing_short_ids() {
-        let state = test_chat_runtime_state();
+    fn backfill_should_keep_existing_short_ids() {        let state = test_chat_runtime_state();
         insert_test_conversation_metadata(&state, "conv-has-id", "2024-01-01T00:00:00Z", Some(5));
         insert_test_conversation_metadata(&state, "conv-no-id", "2024-01-02T00:00:00Z", None);
 
@@ -1466,7 +1489,8 @@
 
     /// 手工往会话库写一条元数据：迁移与解析只依赖库里的行，不依赖内存缓存。
     ///
-    /// 短 ID 只写 `short_id` 列，绝不进 metadata_json —— 与生产落盘口径一致。
+    /// 写入形态与 V5 之后的库一致：短 ID 与创建时间只在各自列里，metadata_json 里
+    /// 没有 `shortId` / `createdAt`。补号读的是 `created_at` 列，不是 JSON。
     fn insert_test_conversation_metadata(
         state: &AppState,
         conversation_id: &str,
@@ -1476,19 +1500,19 @@
         let metadata = serde_json::json!({
             "id": conversation_id,
             "title": conversation_id,
-            "createdAt": created_at,
         });
         let conn = crate::message_store::chat_metadata_store_open(&state.data_path)
             .expect("open chat metadata");
         conn.execute(
-            "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id)
-             VALUES(?1, ?2, 0, ?3, ?4)
+            "INSERT INTO conversation_metadata(conversation_id, metadata_json, storage_revision, updated_at, short_id, created_at)
+             VALUES(?1, ?2, 0, ?3, ?4, ?5)
              ON CONFLICT(conversation_id) DO UPDATE SET metadata_json=excluded.metadata_json, updated_at=excluded.updated_at",
             rusqlite::params![
                 conversation_id,
                 serde_json::to_string(&metadata).expect("serialize metadata"),
                 created_at,
-                short_id.map(|value| value as i64)
+                short_id.map(|value| value as i64),
+                created_at
             ],
         )
         .expect("insert conversation metadata");

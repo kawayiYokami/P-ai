@@ -119,7 +119,7 @@ fn write_jsonl_snapshot_directory_shard_full(
     }
     let manifest = MessageStoreManifest::jsonl_snapshot_building(conversation)
         .jsonl_snapshot_ready(blocks.total_bytes, 1);
-    let meta = ConversationShardMeta::from_conversation(conversation);
+    let meta = ConversationStoredMeta::from_conversation(conversation);
 
     write_conversation_shard_meta_atomic(&paths.meta_file, &meta)?;
     write_jsonl_snapshot_conversation_blocks(paths, &blocks)?;
@@ -274,7 +274,7 @@ fn write_jsonl_snapshot_directory_shard_incremental(
         .unwrap_or_default();
     let manifest = MessageStoreManifest::jsonl_snapshot_building(conversation)
         .jsonl_snapshot_ready(total_bytes, 1);
-    let meta = ConversationShardMeta::from_conversation(conversation);
+    let meta = ConversationStoredMeta::from_conversation(conversation);
 
     write_conversation_shard_meta_atomic(&paths.meta_file, &meta)?;
     write_message_store_index_atomic(&paths.index_file, &next_index)?;
@@ -350,10 +350,9 @@ fn cleanup_stale_conversation_block_files_by_names(
 
 pub(super) fn chat_store_write_meta(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
 ) -> Result<(), String> {
-    let shard_meta = ConversationShardMeta::from_persist_meta(meta);
-    chat_metadata_store_write_meta_only(paths, &shard_meta)
+    chat_metadata_store_write_meta_only(paths, meta)
 }
 
 #[cfg(test)]
@@ -432,7 +431,7 @@ fn write_jsonl_snapshot_conversation_blocks(
 
 pub(super) fn chat_store_append_message(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     message: &ChatMessage,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     chat_store_append_message_entries(paths, &[(meta, message)], Some(meta))
@@ -440,21 +439,20 @@ pub(super) fn chat_store_append_message(
 
 pub(super) fn chat_store_append_messages_from_meta(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     messages: &[ChatMessage],
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
-    let persist_meta = meta.to_persist_meta();
     let entries = messages
         .iter()
-        .map(|message| (&persist_meta, message))
+        .map(|message| (meta, message))
         .collect::<Vec<_>>();
-    chat_store_append_message_entries(paths, &entries, Some(&persist_meta))
+    chat_store_append_message_entries(paths, &entries, Some(meta))
 }
 
 fn chat_store_append_message_entries(
     paths: &MessageStorePaths,
-    entries: &[(&ConversationPersistMeta, &ChatMessage)],
-    final_meta: Option<&ConversationPersistMeta>,
+    entries: &[(&ConversationStoredMeta, &ChatMessage)],
+    final_meta: Option<&ConversationStoredMeta>,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if entries.is_empty() {
         return Err(format!(
@@ -506,7 +504,7 @@ fn appended_message_starts_new_block(
 
 fn plan_appended_message_blocks(
     last_existing_message: Option<&ChatMessage>,
-    entries: &[(&ConversationPersistMeta, &ChatMessage)],
+    entries: &[(&ConversationStoredMeta, &ChatMessage)],
 ) -> AppendedMessageBlockPlan {
     let mut groups = Vec::<Vec<ChatMessage>>::new();
     let mut current = Vec::<ChatMessage>::new();
@@ -538,7 +536,7 @@ fn plan_appended_message_blocks(
 
 pub(super) fn chat_store_truncate_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     keep_count: usize,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     chat_store_truncate_messages_with_persist_meta(paths, meta, keep_count)
@@ -546,16 +544,15 @@ pub(super) fn chat_store_truncate_messages(
 
 pub(super) fn chat_store_truncate_messages_from_meta(
     paths: &MessageStorePaths,
-    meta: &ConversationShardMeta,
+    meta: &ConversationStoredMeta,
     keep_count: usize,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
-    let persist_meta = meta.to_persist_meta();
-    chat_store_truncate_messages_with_persist_meta(paths, &persist_meta, keep_count)
+    chat_store_truncate_messages_with_persist_meta(paths, meta, keep_count)
 }
 
 fn chat_store_truncate_messages_with_persist_meta(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     keep_count: usize,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if meta.conversation_id() != paths.conversation_id {
@@ -570,7 +567,7 @@ fn chat_store_truncate_messages_with_persist_meta(
 
 pub(super) fn chat_store_replace_message(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     message: &ChatMessage,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if meta.conversation_id() != paths.conversation_id {
@@ -598,7 +595,7 @@ pub(super) fn chat_store_replace_message(
 /// 整块重建（replace），由调用方决定是否替换语义。
 pub(super) fn chat_store_append_line_to_group(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     previous_message: &ChatMessage,
     updated_message: &ChatMessage,
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
@@ -679,7 +676,7 @@ pub(super) fn chat_store_append_line_to_group(
         }
         return chat_metadata_store_append_line_to_group_physical(
             paths,
-            &ConversationShardMeta::from_persist_meta(meta),
+            meta,
             block_id,
             &locator,
             &new_lines,
@@ -710,7 +707,7 @@ pub(super) fn chat_store_append_line_to_group(
     )?];
     chat_metadata_store_append_line_to_group_physical(
         paths,
-        &ConversationShardMeta::from_persist_meta(meta),
+        meta,
         block_id,
         &locator,
         &new_lines,
@@ -719,7 +716,7 @@ pub(super) fn chat_store_append_line_to_group(
 
 pub(super) fn chat_store_replace_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     messages: &[ChatMessage],
 ) -> Result<MessageStoreDirectorySnapshotWrite, String> {
     if meta.conversation_id() != paths.conversation_id {
@@ -734,7 +731,7 @@ pub(super) fn chat_store_replace_messages(
 
 pub(super) fn chat_store_splice_messages(
     paths: &MessageStorePaths,
-    meta: &ConversationPersistMeta,
+    meta: &ConversationStoredMeta,
     start_index: usize,
     delete_count: usize,
     inserted_messages: &[ChatMessage],
@@ -868,7 +865,7 @@ mod message_store_persist_tests {
             .expect("ready snapshot exists");
         conversation.title = "updated title".to_string();
         conversation.messages.push(test_message("m3"));
-        let meta = ConversationPersistMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
 
         chat_store_write_meta(&paths, &meta).expect("write meta only");
         let loaded_meta = chat_store_read_meta(&paths)
@@ -944,7 +941,7 @@ mod message_store_persist_tests {
         updated.updated_at = appended.created_at.clone();
         updated.last_assistant_at = Some(appended.created_at.clone());
         updated.messages.push(appended.clone());
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
         let write = chat_store_append_message(&paths, &meta, &appended)
             .expect("append message");
         let loaded = chat_store_read_conversation(&paths)
@@ -978,7 +975,7 @@ mod message_store_persist_tests {
         updated.updated_at = appended.created_at.clone();
         updated.last_assistant_at = Some(appended.created_at.clone());
         updated.messages.push(appended.clone());
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
 
         let write = chat_store_append_message(&paths, &meta, &appended)
             .expect("append first message");
@@ -1010,7 +1007,7 @@ mod message_store_persist_tests {
 
         let appended_2 = test_message("m2");
         let appended_3 = test_message("m3");
-        let mut meta_2 = ConversationPersistMeta::from_conversation(&conversation);
+        let mut meta_2 = ConversationStoredMeta::from_conversation(&conversation);
         meta_2.updated_at = appended_2.created_at.clone();
         meta_2.last_assistant_at = Some(appended_2.created_at.clone());
         let mut meta_3 = meta_2.clone();
@@ -1052,7 +1049,7 @@ mod message_store_persist_tests {
         chat_store_write_snapshot(&paths, &conversation)
             .expect("write ready snapshot");
         conversation.messages.truncate(2);
-        let meta = ConversationPersistMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
 
         let write = chat_store_truncate_messages(&paths, &meta, 2)
             .expect("truncate messages");
@@ -1098,7 +1095,7 @@ mod message_store_persist_tests {
         if let Some(message) = updated.messages.iter_mut().find(|item| item.id == "m2") {
             *message = updated_message.clone();
         }
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
 
         let write = chat_store_replace_message(&paths, &meta, &updated_message)
             .expect("replace message");
@@ -1140,7 +1137,7 @@ mod message_store_persist_tests {
             .expect("write ready snapshot");
         let inserted = vec![test_message("r1")];
         conversation.messages.splice(1..2, inserted.clone());
-        let meta = ConversationPersistMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
 
         let write = chat_store_splice_messages(
             &paths,
@@ -1332,7 +1329,7 @@ mod message_store_persist_tests {
         );
         let mut updated = conversation.clone();
         updated.messages.push(tool_message.clone());
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
         chat_store_append_message(&paths, &meta, &tool_message)
             .expect("append tool message");
 
@@ -1347,7 +1344,7 @@ mod message_store_persist_tests {
         let mut updated2 = updated.clone();
         updated2.messages.pop();
         updated2.messages.push(with_second_tool.clone());
-        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        let meta2 = ConversationStoredMeta::from_conversation(&updated2);
         chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_second_tool)
             .expect("append tool line to group");
 
@@ -1378,7 +1375,7 @@ mod message_store_persist_tests {
         );
         let mut updated = conversation.clone();
         updated.messages.push(tool_message.clone());
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
         chat_store_append_message(&paths, &meta, &tool_message)
             .expect("append tool message");
 
@@ -1392,7 +1389,7 @@ mod message_store_persist_tests {
         let mut updated2 = updated.clone();
         updated2.messages.pop();
         updated2.messages.push(with_final.clone());
-        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        let meta2 = ConversationStoredMeta::from_conversation(&updated2);
         chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_final)
             .expect("append final text line to group");
 
@@ -1430,7 +1427,7 @@ mod message_store_persist_tests {
         );
         let mut updated = conversation.clone();
         updated.messages.push(tool_message.clone());
-        let meta = ConversationPersistMeta::from_conversation(&updated);
+        let meta = ConversationStoredMeta::from_conversation(&updated);
         chat_store_append_message(&paths, &meta, &tool_message)
             .expect("append tool message");
 
@@ -1446,7 +1443,7 @@ mod message_store_persist_tests {
         let mut updated2 = updated.clone();
         updated2.messages.pop();
         updated2.messages.push(with_meta_patch.clone());
-        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        let meta2 = ConversationStoredMeta::from_conversation(&updated2);
         chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_meta_patch)
             .expect("fallback replace on provider_meta patch");
 

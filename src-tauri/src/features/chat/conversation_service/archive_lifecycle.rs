@@ -746,9 +746,9 @@ impl ConversationServiceV2 {
                     inserted,
                 )
             };
-        let persist_meta = message_store::ConversationPersistMeta::from_conversation_with_spliced_messages(
+        let persist_meta = message_store::ConversationStoredMeta::from_conversation_with_spliced_messages(
             &persisted_conversation,
-            &cached_metadata,
+            cached_metadata.payload(),
             &removed_messages,
             &inserted_messages,
         );

@@ -86,7 +86,7 @@ struct AppState {
     cached_agents_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
     cached_chat_index: Arc<Mutex<Option<ChatIndexFile>>>,
     cached_conversation_metadata:
-        Arc<Mutex<std::collections::HashMap<String, message_store::ConversationShardMeta>>>,
+        Arc<Mutex<std::collections::HashMap<String, message_store::ConversationStoredMeta>>>,
     cached_conversation_field_metadata_ids:
         Arc<Mutex<std::collections::HashSet<String>>>,
     cached_conversation_mtimes:

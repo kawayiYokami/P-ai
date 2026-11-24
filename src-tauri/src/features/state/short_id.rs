@@ -492,8 +492,9 @@ fn resolve_conversation_id_reference(
 /// 历史会话迁移：只认 SQLite 的 `short_id` 列。
 ///
 /// 读写在同一个 IMMEDIATE 事务里完成，全程不反序列化、不写回 `metadata_json`：
-/// 排序键 `createdAt` 交给 SQL 层 `json_extract` 取，写入只动 `short_id` 列。
-/// 列上已有值的行视为永久锁定，绝不重算、绝不覆盖。返回本次新分配的条数。
+/// 排序键直接取 `created_at` 物理列（V5 之后 JSON 里已经没有 `createdAt`），
+/// 写入只动 `short_id` 列。列上已有值的行视为永久锁定，绝不重算、绝不覆盖。
+/// 返回本次新分配的条数。
 fn backfill_conversation_short_ids(state: &AppState) -> Result<usize, String> {
     let mut conn = crate::message_store::chat_metadata_store_open(&state.data_path)?;
     let tx = conn
@@ -505,8 +506,7 @@ fn backfill_conversation_short_ids(state: &AppState) -> Result<usize, String> {
     {
         let mut stmt = tx
             .prepare(
-                "SELECT conversation_id, short_id,
-                        COALESCE(json_extract(metadata_json, '$.createdAt'), '')
+                "SELECT conversation_id, short_id, COALESCE(created_at, '')
                    FROM conversation_metadata",
             )
             .map_err(|err| format!("准备读取会话短 ID 列失败: {err}"))?;

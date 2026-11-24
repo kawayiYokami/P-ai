@@ -3,118 +3,249 @@ pub(super) const CONVERSATION_META_SCHEMA_VERSION: u32 = 1;
 /// 快速请求记录在内存里保留的条数上限。它只在内存中存活，落盘前会被清空。
 const FAST_REQUEST_TURNS_MEMORY_LIMIT: usize = 10;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ConversationPersistMeta {
-    meta_schema_version: u32,
-    id: String,
-    /// 会话短 ID：只在内存里随投影搬运，序列化时被 skip；权威值在 SQLite 的 short_id 列。
-    #[serde(skip)]
+// ==================== 骨：只住在 SQL 列里的基石字段 ====================
+
+/// 会话元数据的「骨」：这些字段在 `conversation_metadata` 里有各自的列，
+/// `metadata_json` 里不存它们。
+///
+/// `short_id` 与 `created_at` 只在「新建落库」与「V5 升级迁移」时写入一次；
+/// 日常业务的 UPDATE 语句根本不写这两列，从物理层杜绝被涂抹。
+/// 标题不在这里：它是高频变动、多种形态的业务载荷，留在 `metadata_json` 里由 serde 兼容。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct ConversationBackbone {
+    conversation_id: String,
     short_id: Option<u64>,
-    title: String,
-    agent_id: String,
-    bound_conversation_id: Option<String>,
-    parent_conversation_id: Option<String>,
-    child_conversation_ids: Vec<String>,
-    fork_message_cursor: Option<String>,
-    unread_count: usize,
-    conversation_kind: String,
-    root_conversation_id: Option<String>,
-    delegate_id: Option<String>,
     created_at: String,
     updated_at: String,
-    last_user_at: Option<String>,
-    last_assistant_at: Option<String>,
     status: String,
-    user_profile_snapshot: String,
-    shell_workspace_path: Option<String>,
-    shell_workspaces: Vec<ShellWorkspaceConfig>,
-    shell_autonomous_mode: bool,
-    #[serde(default = "default_shell_work_mode")]
-    shell_work_mode: String,
-    #[serde(default)]
-    shell_work_branch: String,
-    #[serde(default)]
-    shell_worktree_path: String,
-    #[serde(default)]
-    shell_recorded_branch: String,
-    archived_at: Option<String>,
-    current_todos: Vec<ConversationTodoItem>,
-    memory_recall_table: Vec<String>,
-    preferred_api_config_id: Option<String>,
-    #[serde(default)]
-    is_draft: bool,
-    auto_push_remote_contact_id: Option<String>,
-    cumulative_usage: ConversationCumulativeUsage,
-    #[serde(default)]
-    active_goal: Option<ConversationGoalState>,
-    #[serde(default)]
-    team: TeamState,
-    questions: Vec<ConversationQuestionEntry>,
-    question_next_number: u32,
-    issues: Vec<KanbanIssueEntry>,
-    issue_next_number: u32,
-    #[serde(default)]
-    loaded_mcp_tools: Vec<String>,
-    fast_request_turns: Vec<FastRequestTurn>,
-    last_message_id: Option<String>,
-    last_message_at: Option<String>,
-    #[serde(default)]
-    last_error: Option<String>,
-    message_count: usize,
-    body_message_count: usize,
-    body_text_length: usize,
-    has_assistant_reply: bool,
-    has_context_compaction_message: bool,
-    latest_summary_title: Option<String>,
-    preview_messages: Vec<ConversationShardPreviewMessage>,
+    conversation_kind: String,
+    agent_id: String,
+    parent_conversation_id: Option<String>,
+    root_conversation_id: Option<String>,
+    delegate_id: Option<String>,
 }
 
-impl ConversationPersistMeta {
+impl ConversationBackbone {
     pub(super) fn from_conversation(conversation: &Conversation) -> Self {
-        ConversationShardMeta::from_conversation(conversation).to_persist_meta()
+        Self {
+            conversation_id: conversation.id.clone(),
+            short_id: conversation.short_id,
+            created_at: conversation.created_at.clone(),
+            updated_at: conversation.updated_at.clone(),
+            status: conversation.status.clone(),
+            conversation_kind: conversation.conversation_kind.clone(),
+            agent_id: conversation.agent_id.clone(),
+            parent_conversation_id: conversation.parent_conversation_id.clone(),
+            root_conversation_id: conversation.root_conversation_id.clone(),
+            delegate_id: conversation.delegate_id.clone(),
+        }
     }
 
-    /// 基于 metadata 快照写局部 splice 时，不能用空 `Conversation.messages`
-    /// 重算消息派生字段；只按实际替换的消息更新这些字段。
+    pub(super) fn id(&self) -> &str {
+        &self.conversation_id
+    }
+
+    pub(super) fn short_id(&self) -> Option<u64> {
+        self.short_id
+    }
+
+    pub(super) fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    pub(super) fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    pub(super) fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub(super) fn conversation_kind(&self) -> &str {
+        &self.conversation_kind
+    }
+
+    pub(super) fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub(super) fn parent_conversation_id(&self) -> Option<&str> {
+        self.parent_conversation_id.as_deref()
+    }
+
+    pub(super) fn root_conversation_id(&self) -> Option<&str> {
+        self.root_conversation_id.as_deref()
+    }
+
+    pub(super) fn delegate_id(&self) -> Option<&str> {
+        self.delegate_id.as_deref()
+    }
+
+    pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
+        target.short_id = self.short_id;
+        target.created_at = self.created_at.clone();
+        target.updated_at = self.updated_at.clone();
+        target.status = self.status.clone();
+        target.conversation_kind = self.conversation_kind.clone();
+        target.agent_id = self.agent_id.clone();
+        target.parent_conversation_id = self.parent_conversation_id.clone();
+        target.root_conversation_id = self.root_conversation_id.clone();
+        target.delegate_id = self.delegate_id.clone();
+    }
+}
+
+// ==================== 骨肉合体：读取/写入时的一次性视图 ====================
+
+/// 骨（SQL 列）+ 肉（metadata_json 载荷）。
+///
+/// 读库时先分别拿出两半再合体，写库时再拆开：列走列，JSON 走 JSON。
+/// 通过 `Deref` 到载荷，载荷上的全部 getter 在合体视图上照样能用。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ConversationStoredMeta {
+    backbone: ConversationBackbone,
+    payload: ConversationShardMeta,
+}
+
+impl std::ops::Deref for ConversationStoredMeta {
+    type Target = ConversationShardMeta;
+
+    fn deref(&self) -> &Self::Target {
+        &self.payload
+    }
+}
+
+/// 合体视图的序列化只输出肉：骨只住 SQL 列，任何 JSON 都不该带它。
+impl serde::Serialize for ConversationStoredMeta {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.payload.serialize(serializer)
+    }
+}
+
+impl std::ops::DerefMut for ConversationStoredMeta {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.payload
+    }
+}
+
+impl ConversationStoredMeta {
+    pub(super) fn new(backbone: ConversationBackbone, payload: ConversationShardMeta) -> Self {
+        Self { backbone, payload }
+    }
+
+    pub(super) fn from_conversation(conversation: &Conversation) -> Self {
+        Self {
+            backbone: ConversationBackbone::from_conversation(conversation),
+            payload: ConversationShardMeta::from_conversation(conversation),
+        }
+    }
+
+    /// 局部 splice：骨取自会话本体，肉沿用基于快照的派生字段规则。
     pub(super) fn from_conversation_with_spliced_messages(
         conversation: &Conversation,
         source: &ConversationShardMeta,
         removed_messages: &[ChatMessage],
         inserted_messages: &[ChatMessage],
     ) -> Self {
-        let mut meta = ConversationShardMeta::from_conversation(conversation);
-        meta.preserve_message_derived_fields_from(source);
-        meta.apply_spliced_messages(removed_messages, inserted_messages);
-        if source
-            .last_message_id
-            .as_deref()
-            .is_some_and(|tail_id| removed_messages.iter().any(|message| message.id == tail_id))
-        {
-            if let Some(last_inserted) = inserted_messages.last() {
-                meta.last_message_id = Some(last_inserted.id.clone());
-                meta.last_message_at = Some(last_inserted.created_at.clone());
-            }
+        Self {
+            backbone: ConversationBackbone::from_conversation(conversation),
+            payload: ConversationShardMeta::from_conversation_with_spliced_messages(
+                conversation,
+                source,
+                removed_messages,
+                inserted_messages,
+            ),
         }
-        meta.to_persist_meta()
     }
 
-    fn conversation_id(&self) -> &str {
-        self.id.as_str()
+    pub(super) fn into_parts(self) -> (ConversationBackbone, ConversationShardMeta) {
+        (self.backbone, self.payload)
     }
 
-    fn apply_to_conversation(&self, target: &mut Conversation) -> Result<(), String> {
-        let raw = serde_json::to_value(self)
-            .map_err(|err| format!("序列化会话持久化 metadata 失败: {err}"))?;
-        let meta = serde_json::from_value::<ConversationShardMeta>(raw)
-            .map_err(|err| format!("解析会话持久化 metadata 失败: {err}"))?;
-        meta.apply_to_conversation(target);
-        // 短 ID 是 serde skip 字段，不参与 JSON 往返，必须在这里单独搬运；
-        // 为空表示这一行还没补号，不能反过来把目标上的号清掉。
-        if self.short_id.is_some() {
-            target.short_id = self.short_id;
-        }
-        Ok(())
+    /// 归一化历史用量总量：只动肉，骨原样保留。
+    pub(super) fn normalized_legacy_usage_totals(mut self) -> Self {
+        self.payload = self.payload.normalized_legacy_usage_totals();
+        self
+    }
+
+    pub(super) fn backbone(&self) -> &ConversationBackbone {
+        &self.backbone
+    }
+
+    pub(super) fn payload(&self) -> &ConversationShardMeta {
+        &self.payload
+    }
+
+    pub(super) fn updated_at(&self) -> &str {
+        self.backbone.updated_at()
+    }
+
+    pub(super) fn into_payload(self) -> ConversationShardMeta {
+        self.payload
+    }
+
+    pub(super) fn id(&self) -> &str {
+        self.backbone.id()
+    }
+
+    /// 与老的持久化结构同名：日志与错误信息里用得一贯。
+    pub(super) fn conversation_id(&self) -> &str {
+        self.backbone.id()
+    }
+
+    pub(super) fn short_id(&self) -> Option<u64> {
+        self.backbone.short_id()
+    }
+
+    pub(super) fn agent_id(&self) -> &str {
+        self.backbone.agent_id()
+    }
+
+    pub(super) fn status(&self) -> &str {
+        self.backbone.status()
+    }
+
+    pub(super) fn conversation_kind(&self) -> &str {
+        self.backbone.conversation_kind()
+    }
+
+    pub(super) fn created_at(&self) -> &str {
+        self.backbone.created_at()
+    }
+
+    pub(super) fn parent_conversation_id(&self) -> Option<&str> {
+        self.backbone.parent_conversation_id()
+    }
+
+    pub(super) fn root_conversation_id(&self) -> Option<&str> {
+        self.backbone.root_conversation_id()
+    }
+
+    pub(super) fn root_conversation_id_text(&self) -> Option<&str> {
+        self.backbone
+            .root_conversation_id()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub(super) fn delegate_id(&self) -> Option<&str> {
+        self.backbone.delegate_id()
+    }
+
+    /// 先铺肉、再铺骨：骨是列权威，任何残留的肉字段都不许盖掉它。
+    pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
+        self.payload.apply_to_conversation(target);
+        self.backbone.apply_to_conversation(target);
+    }
+
+    pub(super) fn apply_questions_to_conversation(&self, target: &mut Conversation) {
+        self.payload.apply_questions_to_conversation(target);
+    }
+
+    pub(super) fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
+        let (backbone, payload) = self.into_parts();
+        let mut conversation = payload.into_conversation(messages);
+        backbone.apply_to_conversation(&mut conversation);
+        conversation
     }
 }
 
@@ -158,35 +289,21 @@ pub(super) struct ConversationShardMeta {
     #[serde(default)]
     meta_schema_version: u32,
     id: String,
-    /// 会话短 ID：只走内存与 SQLite 的 `short_id` 列，**绝不进 metadata_json**。
-    /// 列是唯一权威：JSON 覆写（改消息、摘要、时间戳）与短 ID 完全解耦。
-    #[serde(skip)]
-    short_id: Option<u64>,
+    /// 标题留在 JSON 里：高频变动、多种形态（重命名 / 摘要标题 / 草稿），不进 SQL 列。
     title: String,
-    agent_id: String,
     #[serde(default)]
     bound_conversation_id: Option<String>,
-    #[serde(default)]
-    parent_conversation_id: Option<String>,
     #[serde(default)]
     child_conversation_ids: Vec<String>,
     #[serde(default)]
     fork_message_cursor: Option<String>,
     #[serde(default)]
     unread_count: usize,
-    #[serde(default)]
-    conversation_kind: String,
-    #[serde(default)]
-    root_conversation_id: Option<String>,
-    #[serde(default)]
-    delegate_id: Option<String>,
-    created_at: String,
     updated_at: String,
     #[serde(default)]
     last_user_at: Option<String>,
     #[serde(default)]
     last_assistant_at: Option<String>,
-    status: String,
     #[serde(default)]
     user_profile_snapshot: String,
     #[serde(default)]
@@ -230,7 +347,8 @@ pub(super) struct ConversationShardMeta {
     issue_next_number: u32,
     #[serde(default)]
     loaded_mcp_tools: Vec<String>,
-    #[serde(default)]
+    /// 快速请求记录只在内存里存活：落盘不序列化，读回恒为空。
+    #[serde(skip)]
     fast_request_turns: Vec<FastRequestTurn>,
     #[serde(default)]
     last_message_id: Option<String>,
@@ -359,22 +477,6 @@ impl ConversationShardMeta {
         self.title.as_str()
     }
 
-    pub(super) fn agent_id(&self) -> &str {
-        self.agent_id.as_str()
-    }
-
-    pub(super) fn conversation_kind(&self) -> &str {
-        self.conversation_kind.as_str()
-    }
-
-    pub(super) fn root_conversation_id(&self) -> Option<&str> {
-        self.root_conversation_id.as_deref()
-    }
-
-    pub(super) fn delegate_id(&self) -> Option<&str> {
-        self.delegate_id.as_deref()
-    }
-
     pub(super) fn updated_at(&self) -> &str {
         self.updated_at.as_str()
     }
@@ -404,19 +506,8 @@ impl ConversationShardMeta {
         self.user_profile_snapshot.as_str()
     }
 
-    pub(super) fn status(&self) -> &str {
-        self.status.as_str()
-    }
-
     pub(super) fn unread_count(&self) -> usize {
         self.unread_count
-    }
-
-    pub(super) fn root_conversation_id_text(&self) -> Option<&str> {
-        self.root_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
     }
 
     pub(super) fn message_count(&self) -> usize {
@@ -455,16 +546,8 @@ impl ConversationShardMeta {
         self.last_error.as_deref()
     }
 
-    pub(super) fn created_at(&self) -> &str {
-        self.created_at.as_str()
-    }
-
     pub(super) fn current_todos(&self) -> &[ConversationTodoItem] {
         self.current_todos.as_slice()
-    }
-
-    pub(super) fn parent_conversation_id(&self) -> Option<&str> {
-        self.parent_conversation_id.as_deref()
     }
 
     pub(super) fn child_conversation_ids(&self) -> &[String] {
@@ -537,7 +620,7 @@ impl ConversationShardMeta {
 
     pub(super) fn push_fast_request_turn(&mut self, turn: FastRequestTurn) {
         self.fast_request_turns.push(turn);
-        // 快速请求只在内存里留最近若干条：落盘前该字段会被清空（见 `to_persist_meta`），
+        // 快速请求只在内存里留最近若干条：落盘时该字段恒为空（见 `ConversationShardMeta::from_conversation`），
         // 这里顺手裁掉更早的，避免活着的会话在内存里无限增长。
         let overflow = self
             .fast_request_turns
@@ -573,25 +656,16 @@ impl ConversationShardMeta {
     }
 
     pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
-        // 短 ID 只有 SQLite 列是权威，这里只在有值时覆盖，绝不反向清空。
-        if self.short_id.is_some() {
-            target.short_id = self.short_id;
-        }
+        // 骨字段（status / created_at / agent_id / kind / 拓扑 / short_id）不在这里，
+        // 由 ConversationBackbone 铺；这里只铺 metadata_json 里的肉（含标题）。
         target.title = self.title.clone();
-        target.agent_id = self.agent_id.clone();
         target.bound_conversation_id = self.bound_conversation_id.clone();
-        target.parent_conversation_id = self.parent_conversation_id.clone();
         target.child_conversation_ids = self.child_conversation_ids.clone();
         target.fork_message_cursor = self.fork_message_cursor.clone();
         target.unread_count = self.unread_count;
-        target.conversation_kind = self.conversation_kind.clone();
-        target.root_conversation_id = self.root_conversation_id.clone();
-        target.delegate_id = self.delegate_id.clone();
-        target.created_at = self.created_at.clone();
         target.updated_at = self.updated_at.clone();
         target.last_user_at = self.last_user_at.clone();
         target.last_assistant_at = self.last_assistant_at.clone();
-        target.status = self.status.clone();
         target.user_profile_snapshot = self.user_profile_snapshot.clone();
         target.shell_workspace_path = self.shell_workspace_path.clone();
         target.shell_workspaces = self.shell_workspaces.clone();
@@ -629,20 +703,13 @@ impl ConversationShardMeta {
 
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
         self.title = source.title.clone();
-        self.agent_id = source.agent_id.clone();
         self.bound_conversation_id = source.bound_conversation_id.clone();
-        self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
         self.fork_message_cursor = source.fork_message_cursor.clone();
         self.unread_count = source.unread_count;
-        self.conversation_kind = source.conversation_kind.clone();
-        self.root_conversation_id = source.root_conversation_id.clone();
-        self.delegate_id = source.delegate_id.clone();
-        self.created_at = source.created_at.clone();
         self.updated_at = source.updated_at.clone();
         self.last_user_at = source.last_user_at.clone();
         self.last_assistant_at = source.last_assistant_at.clone();
-        self.status = source.status.clone();
         self.user_profile_snapshot = source.user_profile_snapshot.clone();
         self.shell_workspace_path = source.shell_workspace_path.clone();
         self.shell_workspaces = source.shell_workspaces.clone();
@@ -671,20 +738,13 @@ impl ConversationShardMeta {
 
     pub(super) fn apply_metadata_fields_from_meta(&mut self, source: &ConversationShardMeta) {
         self.title = source.title.clone();
-        self.agent_id = source.agent_id.clone();
         self.bound_conversation_id = source.bound_conversation_id.clone();
-        self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
         self.fork_message_cursor = source.fork_message_cursor.clone();
         self.unread_count = source.unread_count;
-        self.conversation_kind = source.conversation_kind.clone();
-        self.root_conversation_id = source.root_conversation_id.clone();
-        self.delegate_id = source.delegate_id.clone();
-        self.created_at = source.created_at.clone();
         self.updated_at = source.updated_at.clone();
         self.last_user_at = source.last_user_at.clone();
         self.last_assistant_at = source.last_assistant_at.clone();
-        self.status = source.status.clone();
         self.user_profile_snapshot = source.user_profile_snapshot.clone();
         self.shell_workspace_path = source.shell_workspace_path.clone();
         self.shell_workspaces = source.shell_workspaces.clone();
@@ -712,19 +772,12 @@ impl ConversationShardMeta {
 
     pub(super) fn apply_metadata_fields_from_meta_view(&mut self, source: &ConversationMetaView) {
         self.title = source.title.clone();
-        self.agent_id = source.agent_id.clone();
-        self.parent_conversation_id = source.parent_conversation_id.clone();
         self.child_conversation_ids = source.child_conversation_ids.clone();
         self.fork_message_cursor = source.fork_message_cursor.clone();
         self.unread_count = source.unread_count;
-        self.conversation_kind = source.conversation_kind.clone();
-        self.root_conversation_id = source.root_conversation_id.clone();
-        self.delegate_id = source.delegate_id.clone();
-        self.created_at = source.created_at.clone();
         self.updated_at = source.updated_at.clone();
         self.last_user_at = source.last_user_at.clone();
         self.last_assistant_at = source.last_assistant_at.clone();
-        self.status = source.status.clone();
         self.user_profile_snapshot = source.user_profile_snapshot.clone();
         self.shell_workspace_path = source.shell_workspace_path.clone();
         self.shell_workspaces = source.shell_workspaces.clone();
@@ -989,22 +1042,14 @@ impl ConversationShardMeta {
         Self {
             meta_schema_version: CONVERSATION_META_SCHEMA_VERSION,
             id: conversation.id.clone(),
-            short_id: conversation.short_id,
             title: conversation.title.clone(),
-            agent_id: conversation.agent_id.clone(),
             bound_conversation_id: conversation.bound_conversation_id.clone(),
-            parent_conversation_id: conversation.parent_conversation_id.clone(),
             child_conversation_ids: conversation.child_conversation_ids.clone(),
             fork_message_cursor: conversation.fork_message_cursor.clone(),
             unread_count: conversation.unread_count,
-            conversation_kind: conversation.conversation_kind.clone(),
-            root_conversation_id: conversation.root_conversation_id.clone(),
-            delegate_id: conversation.delegate_id.clone(),
-            created_at: conversation.created_at.clone(),
             updated_at: conversation.updated_at.clone(),
             last_user_at: conversation.last_user_at.clone(),
             last_assistant_at: conversation.last_assistant_at.clone(),
-            status: conversation.status.clone(),
             user_profile_snapshot: conversation.user_profile_snapshot.clone(),
             shell_workspace_path: conversation.shell_workspace_path.clone(),
             shell_workspaces: conversation.shell_workspaces.clone(),
@@ -1087,144 +1132,49 @@ impl ConversationShardMeta {
         }
     }
 
-    fn from_persist_meta(meta: &ConversationPersistMeta) -> Self {
-        Self {
-            meta_schema_version: if meta.meta_schema_version == 0 {
-                CONVERSATION_META_SCHEMA_VERSION
-            } else {
-                meta.meta_schema_version
-            },
-            id: meta.id.clone(),
-            short_id: meta.short_id,
-            title: meta.title.clone(),
-            agent_id: meta.agent_id.clone(),
-            bound_conversation_id: meta.bound_conversation_id.clone(),
-            parent_conversation_id: meta.parent_conversation_id.clone(),
-            child_conversation_ids: meta.child_conversation_ids.clone(),
-            fork_message_cursor: meta.fork_message_cursor.clone(),
-            unread_count: meta.unread_count,
-            conversation_kind: meta.conversation_kind.clone(),
-            root_conversation_id: meta.root_conversation_id.clone(),
-            delegate_id: meta.delegate_id.clone(),
-            created_at: meta.created_at.clone(),
-            updated_at: meta.updated_at.clone(),
-            last_user_at: meta.last_user_at.clone(),
-            last_assistant_at: meta.last_assistant_at.clone(),
-            status: meta.status.clone(),
-            user_profile_snapshot: meta.user_profile_snapshot.clone(),
-            shell_workspace_path: meta.shell_workspace_path.clone(),
-            shell_workspaces: meta.shell_workspaces.clone(),
-            shell_autonomous_mode: meta.shell_autonomous_mode,
-            shell_work_mode: normalize_shell_work_mode_text(&meta.shell_work_mode),
-            shell_work_branch: meta.shell_work_branch.clone(),
-            shell_worktree_path: meta.shell_worktree_path.clone(),
-            shell_recorded_branch: meta.shell_recorded_branch.clone(),
-            archived_at: meta.archived_at.clone(),
-            current_todos: meta.current_todos.clone(),
-            memory_recall_table: meta.memory_recall_table.clone(),
-            preferred_api_config_id: meta.preferred_api_config_id.clone(),
-            is_draft: meta.is_draft,
-            auto_push_remote_contact_id: meta.auto_push_remote_contact_id.clone(),
-            cumulative_usage: meta.cumulative_usage.clone(),
-            active_goal: meta.active_goal.clone(),
-            team: meta.team.clone(),
-            questions: meta.questions.clone(),
-            question_next_number: meta.question_next_number,
-            issues: meta.issues.clone(),
-            issue_next_number: meta.issue_next_number,
-            loaded_mcp_tools: meta.loaded_mcp_tools.clone(),
-            // 快速请求只在内存里存活，落盘结构里恒为空。
-            fast_request_turns: Vec::new(),
-            last_message_id: meta.last_message_id.clone(),
-            last_message_at: meta.last_message_at.clone(),
-            last_error: meta.last_error.clone(),
-            message_count: meta.message_count,
-            body_message_count: meta.body_message_count,
-            body_text_length: meta.body_text_length,
-            has_assistant_reply: meta.has_assistant_reply,
-            has_context_compaction_message: meta.has_context_compaction_message,
-            latest_summary_title: meta.latest_summary_title.clone(),
-            preview_messages: meta.preview_messages.clone(),
+    /// 基于 metadata 快照写局部 splice：消息派生字段不从空消息列表重算，只按实际替换的消息更新。
+    pub(super) fn from_conversation_with_spliced_messages(
+        conversation: &Conversation,
+        source: &ConversationShardMeta,
+        removed_messages: &[ChatMessage],
+        inserted_messages: &[ChatMessage],
+    ) -> Self {
+        let mut meta = Self::from_conversation(conversation);
+        meta.preserve_message_derived_fields_from(source);
+        meta.apply_spliced_messages(removed_messages, inserted_messages);
+        if source
+            .last_message_id
+            .as_deref()
+            .is_some_and(|tail_id| removed_messages.iter().any(|message| message.id == tail_id))
+        {
+            if let Some(last_inserted) = inserted_messages.last() {
+                meta.last_message_id = Some(last_inserted.id.clone());
+                meta.last_message_at = Some(last_inserted.created_at.clone());
+            }
         }
-    }
-
-    pub(super) fn to_persist_meta(&self) -> ConversationPersistMeta {
-        ConversationPersistMeta {
-            meta_schema_version: self.meta_schema_version,
-            id: self.id.clone(),
-            short_id: self.short_id,
-            title: self.title.clone(),
-            agent_id: self.agent_id.clone(),
-            bound_conversation_id: self.bound_conversation_id.clone(),
-            parent_conversation_id: self.parent_conversation_id.clone(),
-            child_conversation_ids: self.child_conversation_ids.clone(),
-            fork_message_cursor: self.fork_message_cursor.clone(),
-            unread_count: self.unread_count,
-            conversation_kind: self.conversation_kind.clone(),
-            root_conversation_id: self.root_conversation_id.clone(),
-            delegate_id: self.delegate_id.clone(),
-            created_at: self.created_at.clone(),
-            updated_at: self.updated_at.clone(),
-            last_user_at: self.last_user_at.clone(),
-            last_assistant_at: self.last_assistant_at.clone(),
-            status: self.status.clone(),
-            user_profile_snapshot: self.user_profile_snapshot.clone(),
-            shell_workspace_path: self.shell_workspace_path.clone(),
-            shell_workspaces: self.shell_workspaces.clone(),
-            shell_autonomous_mode: self.shell_autonomous_mode,
-            shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
-            shell_work_branch: self.shell_work_branch.clone(),
-            shell_worktree_path: self.shell_worktree_path.clone(),
-            shell_recorded_branch: self.shell_recorded_branch.clone(),
-            archived_at: self.archived_at.clone(),
-            current_todos: self.current_todos.clone(),
-            memory_recall_table: self.memory_recall_table.clone(),
-            preferred_api_config_id: self.preferred_api_config_id.clone(),
-            is_draft: self.is_draft,
-            auto_push_remote_contact_id: self.auto_push_remote_contact_id.clone(),
-            cumulative_usage: self.cumulative_usage.clone(),
-            active_goal: self.active_goal.clone(),
-            team: self.team.clone(),
-            questions: self.questions.clone(),
-            question_next_number: self.question_next_number,
-            issues: self.issues.clone(),
-            issue_next_number: self.issue_next_number,
-            loaded_mcp_tools: self.loaded_mcp_tools.clone(),
-            // 快速请求是过程日志，只在内存里保留最近若干条用于展示，不参与落盘。
-            // 历史数据留在旧文件里不会自动消失，但之后每次写盘都会把它清空。
-            fast_request_turns: Vec::new(),
-            last_message_id: self.last_message_id.clone(),
-            last_message_at: self.last_message_at.clone(),
-            last_error: self.last_error.clone(),
-            message_count: self.message_count,
-            body_message_count: self.body_message_count,
-            body_text_length: self.body_text_length,
-            has_assistant_reply: self.has_assistant_reply,
-            has_context_compaction_message: self.has_context_compaction_message,
-            latest_summary_title: self.latest_summary_title.clone(),
-            preview_messages: self.preview_messages.clone(),
-        }
+        meta
     }
 
     fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
-            short_id: self.short_id,
+            // 骨字段这里只给占位：真正的值由 ConversationStoredMeta 用 SQL 列覆盖。
+            short_id: None,
             id: self.id,
             title: self.title,
-            agent_id: self.agent_id,
+            agent_id: String::new(),
             bound_conversation_id: self.bound_conversation_id,
-            parent_conversation_id: self.parent_conversation_id,
+            parent_conversation_id: None,
             child_conversation_ids: self.child_conversation_ids,
             fork_message_cursor: self.fork_message_cursor,
             unread_count: self.unread_count,
-            conversation_kind: self.conversation_kind,
-            root_conversation_id: self.root_conversation_id,
-            delegate_id: self.delegate_id,
-            created_at: self.created_at,
+            conversation_kind: String::new(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: String::new(),
             updated_at: self.updated_at,
             last_user_at: self.last_user_at,
             last_assistant_at: self.last_assistant_at,
-            status: self.status,
+            status: String::new(),
             user_profile_snapshot: self.user_profile_snapshot,
             shell_workspace_path: self.shell_workspace_path,
             shell_workspaces: self.shell_workspaces,
@@ -1255,16 +1205,91 @@ impl ConversationShardMeta {
     }
 }
 
-fn write_conversation_shard_meta_atomic(
-    path: &PathBuf,
-    meta: &ConversationShardMeta,
-) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(meta).map_err(|err| {
+/// 旧 V2 明文格式：骨与肉合排在同一份 JSON 里。
+///
+/// 只有 V1→V2 播种与 V2→V3 导入这两条历史链路用它。SQLite 生产路径是
+/// 「骨进列、肉进 `metadata_json`」，与这里无关；这里合排只是为了不丢老数据。
+fn conversation_stored_meta_to_legacy_json(
+    meta: &ConversationStoredMeta,
+) -> Result<String, String> {
+    let mut value = serde_json::to_value(meta.payload()).map_err(|err| {
         format!(
             "序列化会话元数据失败，conversation_id={}，error={err}",
-            meta.id
+            meta.id()
         )
     })?;
+    let backbone = meta.backbone();
+    if let Some(object) = value.as_object_mut() {
+        if let Some(short_id) = backbone.short_id() {
+            object.insert("shortId".to_string(), serde_json::json!(short_id));
+        }
+        object.insert(
+            "createdAt".to_string(),
+            serde_json::json!(backbone.created_at()),
+        );
+        object.insert("status".to_string(), serde_json::json!(backbone.status()));
+        object.insert(
+            "conversationKind".to_string(),
+            serde_json::json!(backbone.conversation_kind()),
+        );
+        object.insert("agentId".to_string(), serde_json::json!(backbone.agent_id()));
+        object.insert(
+            "parentConversationId".to_string(),
+            serde_json::json!(backbone.parent_conversation_id()),
+        );
+        object.insert(
+            "rootConversationId".to_string(),
+            serde_json::json!(backbone.root_conversation_id()),
+        );
+        object.insert(
+            "delegateId".to_string(),
+            serde_json::json!(backbone.delegate_id()),
+        );
+    }
+    serde_json::to_string_pretty(&value).map_err(|err| {
+        format!(
+            "序列化会话元数据失败，conversation_id={}，error={err}",
+            meta.id()
+        )
+    })
+}
+
+/// 从旧 V2 明文里读回骨与肉。老版本写出的 JSON 带骨键，取不到就给安全默认值。
+pub(super) fn conversation_stored_meta_from_legacy_json(
+    raw: &str,
+) -> Result<ConversationStoredMeta, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|err| format!("解析会话元数据失败: {err}"))?;
+    let payload = conversation_shard_meta_from_stored_json(raw)
+        .map_err(|err| format!("解析会话元数据失败: {err}"))?;
+    let text = |key: &str| -> Option<String> {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .filter(|item| !item.trim().is_empty())
+    };
+    let backbone = ConversationBackbone {
+        conversation_id: payload.id.clone(),
+        short_id: value.get("shortId").and_then(serde_json::Value::as_u64),
+        created_at: text("createdAt").unwrap_or_default(),
+        updated_at: text("updatedAt").unwrap_or_else(|| payload.updated_at.clone()),
+        status: text("status").unwrap_or_else(|| "active".to_string()),
+        conversation_kind: text("conversationKind")
+            .unwrap_or_else(|| CONVERSATION_KIND_CHAT.to_string()),
+        agent_id: text("agentId").unwrap_or_default(),
+        parent_conversation_id: text("parentConversationId"),
+        root_conversation_id: text("rootConversationId"),
+        delegate_id: text("delegateId"),
+    };
+    Ok(ConversationStoredMeta::new(backbone, payload))
+}
+
+fn write_conversation_shard_meta_atomic(
+    path: &PathBuf,
+    meta: &ConversationStoredMeta,
+) -> Result<(), String> {
+    let raw = conversation_stored_meta_to_legacy_json(meta)?;
     write_message_store_text_atomic(path, "json.tmp", &raw, "会话元数据")
 }
 
@@ -1272,6 +1297,16 @@ fn read_conversation_shard_meta(path: &PathBuf) -> Result<ConversationShardMeta,
     let raw = fs::read_to_string(path)
         .map_err(|err| format!("读取会话元数据失败，path={}，error={err}", path.display()))?;
     conversation_shard_meta_from_stored_json(&raw)
+        .map_err(|err| format!("解析会话元数据失败，path={}，error={err}", path.display()))
+}
+
+/// 读旧 V2 明文 meta 的完整视图（骨 + 肉）。骨从 JSON 键里取，取不到给安全默认值。
+pub(super) fn read_conversation_stored_meta(
+    path: &PathBuf,
+) -> Result<ConversationStoredMeta, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|err| format!("读取会话元数据失败，path={}，error={err}", path.display()))?;
+    conversation_stored_meta_from_legacy_json(&raw)
         .map_err(|err| format!("解析会话元数据失败，path={}，error={err}", path.display()))
 }
 
@@ -1284,7 +1319,7 @@ mod message_store_meta_tests {
     fn missing_attachment_keys_should_read_as_empty() {
         let conversation = test_conversation();
         let meta = ConversationShardMeta::from_conversation(&conversation);
-        let mut value = serde_json::to_value(meta.to_persist_meta()).expect("serialize meta");
+        let mut value = serde_json::to_value(&meta).expect("serialize meta");
         let object = value.as_object_mut().expect("落盘元数据必须是 JSON 对象");
         for key in ["questions", "questionNextNumber", "issues", "issueNextNumber"] {
             assert!(
@@ -1410,12 +1445,15 @@ mod message_store_meta_tests {
         let conversation = test_conversation();
         let meta = ConversationShardMeta::from_conversation(&conversation);
         let restored = meta.clone().into_conversation(conversation.messages.clone());
-        let persist_meta = meta.to_persist_meta();
+        let round_tripped: ConversationShardMeta = serde_json::from_str(
+            &serde_json::to_string(&meta).expect("serialize meta"),
+        )
+        .expect("deserialize meta");
 
         assert_eq!(meta.id, conversation.id);
         assert_eq!(meta.title, conversation.title);
         assert_eq!(meta.current_todos, conversation.current_todos);
-        assert_eq!(persist_meta, ConversationPersistMeta::from_conversation(&conversation));
+        assert_eq!(round_tripped, meta, "metadata_json 往返必须逐字段一致");
         assert_eq!(restored.messages.len(), 2);
         assert_eq!(restored.id, conversation.id);
         assert_eq!(restored.child_conversation_ids, conversation.child_conversation_ids);
@@ -1431,23 +1469,55 @@ mod message_store_meta_tests {
             "快速请求不落盘，从落盘结构读回时不应带出记录"
         );
         assert!(
-            persist_meta.fast_request_turns.is_empty(),
+            meta.fast_request_turns.is_empty(),
             "快速请求不落盘，落盘结构里应为空"
         );
         assert_eq!(restored.last_error, conversation.last_error);
-        assert_eq!(persist_meta.last_error, conversation.last_error);
+        assert_eq!(meta.last_error, conversation.last_error);
         assert_eq!(meta.last_error(), Some("测试轮次失败"));
     }
 
+    /// 快速请求记录只活在内存：序列化时整键不出现，读回恒为空。
     #[test]
-    fn conversation_shell_recorded_branch_should_round_trip() {
-        let mut conversation = test_conversation();
+    fn fast_request_turns_should_never_reach_persisted_json() {
+        let conversation = test_conversation();
+        let mut meta = ConversationShardMeta::from_conversation(&conversation);
+        meta.push_fast_request_turn(FastRequestTurn {
+            id: "fast-request-mem".to_string(),
+            kind: "title_generation".to_string(),
+            request_text: "request".to_string(),
+            response_text: "response".to_string(),
+            success: true,
+            error: None,
+            model_name: Some("quick-model".to_string()),
+            duration_ms: Some(8),
+            created_at: "2026-04-24T00:00:30Z".to_string(),
+        });
+
+        let raw = serde_json::to_string(&meta).expect("serialize meta");
+        let value: serde_json::Value = serde_json::from_str(&raw).expect("parse meta json");
+        assert!(
+            value.get("fastRequestTurns").is_none(),
+            "快速请求不落盘，JSON 里不该出现 fastRequestTurns：{raw}"
+        );
+        assert!(
+            !meta.fast_request_turns().is_empty(),
+            "内存里仍要保留这份过程记录"
+        );
+
+        let restored: ConversationShardMeta = serde_json::from_str(&raw).expect("deserialize meta");
+        assert!(
+            restored.fast_request_turns().is_empty(),
+            "读回时快速请求必须为空"
+        );
+    }
+
+    #[test]
+    fn conversation_shell_recorded_branch_should_round_trip() {        let mut conversation = test_conversation();
         conversation.shell_recorded_branch = "feature/branch-guard".to_string();
 
         let meta = ConversationShardMeta::from_conversation(&conversation);
-        let persist_meta = meta.to_persist_meta();
         assert_eq!(meta.shell_recorded_branch(), "feature/branch-guard");
-        assert_eq!(persist_meta.shell_recorded_branch, "feature/branch-guard");
 
         let restored = meta.into_conversation(conversation.messages.clone());
         assert_eq!(restored.shell_recorded_branch, "feature/branch-guard");
@@ -1489,14 +1559,14 @@ mod message_store_meta_tests {
         ));
         let meta_path = root.join("chat").join("conversations").join("conversation-meta").join("meta.json");
         let conversation = test_conversation();
-        let meta = ConversationShardMeta::from_conversation(&conversation);
+        let meta = ConversationStoredMeta::from_conversation(&conversation);
 
         write_conversation_shard_meta_atomic(&meta_path, &meta).expect("write meta");
         let raw = fs::read_to_string(&meta_path).expect("read raw meta");
         let loaded = read_conversation_shard_meta(&meta_path).expect("read meta");
 
         assert!(!raw.contains("\"messages\""));
-        assert_eq!(loaded, meta);
+        assert_eq!(loaded, meta.payload().clone());
         let _ = fs::remove_dir_all(root);
     }
 
