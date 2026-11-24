@@ -790,6 +790,12 @@ struct ConversationRuntimeSlot {
     /// 有值即表示这一轮已由停止方收走，旧协程退出时据此短路，不二次写库、不重发终态。
     /// 新一轮开始时清空；落盘失败也清空，让兜底落盘照旧生效。
     stop_persisted_at_ms: Option<u64>,
+    /// 会话打断截止时间（纯内存态，不落盘）：打断时用后端 `now_unix_ms()` 更新。
+    ///
+    /// 调度链路里凡是产生时间不晚于它的批次与轮次，一律在门前拦下——
+    /// 前端乐观打断拿不到任何调度身份时，「这一时刻之前就存在的活」靠它来认定。
+    /// 新轮次越过门卫、确权后复位为 `None`。
+    interrupt_cutoff_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -859,6 +865,7 @@ impl Default for ConversationRuntimeSlot {
             last_activity_at: String::new(),
             round_owner: String::new(),
             stop_persisted_at_ms: None,
+            interrupt_cutoff_ms: None,
         }
     }
 }

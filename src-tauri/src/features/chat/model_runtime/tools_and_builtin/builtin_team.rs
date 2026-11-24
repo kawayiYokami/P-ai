@@ -642,6 +642,7 @@ fn team_enqueue_message(
         id: format!("team-message-{}", Uuid::new_v4()),
         conversation_id: target_conversation_id.to_string(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::Team,
         queue_mode,
         messages: vec![message],

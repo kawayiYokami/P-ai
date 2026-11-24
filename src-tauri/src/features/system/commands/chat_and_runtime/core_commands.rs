@@ -380,6 +380,7 @@ async fn confirm_plan_and_continue_inner(
         id: continue_event_id,
         conversation_id: conversation_id.to_string(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::System,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![plan_continue_confirmation_message(&resolved_plan_path.display_path)],
@@ -1500,6 +1501,7 @@ async fn submit_chat_message_inner(
         id: event_id.clone(),
         conversation_id: conversation_id.clone(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::User,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![user_message],
@@ -1755,6 +1757,7 @@ async fn send_chat_message(
         id: event_id.clone(),
         conversation_id: conversation_id.clone(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::User,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![user_message],
@@ -1961,6 +1964,7 @@ async fn send_user_mention_message_inner(
         id: event_id.clone(),
         conversation_id: conversation_id.clone(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::User,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![user_message],
@@ -2244,6 +2248,24 @@ async fn stop_chat_message_inner(
             .trim()
             .to_string(),
     };
+    let stop_identity_is_empty = stop_identity.request_id.is_empty()
+        && stop_identity.activation_id.is_empty()
+        && stop_identity.assistant_message_id.is_empty();
+
+    // 打断立刻在会话上立下截止时间（单一时基：后端 `now_unix_ms()`）。
+    //
+    // 这条水位不依赖任何调度身份：前端乐观打断时可能一个 id 都拿不到，但只要它指定了
+    // 会话，这一刻之前就存在的批次与轮次就全部作废——门栅在出队与激活前各拦一次。
+    if let Some(conversation_id) = requested_conversation_id.as_deref() {
+        if let Err(err) =
+            mark_conversation_interrupt_cutoff(state, conversation_id, now_unix_ms())
+        {
+            runtime_log_warn(format!(
+                "[聊天] 打断截止时间写入失败 会话={} 错误={}",
+                conversation_id, err
+            ));
+        }
+    }
 
     // 收集所有与当前会话关联的 Inflight chat 句柄 key
     let matching_keys = {
@@ -2289,7 +2311,14 @@ async fn stop_chat_message_inner(
     }
     let mut aborted_chat = false;
     for k in &stop_keys {
-        if request_stop_inflight_chat(state, k, &stop_identity)? {
+        // 没带任何身份（前端乐观打断）时不能按身份找对象：只中止「这个会话上正在跑的
+        // 句柄」，也不去写提交期取消标记——那需要请求号，没有就是没有。
+        let hit = if stop_identity_is_empty {
+            abort_running_inflight_chat(state, k)?
+        } else {
+            request_stop_inflight_chat(state, k, &stop_identity)?
+        };
+        if hit {
             aborted_chat = true;
         }
     }

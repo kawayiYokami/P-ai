@@ -689,6 +689,7 @@ fn create_pending_event(
         id: event_id,
         conversation_id,
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::RemoteIm,
         queue_mode,
         messages,

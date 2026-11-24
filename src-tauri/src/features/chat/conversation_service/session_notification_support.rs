@@ -407,6 +407,7 @@ async fn process_session_notification_dispatch_request(
         id: format!("session-notification-{}", Uuid::new_v4()),
         conversation_id: target_conversation_id.clone(),
         created_at: now_iso(),
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::System,
         queue_mode: ChatQueueMode::Guided,
         messages: vec![request.message.clone()],

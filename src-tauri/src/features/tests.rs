@@ -352,6 +352,181 @@
         );
     }
 
+    /// 前端乐观打断一个 id 都拿不到时，停止仍必须立下截止时间、掐断在跑的轮次并认领这一轮。
+    ///
+    /// 这是「不再靠调度身份判生死」的那条路：身份全空时，正确性由截止时间 + 会话所有权承担。
+    #[test]
+    fn stop_chat_message_without_identity_should_set_cutoff_and_abort_running_round() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let conversation_id = "conversation-stop-no-identity";
+            let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
+            state
+                .inflight_chat_abort_handles
+                .lock()
+                .expect("lock inflight chat abort handles")
+                .insert(
+                    chat_key.clone(),
+                    InflightChatAbortEntry::Running {
+                        handle: new_inflight_abort_handle(),
+                        request_id: "req-running".to_string(),
+                        assistant_message_id: "assistant-running".to_string(),
+                        retired_identities: Vec::new(),
+                    },
+                );
+            {
+                let mut slots =
+                    lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+                let slot = slots.entry(conversation_id.to_string()).or_default();
+                slot.state = MainSessionState::AssistantStreaming;
+                slot.round_owner = "owner-running".to_string();
+                slot.stream_cache.activation_id = "req-running".to_string();
+                slot.stream_cache.request_id = "req-running".to_string();
+                slot.stream_cache.persisted_assistant_message_id = "assistant-running".to_string();
+            }
+
+            let before = now_unix_ms();
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+                request_id: None,
+                activation_id: None,
+                assistant_message_id: None,
+            };
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("无身份的停止不应失败");
+
+            assert!(result.aborted, "无身份的停止也必须掐断在跑的轮次");
+            assert!(
+                !inflight_has_running(&state, &chat_key),
+                "在跑句柄必须被摘掉"
+            );
+            let cutoff = conversation_interrupt_cutoff_ms(&state, conversation_id)
+                .expect("read cutoff")
+                .expect("无身份的停止也必须立下截止时间");
+            assert!(
+                cutoff >= before,
+                "截止时间必须由后端 now_unix_ms() 立下，实测 {cutoff} < {before}"
+            );
+            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.get(conversation_id).expect("slot");
+            assert!(
+                slot.round_owner.is_empty(),
+                "无身份时以所有权为准认领，认领后必须交还所有权"
+            );
+            assert!(
+                slot.stop_persisted_at_ms.is_some(),
+                "认领后必须留下打断落盘凭据"
+            );
+        });
+    }
+
+    /// 被打断那一刻之前就在等的轮次，在激活门前就该被判死：不写空助理消息、不切流式。
+    #[test]
+    fn activate_main_assistant_should_block_round_older_than_interrupt_cutoff() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let now = now_iso();
+            let conversation = test_chat_conversation("conversation-cutoff-block", "active", &now);
+            state_schedule_conversation_persist(&state, &conversation)
+                .expect("persist conversation");
+
+            let cutoff = now_unix_ms();
+            mark_conversation_interrupt_cutoff(&state, &conversation.id, cutoff)
+                .expect("mark cutoff");
+
+            let err = activate_main_assistant(
+                &state,
+                &ChatSessionInfo {
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                },
+                &conversation.id,
+                None,
+                None,
+                None,
+                None,
+                Vec::new(),
+                "",
+                cutoff - 1,
+            )
+            .await
+            .expect_err("旧于截止时间的轮次必须被门前拦下");
+            assert_eq!(err, CHAT_ABORTED_BY_USER_ERROR, "拦截要走用户中止这条既有收尾");
+
+            let messages = conversation_service_v2()
+                .get_conversation_recent_messages(&state, &conversation.id, 5)
+                .expect("read recent messages");
+            assert!(
+                messages.is_empty(),
+                "门前拦截不得写入任何消息（含空助理消息），实测 {messages:?}"
+            );
+            assert_eq!(
+                get_conversation_runtime_state(&state, &conversation.id).expect("read state"),
+                MainSessionState::Idle,
+                "门前拦截不得把会话切成流式"
+            );
+            let cache_activation_id = lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .get(&conversation.id)
+                .map(|slot| slot.stream_cache.activation_id.clone())
+                .unwrap_or_default();
+            assert!(
+                cache_activation_id.is_empty(),
+                "门前拦截不得建立流式缓存，实测 {cache_activation_id}"
+            );
+        });
+    }
+
+    /// 截止时间之后产生的轮次必须放行；同一毫秒算旧；没有截止时间或事件没带时间时不拦。
+    /// 新轮次越过门卫、确权后截止时间作废。
+    #[test]
+    fn interrupt_cutoff_should_let_newer_round_through_and_clear_on_new_round() {
+        let cutoff = 1_700_000_000_000u64;
+        assert!(
+            round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff - 1),
+            "更早的轮次必须拦"
+        );
+        assert!(
+            round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff),
+            "同一毫秒也算旧，区间是闭的"
+        );
+        assert!(
+            !round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff + 1),
+            "晚于截止时间的新轮次必须放行"
+        );
+        assert!(
+            !round_blocked_by_interrupt_cutoff(None, cutoff),
+            "没有截止时间时不拦"
+        );
+        assert!(
+            !round_blocked_by_interrupt_cutoff(Some(cutoff), 0),
+            "事件没带时间（旧数据缺字段）时不拦"
+        );
+
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-cutoff-reset";
+        mark_conversation_interrupt_cutoff(&state, conversation_id, cutoff).expect("mark cutoff");
+        assert_eq!(
+            conversation_interrupt_cutoff_ms(&state, conversation_id)
+                .expect("read cutoff")
+                .expect("cutoff present"),
+            cutoff
+        );
+        // 新轮次越过门卫、建立所有权后，这条水位作废。
+        begin_conversation_round_owner(&state, conversation_id).expect("begin round");
+        assert_eq!(
+            conversation_interrupt_cutoff_ms(&state, conversation_id).expect("read cutoff"),
+            None,
+            "新轮次确权后截止时间必须复位"
+        );
+    }
+
     /// 构造一次停止请求要终止的调度身份。
     fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
         StopDispatchIdentity {

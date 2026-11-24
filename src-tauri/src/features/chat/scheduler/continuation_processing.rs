@@ -115,6 +115,7 @@ fn maybe_enqueue_goal_continue_after_idle(
         id: event_id,
         conversation_id: conversation_id.to_string(),
         created_at: now,
+        created_at_ms: now_unix_ms(),
         source: ChatEventSource::System,
         queue_mode: ChatQueueMode::Normal,
         messages: vec![message],

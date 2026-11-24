@@ -942,6 +942,9 @@ fn clear_conversation_stream_runtime_cache(
 // 是自己的，于是既不会二次写库，也不会把用户紧接着发起的新一轮当成自己的收尾对象。
 
 /// 开启一轮：把会话槽的所有权换成新令牌，返回给收尾环节认领。
+///
+/// 新轮次走到这里说明它已经越过打断门卫（产生时间晚于会话截止时间），
+/// 截止时间随之作废：这条水位的使命只到「拦住被打断那一刻之前的活」为止。
 fn begin_conversation_round_owner(
     state: &AppState,
     conversation_id: &str,
@@ -950,7 +953,45 @@ fn begin_conversation_round_owner(
     let mut slots = lock_conversation_runtime_slots(state)?;
     let slot = conversation_slot_mut(&mut slots, conversation_id);
     slot.round_owner = owner.clone();
+    slot.interrupt_cutoff_ms = None;
     Ok(owner)
+}
+
+/// 会话当前的打断截止时间（纯内存态）。
+fn conversation_interrupt_cutoff_ms(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<u64>, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .and_then(|slot| slot.interrupt_cutoff_ms))
+}
+
+/// 这一轮的产生时间是否已被会话截止时间判为作废。
+///
+/// 区间是闭的：与截止时间同一毫秒也算旧——截止时间取的是打断那一刻的后端时间，
+/// 同一毫秒内产生的轮次不可能晚于这次打断。
+/// `round_created_at_ms == 0` 表示事件没带时间（旧数据缺字段），不拦，绝不凭空判死。
+fn round_blocked_by_interrupt_cutoff(cutoff_ms: Option<u64>, round_created_at_ms: u64) -> bool {
+    match cutoff_ms {
+        Some(cutoff) => round_created_at_ms > 0 && round_created_at_ms <= cutoff,
+        None => false,
+    }
+}
+
+/// 打断时在会话槽上立下截止时间。
+///
+/// 单一时基：调用方传后端 `now_unix_ms()`，不接受前端时间。
+fn mark_conversation_interrupt_cutoff(
+    state: &AppState,
+    conversation_id: &str,
+    cutoff_ms: u64,
+) -> Result<(), String> {
+    let mut slots = lock_conversation_runtime_slots(state)?;
+    let slot = conversation_slot_mut(&mut slots, conversation_id);
+    slot.interrupt_cutoff_ms = Some(cutoff_ms);
+    Ok(())
 }
 
 /// 收尾：只有会话仍属于这一轮令牌时，才置 Idle、清流式缓存、交还所有权。
@@ -999,10 +1040,11 @@ fn finish_conversation_round(
 /// 一次加锁内做两件事：清空这一轮的所有权、写下打断落盘凭据。认领之后旧协程再也
 /// 认不出这一轮是自己的，随它退到哪、退多久；容器内容由调用方按现成快照读取落盘。
 ///
-/// 认领成立要求两件事**同时**为真：槽上确实压着一轮在跑（所有权在），且这次停止带的
-/// 身份就是它。缺一条都不许动容器：
-/// - 所有权在、身份对不上：要停的是别的调度，认领就是误夺别人的轮次；
-/// - 所有权不在（这一轮已收完）、只是残留缓存身份恰好命中：认领就是把旧内容当新的再写一遍。
+/// 认领要求「槽上确实压着一轮在跑」，另外：
+/// - 停止带了身份，就必须身份对得上——否则要停的是别的调度，认领就是误夺别人的轮次；
+/// - 停止没带任何身份（前端乐观打断，一个 id 都拿不到），只能以所有权为准：
+///   槽上这一轮就是这次要停的活，正确性由此刻已立下的会话截止时间兜底。
+/// 所有权不在时一律不认领：那是这一轮早就收完了，残留缓存身份命中也不许再写一遍。
 fn claim_conversation_round_for_interrupt(
     state: &AppState,
     conversation_id: &str,
@@ -1018,6 +1060,9 @@ fn claim_conversation_round_for_interrupt(
     };
     let cache = &slot.stream_cache;
     let owns_round = !slot.round_owner.trim().is_empty();
+    let identity_is_empty = identity.request_id.trim().is_empty()
+        && identity.activation_id.trim().is_empty()
+        && identity.assistant_message_id.trim().is_empty();
     let identity_matches = identity.matches_running(
         cache.request_id.as_str(),
         cache.persisted_assistant_message_id.as_str(),
@@ -1025,7 +1070,7 @@ fn claim_conversation_round_for_interrupt(
         cache.activation_id.as_str(),
         cache.persisted_assistant_message_id.as_str(),
     );
-    if !owns_round || !identity_matches {
+    if !owns_round || (!identity_is_empty && !identity_matches) {
         return Ok(false);
     }
     // 所有权当场交还：旧协程的收尾从这里开始就认不上号了。
