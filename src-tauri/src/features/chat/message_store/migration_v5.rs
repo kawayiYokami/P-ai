@@ -109,7 +109,8 @@ fn migration_v5_extract_backbone(conn: &rusqlite::Connection) -> Result<usize, S
                 });
                 conn.execute(
                     "UPDATE conversation_metadata
-                        SET short_id=?1, created_at=?2, status=?3, conversation_kind=?4,
+                        SET short_id=CASE WHEN short_id IS NULL THEN ?1 ELSE short_id END,
+                            created_at=?2, status=?3, conversation_kind=?4,
                             agent_id=?5, parent_conversation_id=?6,
                             root_conversation_id=?7, delegate_id=?8, metadata_json=?9
                       WHERE conversation_id=?10",
@@ -414,6 +415,49 @@ mod migration_v5_tests {
         let value: serde_json::Value = serde_json::from_str(&slim_first).expect("parse slim json");
         assert_eq!(value["title"], "标题", "标题留在 JSON，两次迁移后原样不动");
         assert_eq!(user_version(&conn), CHAT_METADATA_V5_USER_VERSION);
+    }
+
+    /// P0 回归：列里已经写好短号、JSON 里没有 `shortId` 时，迁移不得把列抹成 NULL。
+    #[test]
+    fn migration_v5_should_keep_existing_short_id_column() {
+        let (_root, mut conn) = migration_v5_test_db("keep-short-id");
+        conn.execute_batch("ALTER TABLE conversation_metadata ADD COLUMN short_id INTEGER;")
+            .expect("add short_id column");
+        let legacy = serde_json::json!({
+            "id": "conv-keep",
+            "title": "列里已有号",
+            "status": "active",
+            "createdAt": "2024-02-03T04:05:06Z"
+        });
+        insert_legacy(&conn, "conv-keep", &legacy);
+        conn.execute(
+            "UPDATE conversation_metadata SET short_id=7 WHERE conversation_id='conv-keep'",
+            [],
+        )
+        .expect("seed short_id column");
+
+        assert!(migrate_chat_metadata_v5(&mut conn).expect("migrate v5"));
+
+        let short_id: Option<i64> = conn
+            .query_row(
+                "SELECT short_id FROM conversation_metadata WHERE conversation_id='conv-keep'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read short_id column");
+        assert_eq!(
+            short_id,
+            Some(7),
+            "列里已有的短号是权威，JSON 缺号也不许覆写成 NULL"
+        );
+        let created_at: String = conn
+            .query_row(
+                "SELECT created_at FROM conversation_metadata WHERE conversation_id='conv-keep'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read created_at column");
+        assert_eq!(created_at, "2024-02-03T04:05:06Z");
     }
 
     /// 老库已经有部分底座列时不报错，缺的补上，多余的不动。

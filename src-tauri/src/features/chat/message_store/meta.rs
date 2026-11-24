@@ -231,10 +231,10 @@ impl ConversationStoredMeta {
         self.backbone.delegate_id()
     }
 
-    /// 先铺骨、再铺肉。骨的字段载荷里已经没有，不会互相覆盖。
+    /// 先铺肉、再铺骨：骨是列权威，任何残留的肉字段都不许盖掉它。
     pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
-        self.backbone.apply_to_conversation(target);
         self.payload.apply_to_conversation(target);
+        self.backbone.apply_to_conversation(target);
     }
 
     pub(super) fn apply_questions_to_conversation(&self, target: &mut Conversation) {
@@ -246,100 +246,6 @@ impl ConversationStoredMeta {
         let mut conversation = payload.into_conversation(messages);
         backbone.apply_to_conversation(&mut conversation);
         conversation
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ConversationPersistMeta {
-    meta_schema_version: u32,
-    id: String,
-    /// 标题留在 JSON 里：高频变动、多种形态（重命名 / 摘要标题 / 草稿），不进 SQL 列。
-    title: String,
-    bound_conversation_id: Option<String>,
-    child_conversation_ids: Vec<String>,
-    fork_message_cursor: Option<String>,
-    unread_count: usize,
-    updated_at: String,
-    last_user_at: Option<String>,
-    last_assistant_at: Option<String>,
-    user_profile_snapshot: String,
-    shell_workspace_path: Option<String>,
-    shell_workspaces: Vec<ShellWorkspaceConfig>,
-    shell_autonomous_mode: bool,
-    #[serde(default = "default_shell_work_mode")]
-    shell_work_mode: String,
-    #[serde(default)]
-    shell_work_branch: String,
-    #[serde(default)]
-    shell_worktree_path: String,
-    #[serde(default)]
-    shell_recorded_branch: String,
-    archived_at: Option<String>,
-    current_todos: Vec<ConversationTodoItem>,
-    memory_recall_table: Vec<String>,
-    preferred_api_config_id: Option<String>,
-    #[serde(default)]
-    is_draft: bool,
-    auto_push_remote_contact_id: Option<String>,
-    cumulative_usage: ConversationCumulativeUsage,
-    #[serde(default)]
-    active_goal: Option<ConversationGoalState>,
-    #[serde(default)]
-    team: TeamState,
-    questions: Vec<ConversationQuestionEntry>,
-    question_next_number: u32,
-    issues: Vec<KanbanIssueEntry>,
-    issue_next_number: u32,
-    #[serde(default)]
-    loaded_mcp_tools: Vec<String>,
-    fast_request_turns: Vec<FastRequestTurn>,
-    last_message_id: Option<String>,
-    last_message_at: Option<String>,
-    #[serde(default)]
-    last_error: Option<String>,
-    message_count: usize,
-    body_message_count: usize,
-    body_text_length: usize,
-    has_assistant_reply: bool,
-    has_context_compaction_message: bool,
-    latest_summary_title: Option<String>,
-    preview_messages: Vec<ConversationShardPreviewMessage>,
-}
-
-impl ConversationPersistMeta {
-    pub(super) fn from_conversation(conversation: &Conversation) -> Self {
-        ConversationShardMeta::from_conversation(conversation).to_persist_meta()
-    }
-
-    /// 基于 metadata 快照写局部 splice 时，不能用空 `Conversation.messages`
-    /// 重算消息派生字段；只按实际替换的消息更新这些字段。
-    pub(super) fn from_conversation_with_spliced_messages(
-        conversation: &Conversation,
-        source: &ConversationShardMeta,
-        removed_messages: &[ChatMessage],
-        inserted_messages: &[ChatMessage],
-    ) -> Self {
-        ConversationShardMeta::from_conversation_with_spliced_messages(
-            conversation,
-            source,
-            removed_messages,
-            inserted_messages,
-        )
-        .to_persist_meta()
-    }
-
-    fn conversation_id(&self) -> &str {
-        self.id.as_str()
-    }
-
-    fn apply_to_conversation(&self, target: &mut Conversation) -> Result<(), String> {
-        let raw = serde_json::to_value(self)
-            .map_err(|err| format!("序列化会话持久化 metadata 失败: {err}"))?;
-        let meta = serde_json::from_value::<ConversationShardMeta>(raw)
-            .map_err(|err| format!("解析会话持久化 metadata 失败: {err}"))?;
-        meta.apply_to_conversation(target);
-        Ok(())
     }
 }
 
@@ -713,7 +619,7 @@ impl ConversationShardMeta {
 
     pub(super) fn push_fast_request_turn(&mut self, turn: FastRequestTurn) {
         self.fast_request_turns.push(turn);
-        // 快速请求只在内存里留最近若干条：落盘前该字段会被清空（见 `to_persist_meta`），
+        // 快速请求只在内存里留最近若干条：落盘时该字段恒为空（见 `ConversationShardMeta::from_conversation`），
         // 这里顺手裁掉更早的，避免活着的会话在内存里无限增长。
         let overflow = self
             .fast_request_turns
@@ -1248,109 +1154,6 @@ impl ConversationShardMeta {
         meta
     }
 
-    fn from_persist_meta(meta: &ConversationPersistMeta) -> Self {
-        Self {
-            meta_schema_version: if meta.meta_schema_version == 0 {
-                CONVERSATION_META_SCHEMA_VERSION
-            } else {
-                meta.meta_schema_version
-            },
-            id: meta.id.clone(),
-            title: meta.title.clone(),
-            bound_conversation_id: meta.bound_conversation_id.clone(),
-            child_conversation_ids: meta.child_conversation_ids.clone(),
-            fork_message_cursor: meta.fork_message_cursor.clone(),
-            unread_count: meta.unread_count,
-            updated_at: meta.updated_at.clone(),
-            last_user_at: meta.last_user_at.clone(),
-            last_assistant_at: meta.last_assistant_at.clone(),
-            user_profile_snapshot: meta.user_profile_snapshot.clone(),
-            shell_workspace_path: meta.shell_workspace_path.clone(),
-            shell_workspaces: meta.shell_workspaces.clone(),
-            shell_autonomous_mode: meta.shell_autonomous_mode,
-            shell_work_mode: normalize_shell_work_mode_text(&meta.shell_work_mode),
-            shell_work_branch: meta.shell_work_branch.clone(),
-            shell_worktree_path: meta.shell_worktree_path.clone(),
-            shell_recorded_branch: meta.shell_recorded_branch.clone(),
-            archived_at: meta.archived_at.clone(),
-            current_todos: meta.current_todos.clone(),
-            memory_recall_table: meta.memory_recall_table.clone(),
-            preferred_api_config_id: meta.preferred_api_config_id.clone(),
-            is_draft: meta.is_draft,
-            auto_push_remote_contact_id: meta.auto_push_remote_contact_id.clone(),
-            cumulative_usage: meta.cumulative_usage.clone(),
-            active_goal: meta.active_goal.clone(),
-            team: meta.team.clone(),
-            questions: meta.questions.clone(),
-            question_next_number: meta.question_next_number,
-            issues: meta.issues.clone(),
-            issue_next_number: meta.issue_next_number,
-            loaded_mcp_tools: meta.loaded_mcp_tools.clone(),
-            // 快速请求只在内存里存活，落盘结构里恒为空。
-            fast_request_turns: Vec::new(),
-            last_message_id: meta.last_message_id.clone(),
-            last_message_at: meta.last_message_at.clone(),
-            last_error: meta.last_error.clone(),
-            message_count: meta.message_count,
-            body_message_count: meta.body_message_count,
-            body_text_length: meta.body_text_length,
-            has_assistant_reply: meta.has_assistant_reply,
-            has_context_compaction_message: meta.has_context_compaction_message,
-            latest_summary_title: meta.latest_summary_title.clone(),
-            preview_messages: meta.preview_messages.clone(),
-        }
-    }
-
-    pub(super) fn to_persist_meta(&self) -> ConversationPersistMeta {
-        ConversationPersistMeta {
-            meta_schema_version: self.meta_schema_version,
-            id: self.id.clone(),
-            title: self.title.clone(),
-            bound_conversation_id: self.bound_conversation_id.clone(),
-            child_conversation_ids: self.child_conversation_ids.clone(),
-            fork_message_cursor: self.fork_message_cursor.clone(),
-            unread_count: self.unread_count,
-            updated_at: self.updated_at.clone(),
-            last_user_at: self.last_user_at.clone(),
-            last_assistant_at: self.last_assistant_at.clone(),
-            user_profile_snapshot: self.user_profile_snapshot.clone(),
-            shell_workspace_path: self.shell_workspace_path.clone(),
-            shell_workspaces: self.shell_workspaces.clone(),
-            shell_autonomous_mode: self.shell_autonomous_mode,
-            shell_work_mode: normalize_shell_work_mode_text(&self.shell_work_mode),
-            shell_work_branch: self.shell_work_branch.clone(),
-            shell_worktree_path: self.shell_worktree_path.clone(),
-            shell_recorded_branch: self.shell_recorded_branch.clone(),
-            archived_at: self.archived_at.clone(),
-            current_todos: self.current_todos.clone(),
-            memory_recall_table: self.memory_recall_table.clone(),
-            preferred_api_config_id: self.preferred_api_config_id.clone(),
-            is_draft: self.is_draft,
-            auto_push_remote_contact_id: self.auto_push_remote_contact_id.clone(),
-            cumulative_usage: self.cumulative_usage.clone(),
-            active_goal: self.active_goal.clone(),
-            team: self.team.clone(),
-            questions: self.questions.clone(),
-            question_next_number: self.question_next_number,
-            issues: self.issues.clone(),
-            issue_next_number: self.issue_next_number,
-            loaded_mcp_tools: self.loaded_mcp_tools.clone(),
-            // 快速请求是过程日志，只在内存里保留最近若干条用于展示，不参与落盘。
-            // 历史数据留在旧文件里不会自动消失，但之后每次写盘都会把它清空。
-            fast_request_turns: Vec::new(),
-            last_message_id: self.last_message_id.clone(),
-            last_message_at: self.last_message_at.clone(),
-            last_error: self.last_error.clone(),
-            message_count: self.message_count,
-            body_message_count: self.body_message_count,
-            body_text_length: self.body_text_length,
-            has_assistant_reply: self.has_assistant_reply,
-            has_context_compaction_message: self.has_context_compaction_message,
-            latest_summary_title: self.latest_summary_title.clone(),
-            preview_messages: self.preview_messages.clone(),
-        }
-    }
-
     fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
         Conversation {
             // 骨字段这里只给占位：真正的值由 ConversationStoredMeta 用 SQL 列覆盖。
@@ -1515,7 +1318,7 @@ mod message_store_meta_tests {
     fn missing_attachment_keys_should_read_as_empty() {
         let conversation = test_conversation();
         let meta = ConversationShardMeta::from_conversation(&conversation);
-        let mut value = serde_json::to_value(meta.to_persist_meta()).expect("serialize meta");
+        let mut value = serde_json::to_value(&meta).expect("serialize meta");
         let object = value.as_object_mut().expect("落盘元数据必须是 JSON 对象");
         for key in ["questions", "questionNextNumber", "issues", "issueNextNumber"] {
             assert!(
@@ -1641,12 +1444,15 @@ mod message_store_meta_tests {
         let conversation = test_conversation();
         let meta = ConversationShardMeta::from_conversation(&conversation);
         let restored = meta.clone().into_conversation(conversation.messages.clone());
-        let persist_meta = meta.to_persist_meta();
+        let round_tripped: ConversationShardMeta = serde_json::from_str(
+            &serde_json::to_string(&meta).expect("serialize meta"),
+        )
+        .expect("deserialize meta");
 
         assert_eq!(meta.id, conversation.id);
         assert_eq!(meta.title, conversation.title);
         assert_eq!(meta.current_todos, conversation.current_todos);
-        assert_eq!(persist_meta, ConversationPersistMeta::from_conversation(&conversation));
+        assert_eq!(round_tripped, meta, "metadata_json 往返必须逐字段一致");
         assert_eq!(restored.messages.len(), 2);
         assert_eq!(restored.id, conversation.id);
         assert_eq!(restored.child_conversation_ids, conversation.child_conversation_ids);
@@ -1662,11 +1468,11 @@ mod message_store_meta_tests {
             "快速请求不落盘，从落盘结构读回时不应带出记录"
         );
         assert!(
-            persist_meta.fast_request_turns.is_empty(),
+            meta.fast_request_turns.is_empty(),
             "快速请求不落盘，落盘结构里应为空"
         );
         assert_eq!(restored.last_error, conversation.last_error);
-        assert_eq!(persist_meta.last_error, conversation.last_error);
+        assert_eq!(meta.last_error, conversation.last_error);
         assert_eq!(meta.last_error(), Some("测试轮次失败"));
     }
 
@@ -1676,9 +1482,7 @@ mod message_store_meta_tests {
         conversation.shell_recorded_branch = "feature/branch-guard".to_string();
 
         let meta = ConversationShardMeta::from_conversation(&conversation);
-        let persist_meta = meta.to_persist_meta();
         assert_eq!(meta.shell_recorded_branch(), "feature/branch-guard");
-        assert_eq!(persist_meta.shell_recorded_branch, "feature/branch-guard");
 
         let restored = meta.into_conversation(conversation.messages.clone());
         assert_eq!(restored.shell_recorded_branch, "feature/branch-guard");

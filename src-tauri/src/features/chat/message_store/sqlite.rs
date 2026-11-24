@@ -209,6 +209,9 @@ pub(crate) fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::
     }
     // 会话短 ID 列：新库在建表语句里就有；老库与 v3 迁移库在这里补上，并建部分唯一索引。
     chat_metadata_ensure_short_id_column(&conn)?;
+    // 骨列与底座索引随时可用：即便 V5 迁移失败被吞成 warn，读路径也不能撞上 no such column。
+    chat_metadata_ensure_backbone_columns(&conn)?;
+    chat_metadata_ensure_backbone_indexes(&conn)?;
     // V5：把骨字段从 metadata_json 搬进 SQL 列。迁移不允许失败，失败只记 warn，不阻断打开。
     if let Err(err) = migrate_chat_metadata_v5(&mut conn) {
         runtime_log_warn(format!(
