@@ -885,6 +885,7 @@ mod branch_todos_tests {
     fn branch_conversation_should_copy_todos() {
         let source_meta = ConversationMetaView {
             id: "conversation-branch-source".to_string(),
+            short_id: None,
             title: "源会话".to_string(),
             latest_summary_title: None,
             status: "active".to_string(),

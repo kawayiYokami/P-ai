@@ -39,6 +39,8 @@ struct ForwardSelectionToRemoteImContactMutationResult {
 #[serde(rename_all = "camelCase")]
 struct ToolSessionTargetSummary {
     session_id: String,
+    /// 会话数字短 ID：模型与脚本用它代替长 UUID 定位会话；历史缺号时为 None。
+    short_id: Option<u64>,
     kind: String,
     title: String,
     persona_name: Option<String>,

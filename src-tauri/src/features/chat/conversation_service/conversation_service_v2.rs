@@ -88,6 +88,9 @@ struct ConversationOverwriteAudit {
 #[serde(rename_all = "camelCase")]
 struct ConversationMetaView {
     id: String,
+    /// 会话数字短 ID：只在 `conversation_metadata.short_id` 列里，随元数据视图带出供工具层寻址。
+    #[serde(default)]
+    short_id: Option<u64>,
     title: String,
     latest_summary_title: Option<String>,
     status: String,
@@ -290,6 +293,7 @@ impl ConversationMetaView {
         let last_message_id = meta.last_message_id().map(ToOwned::to_owned);
         Self {
             id: meta.id().to_string(),
+            short_id: meta.short_id(),
             title: meta.title().to_string(),
             latest_summary_title: meta.latest_summary_title().map(ToOwned::to_owned),
             status: meta.status().to_string(),

@@ -7903,6 +7903,117 @@
         }
     }
 
+    /// 工具链短号出口：目标列表与 get_session 回执都要带出 shortId，且号能反向解析回同一会话。
+    #[test]
+    fn tool_session_targets_and_get_session_should_expose_short_id() {
+        let (state, _source_id, local_target_id, remote_target_id) = seed_session_forward_test_state();
+        run_global_short_id_bootstrap(&state).expect("bootstrap short ids");
+
+        let items = conversation_service_v2()
+            .list_tool_session_targets(&state, None)
+            .expect("list session targets");
+        let local_item = items
+            .iter()
+            .find(|item| item.session_id == local_target_id)
+            .expect("本地目标在列表里");
+        let remote_item = items
+            .iter()
+            .find(|item| item.session_id == remote_target_id)
+            .expect("远程目标在列表里");
+        let local_short_id = local_item.short_id.expect("本地会话要带短号");
+        let remote_short_id = remote_item.short_id.expect("远程联系人会话要带短号");
+
+        // 短号必须真的指向这条会话：按号解析回来还是同一个主键。
+        assert_eq!(
+            resolve_conversation_id_reference(&state, &local_short_id.to_string())
+                .expect("resolve local short id"),
+            Some(local_target_id.clone())
+        );
+        assert_eq!(
+            resolve_conversation_id_reference(&state, &remote_short_id.to_string())
+                .expect("resolve remote short id"),
+            Some(remote_target_id.clone())
+        );
+
+        let value = builtin_get_session(
+            &state,
+            "agent-1::source-session",
+            GetSessionToolArgs { keyword: None },
+        )
+        .expect("get_session 回执");
+        let rows = value.as_array().expect("回执是数组");
+        let local_row = rows
+            .iter()
+            .find(|row| row["sessionId"] == local_target_id)
+            .expect("回执里有本地目标");
+        assert_eq!(
+            local_row["shortId"],
+            serde_json::json!(local_short_id),
+            "回执要带出可寻址的短号"
+        );
+        assert!(local_row.get("kind").is_some(), "原有字段不许被删");
+        let remote_row = rows
+            .iter()
+            .find(|row| row["sessionId"] == remote_target_id)
+            .expect("回执里有远程目标");
+        assert_eq!(remote_row["shortId"], serde_json::json!(remote_short_id));
+    }
+
+    /// inform_session 传纯数字短号：工具入口先解析成主键，通知照常写进目标会话。
+    #[test]
+    fn inform_session_tool_should_resolve_numeric_short_id() {
+        let (state, _source_id, local_target_id, _remote_target_id) = seed_session_forward_test_state();
+        run_global_short_id_bootstrap(&state).expect("bootstrap short ids");
+        let short_id = conversation_service_v2()
+            .list_tool_session_targets(&state, None)
+            .expect("list session targets")
+            .into_iter()
+            .find(|item| item.session_id == local_target_id)
+            .and_then(|item| item.short_id)
+            .expect("本地目标要有短号");
+
+        let result = builtin_inform_session(
+            &state,
+            "agent-1::source-session",
+            InformSessionToolArgs {
+                session_id: short_id.to_string(),
+                content: "短号投递".to_string(),
+            },
+        )
+        .expect("按短号投递");
+
+        assert_eq!(
+            result["session_id"],
+            serde_json::json!(local_target_id),
+            "回执里的会话主键必须是解析后的真实主键"
+        );
+        let target = wait_for_session_notification(&state, &local_target_id);
+        assert!(
+            target.messages.iter().any(|message| {
+                message
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("messageKind"))
+                    .and_then(Value::as_str)
+                    == Some("session_notification")
+                    && message_text_content(message).contains("短号投递")
+            }),
+            "通知要写进短号解析出的目标会话"
+        );
+
+        // 号不存在时如实报错，不拿原值硬投。
+        let err = builtin_inform_session(
+            &state,
+            "agent-1::source-session",
+            InformSessionToolArgs {
+                session_id: "987654".to_string(),
+                content: "短号投递".to_string(),
+            },
+        )
+        .expect_err("不存在的短号必须失败");
+        assert_eq!(err, "未找到目标会话: 987654");
+    }
+
     #[test]
     fn inform_session_should_append_notification_to_remote_contact_conversation() {
         let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
@@ -14177,6 +14288,58 @@
         )
         .expect("write agents");
         state
+    }
+
+    /// 队伍工具短号：名册条目带 shortId，用短号能定位到队员。
+    #[test]
+    fn team_tools_should_accept_numeric_short_id() {
+        let state = team_test_state();
+        persist_team_leader(&state, "team-leader-short-id");
+        recruit_member(&state, "team-leader-short-id", "李工");
+        flush_pending_persists_blocking(&state).expect("flush team conversations");
+        run_global_short_id_bootstrap(&state).expect("bootstrap short ids");
+
+        let leader = team_leader_meta_for_roster(&state, &team_session_id("team-leader-short-id"))
+            .expect("leader roster");
+        let member = leader
+            .team
+            .members
+            .iter()
+            .find(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
+            .cloned()
+            .expect("有在队队员");
+        let member_conversation_id = member.conversation_id.trim().to_string();
+        let short_id =
+            team_conversation_short_id(&state, &member_conversation_id).expect("队员会话要有短号");
+
+        let persona_names = TeamPersonaNames::load(&state);
+        let entry = team_member_entry_json(&state, &persona_names, &member);
+        assert_eq!(
+            entry["shortId"],
+            serde_json::json!(short_id),
+            "名册条目要带出可寻址的短号"
+        );
+
+        let located = team_find_active_member_by_role(
+            &state,
+            &leader.team,
+            &persona_names,
+            "",
+            Some(&short_id.to_string()),
+        )
+        .expect("按短号定位队员");
+        assert_eq!(located.conversation_id.trim(), member_conversation_id);
+
+        // 不存在的短号要按原文报错，不能误配到别的队员。
+        let err = team_find_active_member_by_role(
+            &state,
+            &leader.team,
+            &persona_names,
+            "",
+            Some("987654"),
+        )
+        .expect_err("不存在的短号必须失败");
+        assert!(err.contains("987654"), "错误文案要回显用户给的原文：{err}");
     }
 
     fn team_session_id(conversation_id: &str) -> String {

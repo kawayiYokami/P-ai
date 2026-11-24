@@ -38,6 +38,7 @@ impl ConversationServiceV2 {
                 }
                 Some(ToolSessionTargetSummary {
                     session_id: item.conversation_id.clone(),
+                    short_id: conversation_meta.short_id,
                     kind: "local_unarchived".to_string(),
                     title,
                     persona_name,
@@ -72,8 +73,14 @@ impl ConversationServiceV2 {
                 if !session_search_hit(&haystacks, keyword) {
                     return None;
                 }
+                // 远程联系人会话的短号同样只住在元数据列里，按需读一次对应元数据补齐。
+                let short_id = self
+                    .get_conversation_meta(state, &item.conversation_id)
+                    .ok()
+                    .and_then(|meta| meta.short_id);
                 Some(ToolSessionTargetSummary {
                     session_id: item.conversation_id,
+                    short_id,
                     kind: "remote_im_contact".to_string(),
                     title: item.title,
                     persona_name,

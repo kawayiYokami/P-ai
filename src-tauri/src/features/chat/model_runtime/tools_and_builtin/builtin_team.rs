@@ -361,6 +361,8 @@ fn team_member_role(
 
 /// 按角色定位在队队员：role 填人格名，也兼容人格 id。
 /// 历史名册里可能有两名同角色队员（招募规则收紧之前建的），这时要求用会话 id 指定。
+///
+/// `conversation_id` 允许填数字短号：先解析成真实主键再比对名册，错误文案仍回显用户给的原文。
 fn team_find_active_member_by_role(
     state: &AppState,
     team: &TeamState,
@@ -376,9 +378,13 @@ fn team_find_active_member_by_role(
         .filter(|member| member.status.trim() == TEAM_MEMBER_STATUS_ACTIVE)
         .collect::<Vec<_>>();
     if !conversation_id.is_empty() {
+        let resolved = resolve_conversation_id_reference(state, conversation_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| conversation_id.to_string());
         return active
             .into_iter()
-            .find(|member| member.conversation_id.trim() == conversation_id)
+            .find(|member| member.conversation_id.trim() == resolved.trim())
             .cloned()
             .ok_or_else(|| {
                 format!("会话 {conversation_id} 不是这支队伍的在队队员；用 team_info 查看名册")
@@ -985,8 +991,19 @@ fn team_forward_member_stop_report(state: &AppState, conversation_id: &str, roun
 
 /// 队员当前状态：正在跑（忙碌）/ 最近一轮失败（报错）/ 空闲。
 /// 忙碌看运行态与待处理队列；报错看会话活动标记（后台跑完才会写，前台正在观看的会话不写）。
-fn team_member_state(state: &AppState, conversation_id: &str) -> (String, Option<String>) {
+/// 会话的数字短号：只住在 `conversation_metadata.short_id` 列，读一次元数据取用。
+fn team_conversation_short_id(state: &AppState, conversation_id: &str) -> Option<u64> {
     let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return None;
+    }
+    conversation_service_v2()
+        .get_conversation_meta(state, conversation_id)
+        .ok()
+        .and_then(|meta| meta.short_id)
+}
+
+fn team_member_state(state: &AppState, conversation_id: &str) -> (String, Option<String>) {    let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() {
         return ("idle".to_string(), None);
     }
@@ -1040,6 +1057,10 @@ fn team_member_entry_json(
         "workBranch": member.work_branch,
         "state": member_state,
     });
+    // 短号只在会话建好并补号后才有：没有就不铺这个键，免得名册里到处是 null。
+    if let Some(short_id) = team_conversation_short_id(state, &member.conversation_id) {
+        value["shortId"] = serde_json::json!(short_id);
+    }
     if let Some(detail) = state_detail {
         value["stateDetail"] = serde_json::json!(detail);
     }
