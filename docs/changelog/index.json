@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-23T13:55:31.834Z",
-  "latestVersion": "v0.98.6",
+  "generatedAt": "2026-11-24T11:03:37.044Z",
+  "latestVersion": "v0.98.7",
   "releases": [
+    {
+      "version": "v0.98.7",
+      "path": "docs/changelog/releases/v0.98.7.md",
+      "summary": "停止回复时，已经生成的内容会当场保存下来，被打断的这一轮不会再冒出来继续往下跑"
+    },
     {
       "version": "v0.98.6",
       "path": "docs/changelog/releases/v0.98.6.md",
