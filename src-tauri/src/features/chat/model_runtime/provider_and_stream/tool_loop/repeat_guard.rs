@@ -65,15 +65,15 @@ fn tool_args_effectively_empty(tool_args: &str) -> bool {
     }
 }
 
-fn repeated_tool_call_block_message(tool_name: &str, tool_args: &str, repeat_streak: usize) -> String {
+fn repeated_tool_call_note_message(tool_name: &str, tool_args: &str, repeat_streak: usize) -> String {
     if tool_args_effectively_empty(tool_args) {
         format!(
-            "工具调用已被系统停止：{} 连续 {} 次使用空参数调用。请直接向用户说明缺少必要参数，不要继续调用该工具。",
+            "提示：{} 已连续 {} 次使用空参数调用，本次调用已正常执行。若缺少必要参数，请补齐后重试。",
             tool_name, repeat_streak
         )
     } else {
         format!(
-            "工具调用已被系统停止：相同工具与相同参数已连续调用 {} 次。请直接向用户说明当前工具调用无法继续，不要继续重复调用。",
+            "提示：相同工具与相同参数已连续调用 {} 次，本次调用已正常执行。如非必要请勿继续重复调用。",
             repeat_streak
         )
     }
@@ -109,21 +109,3 @@ fn register_tool_repeat_attempt_once_per_batch(
     register_tool_repeat_attempt(guard, tool_name, tool_args)
 }
 
-fn repeated_tool_call_block_reply(
-    full_activity_reasoning_text: String,
-    tool_history_events: Vec<Value>,
-    trusted_input_tokens: Option<u64>,
-    err_text: String,
-) -> ModelReply {
-    ModelReply {
-        assistant_text: err_text.clone(),
-        final_response_text: err_text,
-        activity_reasoning_text: full_activity_reasoning_text,
-        assistant_provider_meta: None,
-        tool_history_events,
-        suppress_assistant_message: false,
-        trusted_input_tokens,
-        usage: None,
-        round_logs_recorded_internally: true,
-    }
-}

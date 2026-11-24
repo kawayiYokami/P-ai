@@ -1028,7 +1028,7 @@ async fn run_genai_tool_loop(
             prepared_turn_tool_calls,
         ) {
             let mut executable_calls = Vec::<PreparedToolCall>::new();
-            let mut repeat_block = None::<(PreparedToolCall, String)>;
+            let mut repeat_notes = std::collections::HashMap::<String, String>::new();
             let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
                 // 模型即将操作电脑：本轮调度内首次调用 operate 时发一次系统通知（由调度器控制，无全局状态）。
@@ -1049,17 +1049,17 @@ async fn run_genai_tool_loop(
                     &call.tool_args,
                 );
                 if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
-                    let err_text = repeated_tool_call_block_message(
+                    let note = repeated_tool_call_note_message(
                         &call.tool_name,
                         &call.tool_args,
                         repeat_streak,
                     );
                     runtime_log_info(format!(
-                        "[聊天] 工具循环触发重复调用熔断 工具={} 连续次数={} 阈值={} 参数={}",
+                        "[聊天] 工具循环检测到重复调用 工具={} 连续次数={} 阈值={} 参数={}",
                         call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
                     ));
-                    repeat_block = Some((call, err_text));
-                    break;
+                    // 只提示、不拦截：这次调用照常执行，提示追加到真实产出的末尾。
+                    repeat_notes.insert(call.tool_call_id.clone(), note);
                 }
                 executable_calls.push(call);
             }
@@ -1099,8 +1099,15 @@ async fn run_genai_tool_loop(
                 tool_call_id,
                 tool_name,
                 tool_args,
-                tool_result,
+                mut tool_result,
             } = executed_tool_call;
+            // 重复调用只追加提示，不拦截执行：这次照常跑，提示接在真实产出末尾。
+            if let Some(note) = repeat_notes.remove(&tool_call_id) {
+                if !tool_result.output.trim().is_empty() {
+                    tool_result.output.push_str("\n\n");
+                }
+                tool_result.output.push_str(&note);
+            }
             if !tool_result.is_error && tool_result_invalidates_tool_assembly(&tool_name) {
                 // 工具名单或队伍名册变了：本轮装配作废，下一轮请求前重建。
                 tool_assembly_stale = true;
@@ -1202,26 +1209,6 @@ async fn run_genai_tool_loop(
                 // 用户已经打断、或组内调用没有结果返回：这批里剩下的调用不再补执行，
                 // 后续批次也不再开跑，已完成结果交给收尾统一落库。
                 break;
-            }
-
-            if let Some((call, err_text)) = repeat_block {
-                // 熔断是本轮终点，但已跑完的结果必须先进历史再返回。
-                return finish_tool_loop_on_repeat_block(
-                    tool_abort_state,
-                    auto_compaction_context,
-                    selected_api,
-                    trusted_input_tokens,
-                    chat_session_key,
-                    &assistant_tool_group_history_event,
-                    on_delta,
-                    auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
-                    &round_completed_tool_result_events,
-                    &invalid_tool_calls,
-                    &call,
-                    err_text,
-                    full_activity_reasoning_text,
-                    tool_history_events,
-                );
             }
         }
 
@@ -1821,7 +1808,7 @@ async fn run_genai_tool_loop_non_stream(
             prepared_turn_tool_calls,
         ) {
             let mut executable_calls = Vec::<PreparedToolCall>::new();
-            let mut repeat_block = None::<(PreparedToolCall, String)>;
+            let mut repeat_notes = std::collections::HashMap::<String, String>::new();
             let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
                 // 模型即将操作电脑：本轮调度内首次调用 operate 时发一次系统通知（由调度器控制，无全局状态）。
@@ -1842,17 +1829,17 @@ async fn run_genai_tool_loop_non_stream(
                     &call.tool_args,
                 );
                 if repeat_streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD {
-                    let err_text = repeated_tool_call_block_message(
+                    let note = repeated_tool_call_note_message(
                         &call.tool_name,
                         &call.tool_args,
                         repeat_streak,
                     );
                     runtime_log_info(format!(
-                        "[聊天] 工具循环触发重复调用熔断 工具={} 连续次数={} 阈值={} 参数={}",
+                        "[聊天] 工具循环检测到重复调用 工具={} 连续次数={} 阈值={} 参数={}",
                         call.tool_name, repeat_streak, REPEATED_TOOL_CALL_BLOCK_THRESHOLD, call.tool_args
                     ));
-                    repeat_block = Some((call, err_text));
-                    break;
+                    // 只提示、不拦截：这次调用照常执行，提示追加到真实产出的末尾。
+                    repeat_notes.insert(call.tool_call_id.clone(), note);
                 }
                 executable_calls.push(call);
             }
@@ -1892,8 +1879,15 @@ async fn run_genai_tool_loop_non_stream(
                 tool_call_id,
                 tool_name,
                 tool_args,
-                tool_result,
+                mut tool_result,
             } = executed_tool_call;
+            // 重复调用只追加提示，不拦截执行：这次照常跑，提示接在真实产出末尾。
+            if let Some(note) = repeat_notes.remove(&tool_call_id) {
+                if !tool_result.output.trim().is_empty() {
+                    tool_result.output.push_str("\n\n");
+                }
+                tool_result.output.push_str(&note);
+            }
             if !tool_result.is_error && tool_result_invalidates_tool_assembly(&tool_name) {
                 // 工具名单或队伍名册变了：本轮装配作废，下一轮请求前重建。
                 tool_assembly_stale = true;
@@ -1995,26 +1989,6 @@ async fn run_genai_tool_loop_non_stream(
                 // 用户已经打断、或组内调用没有结果返回：这批里剩下的调用不再补执行，
                 // 后续批次也不再开跑，已完成结果交给收尾统一落库。
                 break;
-            }
-
-            if let Some((call, err_text)) = repeat_block {
-                // 熔断是本轮终点，但已跑完的结果必须先进历史再返回。
-                return finish_tool_loop_on_repeat_block(
-                    tool_abort_state,
-                    auto_compaction_context,
-                    selected_api,
-                    trusted_input_tokens,
-                    chat_session_key,
-                    &assistant_tool_group_history_event,
-                    on_delta,
-                    auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
-                    &round_completed_tool_result_events,
-                    &invalid_tool_calls,
-                    &call,
-                    err_text,
-                    full_activity_reasoning_text,
-                    tool_history_events,
-                );
             }
         }
 
@@ -2407,133 +2381,6 @@ mod tool_loop_tests {
         assert_eq!(group.executed[0].tool_call_id, "call-a");
         assert_eq!(group.error.as_deref(), Some(CHAT_ABORTED_BY_USER_ERROR));
         assert_eq!(group.aborted_call_ids, vec!["call-b".to_string()]);
-    }
-
-    /// 熔断出口：先落库、再返回。这条只守「没有持久化载体时不阻断返回」与返回内容本身，
-    /// 真正的写库断言需要真实会话与调度上下文。
-    #[test]
-    fn repeat_block_exit_returns_block_reply_and_survives_missing_state() {
-        let selected_api = ApiConfig::default();
-        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
-        let call = PreparedToolCall {
-            tool_call_id: "call-repeat".to_string(),
-            tool_name: "read_file".to_string(),
-            tool_args: "{}".to_string(),
-        };
-        let completed = vec![serde_json::json!({
-            "role": "tool",
-            "tool_call_id": "call-early",
-            "content": "第一批的真实结果"
-        })];
-
-        let reply = finish_tool_loop_on_repeat_block(
-            None,
-            None,
-            &selected_api,
-            Some(128),
-            "test-session",
-            &serde_json::json!({}),
-            &on_delta,
-            None,
-            &completed,
-            &[],
-            &call,
-            "重复调用熔断".to_string(),
-            "推理过程".to_string(),
-            Vec::new(),
-        )
-        .expect("缺少持久化载体不应阻断熔断收束");
-
-        assert_eq!(reply.assistant_text, "重复调用熔断");
-        let block_event = reply
-            .tool_history_events
-            .iter()
-            .find(|event| event.get("tool_call_id").and_then(Value::as_str) == Some("call-repeat"))
-            .expect("熔断这条结果要进本轮历史");
-        assert_eq!(
-            block_event.get("content").and_then(Value::as_str),
-            Some("重复调用熔断")
-        );
-    }
-
-    /// 熔断出口是整轮的出口：已完成、非法参数、熔断之后没轮到的三类调用都要有结果。
-    /// 观察点在返回的历史上——落库在无 state 时早退，这里锁的是「不漏结果」。
-    #[test]
-    fn repeat_block_exit_writes_result_for_every_call_in_the_group() {
-        let assistant_tool_group_history_event = serde_json::json!({
-            "role": "assistant",
-            "tool_calls": [
-                {"id": "call-done", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
-                {"id": "call-invalid", "type": "function", "function": {"name": "shell", "arguments": "not-json"}},
-                {"id": "call-blocked", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
-                {"id": "call-later", "type": "function", "function": {"name": "shell", "arguments": "{}"}}
-            ]
-        });
-        let completed = vec![serde_json::json!({
-            "role": "tool",
-            "tool_call_id": "call-done",
-            "content": "第一批的真实结果"
-        })];
-        let invalid_tool_calls = vec![genai::chat::ToolCall {
-            call_id: "call-invalid".to_string(),
-            fn_name: "shell".to_string(),
-            fn_arguments: serde_json::json!("not-json"),
-            thought_signatures: None,
-        }];
-        let call = PreparedToolCall {
-            tool_call_id: "call-blocked".to_string(),
-            tool_name: "read_file".to_string(),
-            tool_args: "{}".to_string(),
-        };
-        let selected_api = ApiConfig::default();
-        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
-        // 真实调用点进来时，之前批次的结果已经在 history 里了。
-        let history = completed.clone();
-
-        let reply = finish_tool_loop_on_repeat_block(
-            None,
-            None,
-            &selected_api,
-            Some(128),
-            "test-session",
-            &assistant_tool_group_history_event,
-            &on_delta,
-            None,
-            &completed,
-            &invalid_tool_calls,
-            &call,
-            "重复调用熔断".to_string(),
-            "推理过程".to_string(),
-            history,
-        )
-        .expect("缺少持久化载体不应阻断熔断收束");
-
-        let content_of = |tool_call_id: &str| {
-            reply
-                .tool_history_events
-                .iter()
-                .filter(|event| {
-                    event.get("role").and_then(Value::as_str) == Some("tool")
-                        && event.get("tool_call_id").and_then(Value::as_str)
-                            == Some(tool_call_id)
-                })
-                .filter_map(|event| event.get("content").and_then(Value::as_str))
-                .map(ToOwned::to_owned)
-                .collect::<Vec<String>>()
-        };
-
-        assert_eq!(content_of("call-done"), vec!["第一批的真实结果".to_string()]);
-        assert_eq!(
-            content_of("call-invalid"),
-            vec!["工具结果: 工具 shell 因参数非法未执行，未产生结果。".to_string()],
-            "非法参数用现成文案"
-        );
-        assert_eq!(content_of("call-blocked"), vec!["重复调用熔断".to_string()]);
-        assert_eq!(
-            content_of("call-later"),
-            vec![DISPATCH_ENDED_TOOL_NOT_EXECUTED_TEXT.to_string()],
-            "没轮到的调用也要有条结果，且只补一条"
-        );
     }
 
     struct TestRuntimeTool {
@@ -3455,7 +3302,7 @@ mod tool_loop_tests {
     }
 
     #[test]
-    fn empty_tool_args_should_use_short_repeat_block_threshold() {
+    fn empty_tool_args_should_use_short_repeat_threshold() {
         assert!(tool_args_effectively_empty(""));
         assert!(tool_args_effectively_empty("{}"));
         assert!(tool_args_effectively_empty("[]"));
