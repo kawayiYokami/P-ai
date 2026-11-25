@@ -205,6 +205,9 @@
         :chat-right-panel-can-go-back="chatRightPanelCanGoBack"
         :chat-right-panel-can-go-forward="chatRightPanelCanGoForward"
         :chat-monitor-panel-mode="chatMonitorPanelMode"
+        :side-chat-tabs="sideChatTabs"
+        :team-member-tabs="teamMemberTabs"
+        :active-side-conversation-id="sideConversationId || ''"
         :side-chat-panel-enabled="true"
         :show-attach-action="true"
         :team-visible="teamManageVisible"
@@ -228,6 +231,10 @@
         @go-back-chat-right-panel="goBackChatRightPanel"
         @go-forward-chat-right-panel="goForwardChatRightPanel"
         @update:chat-monitor-panel-mode="updateChatMonitorPanelMode"
+        @select-side-conversation-tab="selectSideChatConversation?.($event)"
+        @close-side-conversation-tab="closeSideChatTab"
+        @close-side-conversation-tabs-scoped="closeScopedSideChatTabs"
+        @open-side-chat-new-page="openSideChatNewPage?.()"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
         @pick-attachments="pickAttachments"
@@ -283,43 +290,9 @@
       >
         <template #side-chat-panel>
           <div class="flex h-full min-h-0 w-full flex-col">
-            <PanelTabStrip
-              :tabs="sideChatTabs"
-              :active-key="sideChatPanelConversationId"
-              :aria-label="t('chat.sideChat.title')"
-              :close-title="t('chat.sideChat.close')"
-              :close-left-title="t('fileReader.closeLeft')"
-              :close-right-title="t('fileReader.closeRight')"
-              :close-others-title="t('fileReader.closeOthers')"
-              @select-tab="selectSideChatConversation?.($event)"
-              @close-tab="closeSideChatTab"
-              @close-tabs-to-left="closeSideChatTabsToLeft"
-              @close-tabs-to-right="closeSideChatTabsToRight"
-              @close-other-tabs="closeOtherSideChatTabs"
-            >
-              <template #leading>
-                <ChatRightPanelNav
-                  :can-go-back="chatRightPanelCanGoBack"
-                  :can-go-forward="chatRightPanelCanGoForward"
-                  @go-back="goBackChatRightPanel"
-                  @go-forward="goForwardChatRightPanel"
-                  @select-home="updateChatRightPanelMode('home')"
-                />
-              </template>
-              <template #tabTrailing>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-sm btn-circle"
-                  :title="t('chat.sideChat.create')"
-                  @click="openSideChatNewPage?.()"
-                >
-                  <AppIcon name="plus" class="size-4" />
-                </button>
-              </template>
-            </PanelTabStrip>
             <ConversationView
               v-if="sideChatPanelConversationId"
-              class="min-h-0 flex-1"
+              class="ecall-panel-enter min-h-0 flex-1"
               :subscription-slot="sideChatSubscriptionSlot"
               :conversation-id="sideChatPanelConversationId"
               :api-config-id="conversationCallPrimaryApiConfigId"
@@ -379,33 +352,9 @@
         </template>
         <template #team-member-panel>
           <div class="flex h-full min-h-0 w-full flex-col">
-            <PanelTabStrip
-              :tabs="teamMemberTabs"
-              :active-key="teamMemberPanelConversationId"
-              :aria-label="t('chat.teamMember.title')"
-              :close-title="t('chat.teamMember.close')"
-              :close-left-title="t('fileReader.closeLeft')"
-              :close-right-title="t('fileReader.closeRight')"
-              :close-others-title="t('fileReader.closeOthers')"
-              @select-tab="selectSideChatConversation?.($event)"
-              @close-tab="closeSideChatTab"
-              @close-tabs-to-left="closeSideChatTabsToLeft"
-              @close-tabs-to-right="closeSideChatTabsToRight"
-              @close-other-tabs="closeOtherSideChatTabs"
-            >
-              <template #leading>
-                <ChatRightPanelNav
-                  :can-go-back="chatRightPanelCanGoBack"
-                  :can-go-forward="chatRightPanelCanGoForward"
-                  @go-back="goBackChatRightPanel"
-                  @go-forward="goForwardChatRightPanel"
-                  @select-home="updateChatRightPanelMode('home')"
-                />
-              </template>
-            </PanelTabStrip>
             <ConversationView
               v-if="teamMemberPanelConversationId"
-              class="min-h-0 flex-1"
+              class="ecall-panel-enter min-h-0 flex-1"
               :subscription-slot="teamMemberSubscriptionSlot"
               :conversation-id="teamMemberPanelConversationId"
               :api-config-id="conversationCallPrimaryApiConfigId"
@@ -593,11 +542,8 @@
 const ConfigView = defineAsyncComponent(() => import("../../config/views/ConfigView.vue"));
 const ChatView = defineAsyncComponent(() => import("../../chat/views/ChatView.vue"));
 import ConversationView from "../../chat/views/ConversationView.vue";
-import ChatRightPanelNav from "../../chat/components/ChatRightPanelNav.vue";
-import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { conversationRuntimeBusy } from "../../chat/utils/conversation-item-display";
-import AppIcon from "../../shared/components/AppIcon.vue";
 import type { TerminalApprovalConversationItem } from "../composables/use-terminal-approval";
 import type { BranchGuardCheck } from "../../chat/composables/use-chat-branch-guard";
 import ArchivesView from "../../archive/views/ArchivesView.vue";
@@ -632,6 +578,10 @@ import type {
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
+import {
+  useChatRightPanelHistory,
+  type ChatRightPanelTab,
+} from "../../chat/composables/use-chat-right-panel-history";
 import type { ConversationQuestionView } from "../../chat/utils/conversation-question";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
 import { isViewLayerBusy } from "../../chat/composables/chat-view-busy";
@@ -672,10 +622,6 @@ const props = defineProps<{
   conversationListTab: "local" | "contact" | "timer";
   chatLeftPanelMode: "local" | "contact" | "timer";
   chatRightPanelMode: ChatRightPanelMode;
-  chatRightPanelCanGoBack: boolean;
-  chatRightPanelCanGoForward: boolean;
-  goBackChatRightPanel: () => void;
-  goForwardChatRightPanel: () => void;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
   configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "timer" | "logs" | "appearance" | "migration" | "about";
@@ -1019,6 +965,8 @@ const chatViewRef = ref<{
   showTransientNotice: (text: string, tone?: "default" | "error" | "info") => void;
   openFileInReader: (path: string, line?: number) => Promise<void>;
   openDirectoryInReader: (path: string) => Promise<boolean>;
+  /** 文件阅读器当前激活的文件路径；右面板历史靠它把「哪个文件」记成标签标识。 */
+  activePath?: string;
 } | null>(null);
 
 /** 当前打开的追问会话记录；侧边面板的人格、头像与发送人格都以它为准。 */
@@ -1356,6 +1304,63 @@ async function openChatReaderDirectory(path: string, line?: number) {
     showChatNotice(props.t("status.openLinkFailed", { err: String(error) }), "error");
   }
 }
+
+// ==================== 右面板浏览历史 ====================
+
+/**
+ * 当前标签：种类 + 标识。
+ *
+ * 文件看文件阅读器激活的那个文件，追问/队员会话看会话 id，首页、工具审查、
+ * 看板这类页没有标识。文件面板还没挂载或还没恢复完时 id 为空，
+ * 那一次不算浏览，避免历史里落一条打不开的空文件页。
+ */
+function currentChatRightPanelTab(): ChatRightPanelTab {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") {
+    return { kind: "file", id: String(chatViewRef.value?.activePath || "").trim() };
+  }
+  if (mode === "sideChat" || mode === "teamMember") {
+    return { kind: mode, id: String(props.sideConversationId || "").trim() };
+  }
+  if (mode === "monitor") return { kind: "monitor", id: "" };
+  if (mode === "kanban") return { kind: "kanban", id: "" };
+  return { kind: "home", id: "" };
+}
+
+/** 打开某个标签；返回 false 表示这一页已经打不开（会话被删一类），历史继续往前退。 */
+function openChatRightPanelTab(tab: ChatRightPanelTab): boolean {
+  if (tab.kind === "file") {
+    if (!tab.id) return false;
+    // 打开失败会在聊天区提示，历史仍按「切过去了」收口，不把用户卡在原地
+    void openChatReaderFile(tab.id);
+    return true;
+  }
+  if (tab.kind === "sideChat" || tab.kind === "teamMember") {
+    const id = String(tab.id || "").trim();
+    if (!id) return false;
+    const alive = (props.sideConversations || []).some(
+      (item) => String(item?.conversationId || "").trim() === id,
+    );
+    if (!alive) return false;
+    props.selectSideChatConversation?.(id);
+    props.updateChatRightPanelMode(tab.kind);
+    return true;
+  }
+  props.updateChatRightPanelMode(tab.kind === "monitor" || tab.kind === "kanban" ? tab.kind : "home");
+  return true;
+}
+
+const {
+  canGoBack: chatRightPanelCanGoBack,
+  canGoForward: chatRightPanelCanGoForward,
+  goBack: goBackChatRightPanel,
+  goForward: goForwardChatRightPanel,
+} = useChatRightPanelHistory({
+  // 按父会话分片：每个会话各记 30 页，切会话换分片，不把上个会话的页面带过去
+  scope: () => String(props.currentChatConversationId || "").trim(),
+  currentTab: currentChatRightPanelTab,
+  openTab: openChatRightPanelTab,
+});
 
 function commitChatSidePanelWidths(value: { leftWidth: number; rightWidth: number }) {
   props.setChatSidePanelWidths(value, { commit: true });

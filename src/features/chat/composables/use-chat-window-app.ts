@@ -38,7 +38,7 @@ import {
   type SideConversationPanel,
 } from "./side-conversation-panel";
 import { loadStoredChatRightPanelMode } from "./chat-ui-layout-storage";
-import { useChatRightPanelHistory, type ChatRightPanelView } from "./use-chat-right-panel-history";
+import { rememberedSideConversationInHistory } from "./use-chat-right-panel-history";
 import { useChatWindowPaneExpansion } from "./use-chat-window-pane-expansion";
 
 type ConversationActionsBridge = {
@@ -707,7 +707,8 @@ export function useChatWindowApp() {
   const closingSideConversationIds = ref<string[]>([]);
   // 新建页锁定：点 + 后停留在追问新建页，不自动选中任一追问，直到用户选择或创建
   const sideChatNewPageRequested = ref(false);
-  // 只记住每个父会话当前选中的标签；真实标签集合始终以后端父摘要为准。
+  // 只记住每个父会话本次运行里选中的标签；真实标签集合始终以后端父摘要为准。
+  // 不落盘：刷新后「上次看的是哪个标签」由右面板浏览历史给出，不另存一份重复状态。
   const activeSideConversationByParent = new Map<string, string>();
   // 最近的打开/切换顺序：新开一个就顶到最前，之前的整体往后挤一层，像浏览器标签。
   // 这份只在内存里，重启后回到后端给的顺序。
@@ -767,7 +768,12 @@ export function useChatWindowApp() {
       const childIds = children.map((item) => String(item?.conversationId || "").trim()).filter(Boolean);
       const currentId = String(sideConversationId.value || "").trim();
       if (!parentChanged && childIds.includes(currentId)) return;
-      const rememberedId = String(activeSideConversationByParent.get(parentId) || "").trim();
+      // 本次运行记过的优先；刷新后内存表是空的，退回浏览历史里最近看过的那个会话标签
+      const rememberedId = String(
+        activeSideConversationByParent.get(parentId)
+        || rememberedSideConversationInHistory(parentId)
+        || "",
+      ).trim();
       // 面板模式是按父会话记的：必须先读这个父会话自己的模式。
       // 用当前（还是上一个会话的）模式去筛，父子切换那一次就会筛出空列表。
       const parentPanelMode = loadStoredChatRightPanelMode("home", parentId);
@@ -857,39 +863,8 @@ export function useChatWindowApp() {
     if (cid) clearSideConversationUnread(cid);
   });
   // 右面板浏览历史：文件页、侧边会话、队伍成员之间来回切，靠它后退/前进。
-  // 只记「模式 + 模式内会话」；文件页记到哪个文件由文件阅读器自己维持。
-  function currentRightPanelView(): ChatRightPanelView {
-    const mode = chatRightPanelMode.value;
-    const scopedToConversation = mode === "sideChat" || mode === "teamMember";
-    return {
-      mode,
-      conversationId: scopedToConversation ? String(sideConversationId.value || "").trim() : "",
-    };
-  }
-  function applyRightPanelView(view: ChatRightPanelView): boolean {
-    if (view.mode === "sideChat" || view.mode === "teamMember") {
-      const id = String(view.conversationId || "").trim();
-      if (id) {
-        // 会话可能已经被删：这一页打不开，让历史继续往前退
-        const alive = sideConversations.value.some(
-          (item) => String(item?.conversationId || "").trim() === id,
-        );
-        if (!alive) return false;
-        selectSideChatConversation(id);
-      }
-    }
-    chatUiState.updateChatRightPanelMode(view.mode);
-    return true;
-  }
-  const {
-    canGoBack: canGoBackRightPanel,
-    canGoForward: canGoForwardRightPanel,
-    goBack: goBackRightPanel,
-    goForward: goForwardRightPanel,
-  } = useChatRightPanelHistory({
-    currentView: currentRightPanelView,
-    applyView: applyRightPanelView,
-  });
+  // 历史记的是标签身份（种类 + 标识），按父会话分片落 localStorage；
+  // 它需要同时握住文件阅读器实例与侧边会话切换，因此挂在 AppWindowContent 上。
   const createSideChatConversation = async (withContext = true) => {
     const conversationId = await conversationOrchestrator.createSideChatConversation(undefined, withContext);
     if (conversationId) {
@@ -1265,10 +1240,6 @@ export function useChatWindowApp() {
     sideConversationUnreadMap,
     backgroundConversationBadgeMap,
     selectSideChatConversation,
-    canGoBackRightPanel,
-    canGoForwardRightPanel,
-    goBackRightPanel,
-    goForwardRightPanel,
     openSideChatNewPage,
     createSideChatConversation,
     createSideConversationBranchFromTurn,

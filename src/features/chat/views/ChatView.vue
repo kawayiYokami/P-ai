@@ -775,10 +775,75 @@
           @keydown.left.prevent="adjustPaneWidthByKeyboard('right', 24)"
           @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
         ></div>
-        <ChatHomePanel
-          v-if="chatRightPanelMode === 'home'"
-          class="h-full w-full"
-          :conversation-id="activeConversationId"
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
+          <!--
+            右面板唯一的标题栏。切换页面只替换这里面的标签，这条 bar 本身不销毁、不重建，
+            所以它不会跟着内容一起做进入动画。标签数据按当前页面从各自来源取：
+            文件页读阅读器、工具审查读本组件的 monitorPanelTabs、会话读上层传进来的列表。
+          -->
+          <PanelTabStrip
+            :tabs="rightPanelHeaderTabs"
+            :active-key="rightPanelHeaderActiveKey"
+            :variant="rightPanelHeaderVariant"
+            :aria-label="rightPanelHeaderAriaLabel"
+            :close-title="t('fileReader.close')"
+            :close-left-title="t('fileReader.closeLeft')"
+            :close-right-title="t('fileReader.closeRight')"
+            :close-others-title="t('fileReader.closeOthers')"
+            :context-menu-items="rightPanelHeaderContextMenu"
+            @select-tab="handleRightPanelHeaderSelect"
+            @close-tab="handleRightPanelHeaderClose"
+            @close-tabs-to-left="(key) => handleRightPanelHeaderCloseScoped(key, 'left')"
+            @close-tabs-to-right="(key) => handleRightPanelHeaderCloseScoped(key, 'right')"
+            @close-other-tabs="(key) => handleRightPanelHeaderCloseScoped(key, 'others')"
+          >
+            <template #leading>
+              <ChatRightPanelNav
+                :can-go-back="chatRightPanelCanGoBack"
+                :can-go-forward="chatRightPanelCanGoForward"
+                @go-back="emit('goBackChatRightPanel')"
+                @go-forward="emit('goForwardChatRightPanel')"
+                @select-home="selectChatRightPanelMode('home')"
+              />
+            </template>
+            <template v-if="chatRightPanelMode === 'sideChat' || chatRightPanelMode === 'teamMember'" #tabTrailing>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-circle"
+                :title="t('chat.sideChat.create')"
+                @click="emit('openSideChatNewPage')"
+              >
+                <AppIcon name="plus" class="size-4" />
+              </button>
+            </template>
+            <template v-if="chatRightPanelMode === 'reader'" #actions>
+              <button
+                type="button"
+                class="btn btn-sm btn-square shrink-0"
+                :class="readerFilesPanelOpen ? 'bg-base-300 text-primary border-base-300 shadow-sm' : 'btn-ghost'"
+                :disabled="!readerDirectoryTreeRoot && !readerDirectoryToggleTargetPath"
+                :title="t('fileReader.filesTab')"
+                @click="chatReaderPanelRef?.toggleFilesPanel?.()"
+              >
+                <AppIcon name="folders" class="size-4" />
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-square shrink-0"
+                :class="readerGitPanelOpen ? 'bg-base-300 text-primary border-base-300 shadow-sm' : 'btn-ghost'"
+                :disabled="!readerDirectoryTreeRoot && !readerDirectoryToggleTargetPath && !readerGitPanelWorkspacePath"
+                :title="t('fileReader.gitTab')"
+                @click="chatReaderPanelRef?.toggleGitPanel?.()"
+              >
+                <AppIcon name="folder-git" class="size-4" />
+              </button>
+            </template>
+          </PanelTabStrip>
+          <div class="min-h-0 flex-1 overflow-hidden">
+          <ChatHomePanel
+            v-if="chatRightPanelMode === 'home'"
+            class="h-full w-full"
+            :conversation-id="activeConversationId"
           :latest-plan="latestHomePlan"
           :workspace-root-path="currentWorkspaceRootPath"
           :worktree-path="props.currentWorkspaceWorktreePath"
@@ -820,11 +885,12 @@
           @git-error="handleHomeGitError"
           @open-monitor-tab="openMonitorTabFromHome"
           @interrupt-shell="interruptShell"
-        />
+          />
         <FileReaderPanel
           v-else-if="chatRightPanelMode === 'reader'"
           ref="chatReaderPanelRef"
-          class="ecall-panel-enter h-full w-full"
+          class="h-full w-full"
+          :show-tabs="false"
           :narrow-overlay="rightPaneOverlay"
           :initial-root-path="effectiveSessionRootPath"
           :session-root-path="effectiveSessionRootPath"
@@ -842,15 +908,6 @@
           @clear-selection-context-reference="handleClearFileReaderSelectionContextReference"
           @clear-context-references="clearFileReaderContextReferences"
         >
-          <template #tabLeadingActions>
-            <ChatRightPanelNav
-              :can-go-back="chatRightPanelCanGoBack"
-              :can-go-forward="chatRightPanelCanGoForward"
-              @go-back="emit('goBackChatRightPanel')"
-              @go-forward="emit('goForwardChatRightPanel')"
-              @select-home="selectChatRightPanelMode('home')"
-            />
-          </template>
           <template #empty>
             <div class="space-y-2 px-5 text-center">
               <div class="font-medium text-base-content/70">选择文件开始阅读</div>
@@ -858,10 +915,10 @@
             </div>
           </template>
         </FileReaderPanel>
-        <div v-else-if="chatRightPanelMode === 'sideChat'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
+        <div v-else-if="chatRightPanelMode === 'sideChat'" class="flex h-full min-h-0 w-full flex-col bg-base-200">
           <slot name="side-chat-panel" />
         </div>
-        <div v-else-if="chatRightPanelMode === 'teamMember'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
+        <div v-else-if="chatRightPanelMode === 'teamMember'" class="flex h-full min-h-0 w-full flex-col bg-base-200">
           <slot name="team-member-panel" />
         </div>
         <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-100">
@@ -882,24 +939,8 @@
             @reference="attachKanbanIssueReference"
           />
         </div>
-        <div v-else-if="chatRightPanelMode === 'monitor'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
-          <PanelTabStrip
-            :tabs="monitorPanelTabs"
-            :active-key="chatMonitorPanelMode"
-            :aria-label="t('chat.monitorPanelTab')"
-            @select-tab="selectMonitorPanelTab"
-          >
-            <template #leading>
-              <ChatRightPanelNav
-                :can-go-back="chatRightPanelCanGoBack"
-                :can-go-forward="chatRightPanelCanGoForward"
-                @go-back="emit('goBackChatRightPanel')"
-                @go-forward="emit('goForwardChatRightPanel')"
-                @select-home="selectChatRightPanelMode('home')"
-              />
-            </template>
-          </PanelTabStrip>
-          <ToolReviewSidebar class="min-h-0 flex-1"
+        <div v-else-if="chatRightPanelMode === 'monitor'" class="flex h-full min-h-0 w-full flex-col bg-base-200">
+          <ToolReviewSidebar class="ecall-panel-enter min-h-0 flex-1"
             :active-tab="toolReviewSidebarActiveTab"
             :batches="toolReviewBatches" :current-batch-key="toolReviewCurrentBatchKey"
             :detail-map="toolReviewDetailMap" :segment-map="toolReviewSegmentMap"
@@ -921,6 +962,8 @@
             @assistant-link-click="handleAssistantLinkClick"
             @timer-saved="refreshRunningTimerCount"
           />
+        </div>
+          </div>
         </div>
         </div>
       </Transition>
@@ -992,6 +1035,13 @@ import {
 } from "../../file-reader/file-reader-session";
 import { normalizePath } from "../../file-reader/utils";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
+import {
+  EMPTY_PANEL_CONTEXT_MENU,
+  EMPTY_PANEL_TABS,
+  type PanelTabStripContextMenuItem,
+  type PanelTabStripItem,
+  type PanelTabStripVariant,
+} from "../../shared/components/panel-tab-strip.types";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatGoalTaskDialog from "../components/dialogs/ChatGoalTaskDialog.vue";
 import TimerCreateCard from "../components/dialogs/TimerCreateCard.vue";
@@ -1103,6 +1153,10 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatRightPanelCanGoBack?: boolean;
   chatRightPanelCanGoForward?: boolean;
+  /** 右面板常驻标题栏的标签：侧边会话 / 队伍成员由上层提供，文件页和工具审查在本组件内取 */
+  sideChatTabs?: PanelTabStripItem[];
+  teamMemberTabs?: PanelTabStripItem[];
+  activeSideConversationId?: string;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
   teamVisible?: boolean;
@@ -1158,6 +1212,10 @@ const emit = defineEmits<{
   (e: "update:chatRightPanelMode", value: ChatRightPanelMode): void;
   (e: "goBackChatRightPanel"): void;
   (e: "goForwardChatRightPanel"): void;
+  (e: "selectSideConversationTab", key: string): void;
+  (e: "closeSideConversationTab", key: string): void;
+  (e: "closeSideConversationTabsScoped", key: string, scope: "left" | "right" | "others"): void;
+  (e: "openSideChatNewPage"): void;
   (e: "update:chatMonitorPanelMode", value: ChatMonitorPanelMode): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
@@ -1278,6 +1336,100 @@ const toolReviewSidebarActiveTab = computed<ToolReviewSidebarTab>(() => {
   if (props.chatMonitorPanelMode === "fastRequests") return "fastRequests";
   return "delegates";
 });
+
+// ==================== 右面板常驻标题栏 ====================
+
+/**
+ * 标题栏的标签按当前页面取，标题栏元素本身不随页面切换重建：
+ * 文件页读阅读器（它不再自己画标签条）、工具审查读本组件的列表、
+ * 会话页读上层传进来的标签。
+ */
+const rightPanelHeaderTabs = computed<PanelTabStripItem[]>(() => {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") return chatReaderPanelRef.value?.headerTabs || EMPTY_PANEL_TABS;
+  if (mode === "monitor") return monitorPanelTabs.value;
+  if (mode === "sideChat") return props.sideChatTabs || EMPTY_PANEL_TABS;
+  if (mode === "teamMember") return props.teamMemberTabs || EMPTY_PANEL_TABS;
+  return EMPTY_PANEL_TABS;
+});
+
+const rightPanelHeaderActiveKey = computed(() => {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") return String(chatReaderPanelRef.value?.activePath || "");
+  if (mode === "monitor") return String(props.chatMonitorPanelMode || "");
+  if (mode === "sideChat" || mode === "teamMember") return String(props.activeSideConversationId || "");
+  return "";
+});
+
+/** 文件标签是文件专用样式（圆角块、悬停换成关闭按钮），其余页用默认样式 */
+const rightPanelHeaderVariant = computed<PanelTabStripVariant>(() =>
+  props.chatRightPanelMode === "reader" ? "file" : "default",
+);
+
+const rightPanelHeaderAriaLabel = computed(() => {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") return t("fileReader.tabs");
+  if (mode === "monitor") return t("chat.monitorPanelTab");
+  if (mode === "sideChat") return t("chat.sideChat.title");
+  if (mode === "teamMember") return t("chat.teamMember.blockTitle");
+  return t("chat.homePanel.title");
+});
+
+const rightPanelHeaderContextMenu = computed<PanelTabStripContextMenuItem[]>(() =>
+  props.chatRightPanelMode === "reader"
+    ? (chatReaderPanelRef.value?.headerContextMenuItems || EMPTY_PANEL_CONTEXT_MENU)
+    : EMPTY_PANEL_CONTEXT_MENU,
+);
+
+/** 文件页尾部两个面板开关的状态留在阅读器里，这里只读出来画按钮 */
+const readerFilesPanelOpen = computed(() => !!chatReaderPanelRef.value?.isFilesPanelOpen);
+const readerGitPanelOpen = computed(() => !!chatReaderPanelRef.value?.isGitPanelOpen);
+const readerDirectoryTreeRoot = computed(() => chatReaderPanelRef.value?.directoryTreeRoot || null);
+const readerDirectoryToggleTargetPath = computed(() =>
+  String(chatReaderPanelRef.value?.directoryToggleTargetPath || ""),
+);
+const readerGitPanelWorkspacePath = computed(() =>
+  String(chatReaderPanelRef.value?.gitPanelWorkspacePath || ""),
+);
+
+function handleRightPanelHeaderSelect(key: string) {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") {
+    void chatReaderPanelRef.value?.setActiveTab(key);
+    return;
+  }
+  if (mode === "monitor") {
+    selectMonitorPanelTab(key);
+    return;
+  }
+  if (mode === "sideChat" || mode === "teamMember") {
+    emit("selectSideConversationTab", key);
+  }
+}
+
+function handleRightPanelHeaderClose(key: string) {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") {
+    void chatReaderPanelRef.value?.closeTab(key);
+    return;
+  }
+  if (mode === "sideChat" || mode === "teamMember") {
+    emit("closeSideConversationTab", key);
+  }
+}
+
+function handleRightPanelHeaderCloseScoped(key: string, scope: "left" | "right" | "others") {
+  const mode = props.chatRightPanelMode;
+  if (mode === "reader") {
+    if (scope === "left") void chatReaderPanelRef.value?.closeTabsToLeftOf(key);
+    else if (scope === "right") void chatReaderPanelRef.value?.closeTabsToRightOf(key);
+    else void chatReaderPanelRef.value?.closeOtherTabs(key);
+    return;
+  }
+  if (mode === "sideChat" || mode === "teamMember") {
+    emit("closeSideConversationTabsScoped", key, scope);
+  }
+}
 // ==================== messages / audio ====================
 
 const { playingAudioId, copyMessage, stopAudioPlayback, toggleAudioPlayback } = useChatMessageActions();
@@ -2191,6 +2343,8 @@ defineExpose({
   showTransientNotice,
   openFileInReader,
   openDirectoryInReader,
+  /** 文件阅读器当前激活的文件；右面板历史把它当作文件标签的标识。 */
+  activePath: computed(() => String(chatReaderPanelRef.value?.activePath || "")),
 });
 
 const {
@@ -4793,27 +4947,8 @@ onBeforeUnmount(() => {
   container-type: inline-size;
 }
 
-/* 打开右侧面板：像手机应用那样从略小放大进入；时长与曲线复用侧栏 push 动画的 220ms 同参 */
-.ecall-panel-enter {
-  animation: ecall-panel-enter 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes ecall-panel-enter {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ecall-panel-enter {
-    animation: none;
-  }
-}
+/* 切页进入动画已提到全局样式（src/style.css 的 .ecall-panel-enter）：
+   它只该作用在内容区，作用在整块面板上会把标签条一起缩放淡入。 */
 
 .todo-bar-slide-enter-active,
 .todo-bar-slide-leave-active {

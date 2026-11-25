@@ -293,7 +293,7 @@
             <AppIcon name="eye" v-else class="h-4 w-4" />
           </button>
         </div>
-        <div class="relative min-h-0 flex-1" @scroll.capture="handleContentScroll">
+        <div class="ecall-panel-enter relative min-h-0 flex-1" @scroll.capture="handleContentScroll">
           <div
             ref="contentScroller"
             class="file-reader-content-stage h-full min-h-0 overflow-hidden"
@@ -3567,6 +3567,19 @@ defineExpose({
   tabs,
   activePath,
   directoryRootPath,
+  // ===== 标题栏上提所需：标签数据、右键菜单、尾部两个面板开关 =====
+  /** 文件标签列表，供右面板常驻标题栏渲染（阅读器自己不再画标签条） */
+  headerTabs: fileReaderPanelTabs,
+  /** 标签右键菜单项 */
+  headerContextMenuItems: fileTabContextMenuItems,
+  /** 尾部开关的状态与动作：目录 / Git 两个面板的开关在标题栏上，状态留在阅读器里 */
+  isFilesPanelOpen,
+  isGitPanelOpen,
+  directoryTreeRoot,
+  directoryToggleTargetPath,
+  gitPanelWorkspacePath,
+  toggleFilesPanel,
+  toggleGitPanel,
 });
 </script>
 
