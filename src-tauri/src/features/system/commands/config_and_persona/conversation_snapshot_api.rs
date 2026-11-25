@@ -126,6 +126,18 @@ struct ChildConversationSummary {
     runtime_state: Option<MainSessionState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_error: Option<String>,
+    /// 最近两条消息的纯文本预览，供溢出标签卡片显示摘要。
+    /// 复用会话 meta 里已有的 preview_messages，不额外读消息。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    preview_messages: Vec<ChildConversationPreviewMessage>,
+}
+
+/// 溢出标签卡片里显示的最近两条消息：角色只用来分深浅，不显示说话人头衔。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChildConversationPreviewMessage {
+    role: String,
+    text_preview: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -641,6 +653,14 @@ fn build_unarchived_conversation_summary_with_kanban(
                 unread_count: child.unread_count,
                 runtime_state: unarchived_conversation_runtime_state(state, &child.id),
                 last_error: child.last_error.clone(),
+                preview_messages: child
+                    .preview_messages
+                    .iter()
+                    .map(|item| ChildConversationPreviewMessage {
+                        role: item.role.trim().to_string(),
+                        text_preview: item.text_preview.trim().to_string(),
+                    })
+                    .collect(),
             }
         })
         .collect::<Vec<_>>();

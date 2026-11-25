@@ -16,6 +16,16 @@ export type PanelTabStripItem = {
   icon?: AppIconName;
   closeable?: boolean;
   disabled?: boolean;
+  /**
+   * 溢出面板卡片上显示的标题。
+   *
+   * 不能用 `label`：会话标签的 `label` 走降级链（标题 → 摘要 → 时间 → 人格名），
+   * 没有标题时会退到时间，卡片上不该出现时间。会话标签在这里给「真实标题 || 未命名会话」，
+   * 非会话标签（工具 / 定时器 / 委托）不填，卡片回退到 `label`。
+   */
+  cardTitle?: string;
+  /** 溢出面板卡片里的内容预览：最近两条消息，按角色分深浅 */
+  previewMessages?: Array<{ role: string; textPreview: string }>;
 };
 
 export type PanelTabStripContextMenuItem = {

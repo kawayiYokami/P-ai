@@ -1061,6 +1061,13 @@ function buildSideConversationTab(conversation: ChildConversationSummary) {
         ? ("user-round" as const)
         : ("message-square-more" as const),
     iconSrc: teamAgentAvatarUrl || undefined,
+    // 溢出卡片里放的是最近两条消息；这一页是谁在跑由图标表达，不再单独占一行文字。
+    previewMessages: conversation.previewMessages || [],
+    // 溢出卡片上的标题：会话有真标题就用它，没有就写「未命名会话」。
+    // 不用 label——label 的降级链在没标题时会退到时间，卡片上不该出现时间。
+    cardTitle: isTeamMember
+      ? teamDisplayName || teamName || ""
+      : String(conversation.title || "").trim() || props.t("chat.untitledConversation"),
     // 队员标签不给关闭入口：关标签走的就是「整条会话不要了」，删掉后队长名册里那条
     // conversationId 会指向不存在的会话。追问标签保持可关闭。
     closeable: !isTeamMember,

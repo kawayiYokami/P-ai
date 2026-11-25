@@ -4,15 +4,18 @@ import { renderToString } from "vue/server-renderer";
 import PanelTabStrip from "./PanelTabStrip.vue";
 // 原文用来钉住 SSR 里构造不出来的口径；走 Vite 的 ?raw，不依赖 @types/node
 import SFC_SOURCE_RAW from "./PanelTabStrip.vue?raw";
+import CARD_SOURCE_RAW from "./PanelTabPreviewCard.vue?raw";
 import type { PanelTabStripItem, PanelTabStripVariant } from "./panel-tab-strip.types";
 import { i18n } from "../../../i18n";
 
 /**
  * 标签行的口径（A+B 组合）：
- * - 单行恒定高度，绝不换行。标签按 flex-1 basis-0 自适应压宽，最宽 max-w-40（文件档 44）。
- * - 放不下就收进「更多」下拉菜单，不再靠换行堆行数。
- * - 「更多」按钮默认悬停即弹出（openMoreOnHover）。
- * - 下拉菜单项与标签一样带忙碌转圈。
+ * - 单行恒定高度，绝不换行。标签按 flex-1 basis-0 均分可用宽度，并带最小宽度兜底
+ *   （default 120px / file 108px），最宽 max-w-40（文件档 44）。
+ * - 放不下就收进数字框里的下拉菜单，不再靠换行堆行数。
+ * - 下拉菜单用项目统一的 EcallDropdown（毛玻璃、定位、点外部关闭、开合动画都由它提供），
+ *   点数字框或悬停都能打开；里面是固定 250×200 的预览卡：图标 + 标题 + 最近两条消息的气泡。
+ * - 溢出卡与标签一样带忙碌转圈。
  * - 激活项只有底色，没有描边与阴影。
  *
  * 已知限制：仓库没有 jsdom / @vue/test-utils，只能 SSR。
@@ -23,6 +26,7 @@ import { i18n } from "../../../i18n";
  */
 
 const SFC_SOURCE: string = SFC_SOURCE_RAW;
+const CARD_SOURCE: string = CARD_SOURCE_RAW;
 
 function tab(key: string, overrides: Partial<PanelTabStripItem> = {}): PanelTabStripItem {
   return { key, label: key, ...overrides };
@@ -59,9 +63,10 @@ function cssBlock(selector: string): string {
 }
 
 describe("PanelTabStrip 布局", () => {
-  it("标签自适应压宽而不是固定宽度：flex-1 basis-0，各自带上限", async () => {
+  it("标签均分可用宽度，但每个有最小宽度兜底，不会被压到看不见", async () => {
     const html = await render([tab("对话"), tab("设置")]);
-    expect(html).toContain("flex min-w-0 flex-1 basis-0");
+    expect(html).toContain("flex flex-1 basis-0");
+    expect(html).toContain("min-width:120px");
     expect(html).toContain("max-w-40");
   });
 
@@ -97,20 +102,28 @@ describe("PanelTabStrip 激活项底色", () => {
   });
 });
 
-describe("PanelTabStrip 溢出进下拉菜单", () => {
-  it("溢出项走 EcallDropdown，不再靠换行铺开", () => {
+describe("PanelTabStrip 溢出面板", () => {
+  it("溢出项进项目统一的下拉菜单，不再靠换行铺开", () => {
+    // 2026-11-26 变更：手搓的 Teleport 覆盖层换回 EcallDropdown（毛玻璃、定位、点外部关闭、开合动画都由它提供）
     expect(SFC_SOURCE).toContain("<EcallDropdown");
+    expect(SFC_SOURCE).toContain("overflowPanelOpen");
+    expect(SFC_SOURCE).toContain("<OverlayScrollArea");
     expect(SFC_SOURCE).toContain("v-for=\"tab in overflowTabs\"");
     expect(SFC_SOURCE).toContain("v-if=\"hasOverflow\"");
   });
 
+  it("菜单内部能滚：scroller 必须是 flex 子项，只写 h-full 拿不到受限高度", () => {
+    expect(SFC_SOURCE).toContain("scroller-class=\"min-h-0 flex-1");
+    expect(SFC_SOURCE).not.toContain("scroller-class=\"h-full");
+  });
+
   it("「更多」按钮默认悬停即弹出", () => {
     // prop 默认值必须是 true，否则用户得先点一下才知道后面还有标签
-    expect(SFC_SOURCE).toContain('openMoreOnHover: true');
+    expect(SFC_SOURCE).toContain("openMoreOnHover: true");
     expect(SFC_SOURCE).toContain(':open-on-hover="openMoreOnHover"');
   });
 
-  it("激活项掉进溢出菜单时，更多按钮有高亮", () => {
+  it("激活项掉进溢出面板时，更多按钮有高亮", () => {
     expect(SFC_SOURCE).toContain("activeInOverflow");
     expect(SFC_SOURCE).toContain("ring-base-content/15");
   });
@@ -122,13 +135,10 @@ describe("PanelTabStrip 忙碌态", () => {
     expect(html).toContain("ml-auto shrink-0");
   });
 
-  it("下拉菜单项同样显示转圈", () => {
-    const menuStart = SFC_SOURCE.indexOf('v-for="tab in overflowTabs"');
-    const menuEnd = SFC_SOURCE.indexOf("</EcallDropdown>");
-    expect(menuStart).toBeGreaterThan(0);
-    const menuSource = SFC_SOURCE.slice(menuStart, menuEnd);
-    expect(menuSource).toContain("tab.busy");
-    expect(menuSource).toContain("<AppLoading");
+  it("预览卡同样显示转圈", () => {
+    // 2026-11-26：卡片抽成 PanelTabPreviewCard.vue，转圈跟着搬过去
+    expect(CARD_SOURCE).toContain("tab.busy");
+    expect(CARD_SOURCE).toContain("<AppLoading");
   });
 });
 

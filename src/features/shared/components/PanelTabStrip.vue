@@ -11,11 +11,13 @@
         :class="fileVariant ? 'gap-1' : 'gap-0.5'"
         :aria-label="ariaLabel"
       >
-        <!-- 可见标签页列表（自适应防压缩） -->
+        <!-- 可见标签页列表：均分可用宽度，但每个不低于 minTabWidth（和溢出计算同一个值），
+             宽度不够的标签进数字框，不会把数字框挤出容器 -->
         <div
           v-for="tab in visibleTabs"
           :key="tab.key"
-          class="group relative flex min-w-0 flex-1 basis-0"
+          class="group relative flex flex-1 basis-0"
+          :style="{ minWidth: `${effectiveMinTabWidth}px` }"
           :class="[
             fileVariant ? 'max-w-44 rounded-lg' : 'max-w-40 overflow-hidden',
             tab.disabled ? 'pointer-events-none opacity-45' : 'cursor-pointer',
@@ -134,22 +136,24 @@
           </button>
         </div>
 
-        <!-- 溢出“...”更多标签页下拉按钮 -->
+        <!-- 溢出：数字框点开（或悬停展开）项目统一的下拉菜单，毛玻璃、定位、点外部关闭、开合动画都由 EcallDropdown 提供 -->
         <div v-if="hasOverflow" class="flex shrink-0 items-center pl-0.5">
           <EcallDropdown
-            v-model="overflowDropdownOpen"
+            v-model="overflowPanelOpen"
             :open-on-hover="openMoreOnHover"
             teleport
             :match-trigger-width="false"
-            panel-class="min-w-[190px] max-w-[280px] p-1 shadow-2xl border border-base-300 bg-base-100"
+            placement="bottom"
+            :max-height="overflowMenuMaxHeight"
+            panel-class="overflow-menu-panel w-[34rem]"
           >
-            <template #trigger="{ toggle, open }">
+            <template #trigger="{ toggle }">
               <button
                 type="button"
-                class="btn btn-ghost btn-xs h-7 min-h-7 min-w-7 rounded-lg border border-base-300 px-1 text-[11px] font-semibold tabular-nums leading-none transition-colors"
+                class="btn btn-ghost btn-xs h-6 min-h-6 min-w-6 rounded-lg border-2 border-base-content/80 px-1 text-xs font-semibold tabular-nums leading-none transition-colors"
                 :class="[
-                  open ? 'bg-base-300 text-base-content' : 'text-base-content/70 hover:bg-base-300/60 hover:text-base-content',
-                  activeInOverflow ? 'bg-base-100/80 font-semibold shadow-xs ring-1 ring-base-content/15' : '',
+                  overflowPanelOpen ? 'bg-base-300 text-base-content' : 'text-base-content/75 hover:bg-base-300/60 hover:text-base-content',
+                  activeInOverflow ? 'bg-base-100/80 shadow-xs ring-1 ring-base-content/15' : '',
                 ]"
                 :title="overflowButtonTitle"
                 @click.stop="toggle"
@@ -157,62 +161,24 @@
                 {{ overflowTabs.length }}
               </button>
             </template>
-            <template #default>
-              <div class="flex flex-col gap-0.5">
-                <div class="px-2 py-1 text-micro font-medium text-base-content/50 select-none">
-                  {{ t("chat.moreTabs") }} ({{ overflowTabs.length }})
+
+            <div class="flex max-h-[inherit] flex-col overflow-hidden">
+              <OverlayScrollArea class="flex min-h-0 flex-1 flex-col" scroller-class="min-h-0 flex-1 p-3">
+                <!-- 卡片固定 250×200：固定列宽 + auto-fill，列数只由菜单宽度决定，卡片本身不被拉伸 -->
+                <div class="grid grid-cols-[repeat(auto-fill,15.625rem)] gap-3">
+                  <PanelTabPreviewCard
+                    v-for="tab in overflowTabs"
+                    :key="tab.key"
+                    :tab="tab"
+                    :active="tab.key === activeKey"
+                    :close-title="closeTitle"
+                    @select="handleOverflowCardSelect"
+                    @close="handleOverflowCardClose"
+                    @contextmenu="handleTabContextMenu"
+                  />
                 </div>
-                <div
-                  v-for="tab in overflowTabs"
-                  :key="tab.key"
-                  class="group/more-tab flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer select-none"
-                  :class="[
-                    tab.key === activeKey ? 'bg-base-200/80 font-semibold text-base-content' : 'text-base-content/80 hover:bg-base-200/50',
-                    tab.disabled ? 'pointer-events-none opacity-45' : '',
-                  ]"
-                  :title="tab.title || tab.label"
-                  @click="selectOverflowTab(tab)"
-                  @contextmenu="handleTabContextMenu(tab, $event)"
-                >
-                  <div class="flex min-w-0 items-center gap-2">
-                    <img
-                      v-if="tab.iconSrc"
-                      :src="tab.iconSrc"
-                      alt=""
-                      class="size-4 shrink-0 rounded-full object-cover"
-                    />
-                    <AppIcon
-                      v-else-if="tab.icon"
-                      :name="tab.icon"
-                      class="size-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span
-                      v-if="tab.statusDotClass"
-                      :class="tab.statusDotClass"
-                      :title="tab.statusTitle"
-                      class="size-2 shrink-0 rounded-full"
-                    />
-                    <span class="truncate">{{ tab.label }}</span>
-                    <!-- 忙碌态：他在跑就跟着转，与标签上的转圈同一口径 -->
-                    <AppLoading
-                      v-if="tab.busy"
-                      size="xs"
-                      class="shrink-0 text-base-content/60"
-                    />
-                  </div>
-                  <button
-                    v-if="tab.closeable && !tab.disabled"
-                    type="button"
-                    class="btn btn-ghost btn-xs btn-circle size-5 min-h-5 opacity-60 hover:opacity-100"
-                    :title="closeTitle"
-                    @click.stop="closeOverflowTab(tab)"
-                  >
-                    <AppIcon name="close" class="size-3" />
-                  </button>
-                </div>
-              </div>
-            </template>
+              </OverlayScrollArea>
+            </div>
           </EcallDropdown>
         </div>
 
@@ -288,6 +254,8 @@ import { useI18n } from "vue-i18n";
 import AppIcon from "./AppIcon.vue";
 import AppLoading from "./AppLoading.vue";
 import EcallDropdown from "./EcallDropdown.vue";
+import OverlayScrollArea from "./OverlayScrollArea.vue";
+import PanelTabPreviewCard from "./PanelTabPreviewCard.vue";
 import { usePanelTabOverflow } from "../composables/use-panel-tab-overflow";
 import type {
   PanelTabStripContextMenuItem,
@@ -313,7 +281,7 @@ const props = withDefaults(defineProps<{
   closeOthersTitle?: string;
   contextMenuItems?: PanelTabStripContextMenuItem[];
   variant?: PanelTabStripVariant;
-  /** 单个卡片最小宽度保护（防止过分挤压），默认 default: 104px, file: 92px */
+  /** 单个卡片最小宽度保护（防止过分挤压），默认 default: 120px, file: 108px */
   minTabWidth?: number;
   /** 更多按钮下拉菜单是否悬停触发，默认 true */
   openMoreOnHover?: boolean;
@@ -342,7 +310,14 @@ const { t } = useI18n();
 
 const tabListHostRef = ref<HTMLElement | null>(null);
 const hostWidth = ref(0);
-const overflowDropdownOpen = ref(false);
+/**
+ * 溢出下拉菜单：点数字框后在它下方展开，尺寸、定位、点外部关闭、开合动画都交给
+ * 项目统一的 EcallDropdown（毛玻璃 + rounded-box + shadow-xl）。
+ * 这里只管菜单里放什么，以及菜单能长多高。
+ */
+const overflowPanelOpen = ref(false);
+/** 菜单高度上限：EcallDropdown 会再按视口剩余空间收敛，所以这里给宽一点即可 */
+const overflowMenuMaxHeight = 760;
 const closeMenu = ref<{ key: string; x: number; y: number } | null>(null);
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let longPressStart: { key: string; x: number; y: number } | null = null;
@@ -355,7 +330,7 @@ const effectiveMinTabWidth = computed(() => {
   if (typeof props.minTabWidth === "number" && props.minTabWidth > 0) {
     return props.minTabWidth;
   }
-  return fileVariant.value ? 92 : 104;
+  return fileVariant.value ? 108 : 120;
 });
 
 // ==================== 自适应溢出计算 ====================
@@ -413,8 +388,19 @@ function selectTab(tab: PanelTabStripItem) {
 }
 
 function selectOverflowTab(tab: PanelTabStripItem) {
-  overflowDropdownOpen.value = false;
+  overflowPanelOpen.value = false;
   selectTab(tab);
+}
+
+/** 预览卡只带 key 回来，这里按 key 找回标签再走原来的选中/关闭逻辑 */
+function handleOverflowCardSelect(key: string) {
+  const tab = overflowTabs.value.find((item) => item.key === key);
+  if (tab) selectOverflowTab(tab);
+}
+
+function handleOverflowCardClose(key: string) {
+  const tab = overflowTabs.value.find((item) => item.key === key);
+  if (tab) closeOverflowTab(tab);
 }
 
 function closeTab(tab: PanelTabStripItem) {
@@ -426,7 +412,7 @@ function closeTab(tab: PanelTabStripItem) {
 function closeOverflowTab(tab: PanelTabStripItem) {
   closeTab(tab);
   if (overflowTabs.value.length <= 1) {
-    overflowDropdownOpen.value = false;
+    overflowPanelOpen.value = false;
   }
 }
 
@@ -588,13 +574,14 @@ function closeMenuOtherTabs() {
 }
 
 function closeFloatingMenu() {
+  // 溢出菜单由 EcallDropdown 自己处理「点外部关闭」，这里只管标签右键菜单
   closeMenu.value = null;
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
     closeFloatingMenu();
-    overflowDropdownOpen.value = false;
+    overflowPanelOpen.value = false;
   }
 }
 
@@ -621,6 +608,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 菜单比面板宽，EcallDropdown 的 left 全靠「超没超视口」夹出来，而它监听所有 scroll（capture），
+   菜单内部一滚就重算一次，测量值一抖就横向跳。改成右边钉死视口右侧，不再依赖重算。 */
+:global(.overflow-menu-panel) {
+  left: auto !important;
+  right: 0.75rem !important;
+}
+
 .panel-tab-strip-icon {
   filter:
     drop-shadow(0 0 0.35px rgb(255 255 255 / 0.45))
