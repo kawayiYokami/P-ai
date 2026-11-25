@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.98.9](docs/changelog/releases/v0.98.9.md) - 任务改名定时器，优化定时器设置页面
 - [v0.98.8](docs/changelog/releases/v0.98.8.md) - 远程私聊（微信、飞书等联系人会话）里助手的回复发不出去
 - [v0.98.7](docs/changelog/releases/v0.98.7.md) - 停止回复时，已经生成的内容会当场保存下来，被打断的这一轮不会再冒出来继续往下跑
 - [v0.98.6](docs/changelog/releases/v0.98.6.md) - 日志换了一套写法：打开日志看到的是中文一句话，不再是满屏 JSON、英文键名和 `api-provider-…` 这类内部 ID。

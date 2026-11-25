@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-24T15:33:47.226Z",
-  "latestVersion": "v0.98.8",
+  "generatedAt": "2026-11-25T03:51:30.718Z",
+  "latestVersion": "v0.98.9",
   "releases": [
+    {
+      "version": "v0.98.9",
+      "path": "docs/changelog/releases/v0.98.9.md",
+      "summary": "任务改名定时器，优化定时器设置页面"
+    },
     {
       "version": "v0.98.8",
       "path": "docs/changelog/releases/v0.98.8.md",
