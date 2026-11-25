@@ -1575,6 +1575,7 @@ fn main() {
             confirm_plan_and_continue,
             submit_chat_message,
             send_chat_message,
+            automation_list_tasks,
             send_user_mention_message,
             submit_user_async_delegate,
             bind_active_chat_view_stream,

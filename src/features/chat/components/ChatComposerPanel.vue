@@ -79,7 +79,7 @@
     </div>
     <template v-else>
     <InputPanelDock
-      :deck-extra-visible="!!wheelchairSuggestion"
+      :deck-extra-visible="!!wheelchairSuggestion || automationTasks.length > 0"
       :queue-events="queueEnabled && !systemNotificationMode && !remoteContactMode ? visibleQueueEvents : []"
       :user-persona-name="queueUserPersonaName"
       :queue-visible="props.queueVisible ?? true"
@@ -89,6 +89,18 @@
       @mark-guided="handleQueueMarkGuided"
     >
         <template #deck-extra>
+          <!-- 当前会话的自动化任务：纯状态提示，不可关闭，与队列同层贴在输入卡上方 -->
+          <div v-if="automationTasks.length > 0" class="flex flex-wrap items-center gap-1 px-2 pb-1">
+            <span
+              v-for="task in automationTasks"
+              :key="task.id"
+              class="inline-flex max-w-48 items-center gap-1 rounded-md border border-base-300 bg-base-100 px-1.5 py-0.5 text-[11px] leading-none text-base-content/70"
+              :title="task.id"
+            >
+              <AppIcon name="refresh-cw" class="size-3 shrink-0" aria-hidden="true" />
+              <span class="truncate">{{ task.description || task.id }}</span>
+            </span>
+          </div>
           <!-- 护航建议：贴在底盘露头层，与队列同层，不进输入卡内部 -->
           <div
             v-if="wheelchairSuggestion"
@@ -653,6 +665,7 @@ import InputPanelAttachments from "./input-panel/InputPanelAttachments.vue";
 import InputPanelDock from "./input-panel/InputPanelDock.vue";
 import InputPanelToolbar from "./input-panel/InputPanelToolbar.vue";
 import { useChatQueue, type ChatQueueEvent } from "../composables/use-chat-queue";
+import { invokeTauri, onTransportNotification } from "../../../services/tauri-api";
 import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
@@ -865,8 +878,24 @@ function onMenuOutsideClick(event: MouseEvent) {
   }
 }
 
-onMounted(() => { document.addEventListener('pointerdown', onMenuOutsideClick); });
-onBeforeUnmount(() => { document.removeEventListener('pointerdown', onMenuOutsideClick); });
+let stopAutomationUpdated: (() => void) | null = null;
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onMenuOutsideClick);
+  stopAutomationUpdated = onTransportNotification<{ conversationId?: string }>(
+    "automation.updated",
+    (payload) => {
+      const updated = String(payload?.conversationId || "").trim();
+      if (!updated || updated !== String(props.activeConversationId || "").trim()) return;
+      void refreshAutomationTasks();
+    },
+  );
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onMenuOutsideClick);
+  stopAutomationUpdated?.();
+  stopAutomationUpdated = null;
+});
 
 const { queueEvents, refreshQueue, recallQueueEvent, markGuided } = useChatQueue({
   enabled: queueEnabled,
@@ -880,6 +909,46 @@ watch(
     if (!next || next === prev) return;
     void refreshQueue();
   },
+);
+
+/** 当前会话的自动化任务：只用于输入卡上方的状态磁贴。 */
+type AutomationTaskTile = {
+  id: string;
+  description: string;
+};
+
+const automationTasks = ref<AutomationTaskTile[]>([]);
+
+async function refreshAutomationTasks() {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId) {
+    automationTasks.value = [];
+    return;
+  }
+  try {
+    const list = await invokeTauri<unknown[]>("automation_list_tasks", { conversationId });
+    // 拉取期间可能已经切走：回来的结果不属于当前会话就丢掉
+    if (String(props.activeConversationId || "").trim() !== conversationId) return;
+    automationTasks.value = (Array.isArray(list) ? list : [])
+      .map((row) => {
+        const item = (row || {}) as Record<string, unknown>;
+        return {
+          id: String(item.id ?? "").trim(),
+          description: String(item.description ?? "").trim(),
+        };
+      })
+      .filter((task) => task.id !== "");
+  } catch {
+    automationTasks.value = [];
+  }
+}
+
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  () => {
+    void refreshAutomationTasks();
+  },
+  { immediate: true },
 );
 
 const visibleQueueEvents = computed(() => {

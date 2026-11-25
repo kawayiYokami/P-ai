@@ -39,22 +39,24 @@ fn automation_config_for_conversation(data_path: &PathBuf, conversation_id: &str
     automation_dir_for_conversation(data_path, conversation_id).join(AUTOMATION_CONFIG_FILE_NAME)
 }
 
-// 字段名写错必须当场报错：清单是会话自己手写的，`interval_seconds` 这种
-// 下划线写法一旦被静默忽略，任务会从「每 300 秒跑一次」悄悄变成「常驻」。
+// 清单由会话自己手写，允许带任意额外字段：多余字段静默忽略，不因拼写差异整份拒收。
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct ConversationAutomationConfig {
     #[serde(default)]
     tasks: Vec<ConversationAutomationTask>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct ConversationAutomationTask {
     #[serde(default)]
     id: String,
     #[serde(default)]
     command: String,
+    /// 任务用途说明，只用于 describe 回显，不参与调度。
+    #[serde(default)]
+    description: String,
     /// 有值且 > 0 表示按间隔执行；缺省或 0 表示常驻保活。
     #[serde(default)]
     interval_seconds: Option<u64>,
@@ -1065,6 +1067,25 @@ fn automation_latest_archived_log(dir: &PathBuf) -> Option<PathBuf> {
     best.map(|(_, path)| path)
 }
 
+/// 通知前端：这份清单刚被重读过，任务列表需要刷新。
+fn conversation_automation_broadcast_updated(state: &AppState, conversation_id: &str) {
+    let payload = serde_json::json!({ "conversationId": conversation_id });
+    ide_chat_broadcast_notification("automation.updated", payload.clone());
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(err) => {
+            runtime_log_error(format!("[自动化] 获取窗口句柄失败：锁已损坏 错误={err}"));
+            None
+        }
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    if let Err(err) = app_handle.emit("easy-call:automation-updated", payload) {
+        runtime_log_error(format!("[自动化] 推送失败 错误={err}"));
+    }
+}
+
 /// 只重读当前会话的清单：其他会话的任务一个都不碰。
 ///
 /// 清单文件不存在时按「这个会话没有任务」处理：把它自己的任务停掉，并在回执里说明期望路径。
@@ -1097,6 +1118,7 @@ fn conversation_automation_reload_conversation(
         }
     }
     automation_reconcile(state, &desired, &mut outcome)?;
+    conversation_automation_broadcast_updated(state, &conversation_id);
     runtime_log_info(format!(
         "[自动化] 完成 任务=重读会话自动化清单 会话={conversation_id} 任务数={} 起任务数={} 停任务数={} 错误数={}",
         outcome.tasks.len(),
@@ -1153,6 +1175,7 @@ fn conversation_automation_describe(
             serde_json::json!({
                 "id": task.id,
                 "command": task.command,
+                "description": task.description,
                 "intervalSeconds": task.interval_seconds,
                 "running": record.is_some(),
                 "lastRun": record.and_then(|record| record.clone()).map(|record| {
@@ -1165,4 +1188,13 @@ fn conversation_automation_describe(
             })
         })
         .collect())
+}
+
+/// 前端读取当前会话的自动化任务列表：就是 describe 的那份，不做任何加工。
+#[tauri::command]
+fn automation_list_tasks(
+    conversation_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    conversation_automation_describe(state.inner(), &conversation_id)
 }

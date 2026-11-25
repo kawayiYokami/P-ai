@@ -2394,6 +2394,8 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "workspace.migrationProgress": "easy-call:workspace-migration-progress",
   "fileReader.watchChanged": "easy-call:file-reader-watch-changed",
   "gitPanel.watchChanged": "easy-call:git-panel-changed",
+  // 自动化清单被重读（文件改了、启动加载完）：带上 conversationId，前端据此重拉该会话的任务列表
+  "automation.updated": "easy-call:automation-updated",
 };
 
 const localTransportNotificationHandlers = new Map<string, Set<(payload: unknown) => void>>();

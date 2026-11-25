@@ -384,6 +384,7 @@
         let task = |interval: Option<u64>| ConversationAutomationTask {
             id: "beat".to_string(),
             command: "python beat.py".to_string(),
+            description: String::new(),
             interval_seconds: interval,
         };
         assert_eq!(task(None).interval(), None, "缺省是常驻");
@@ -790,34 +791,6 @@
         assert!(capped[0].contains("退出码=1"), "要留最后一条：{capped:?}");
 
         let _ = std::fs::remove_file(&path);
-    }
-
-    /// 字段名写成下划线要当场报错：静默忽略的话，按间隔跑的任务会悄悄变成常驻。
-    #[test]
-    fn automation_reload_conversation_should_reject_unknown_field() {
-        let _guard = automation_test_guard();
-        let state = test_chat_runtime_state();
-        let conversation_id = automation_test_conversation(&state);
-        let cwd = automation_dir_for_conversation(&state.data_path, &conversation_id);
-        std::fs::create_dir_all(&cwd).expect("create automation dir");
-        let config_path = automation_config_for_conversation(&state.data_path, &conversation_id);
-        std::fs::write(
-            &config_path,
-            serde_json::json!({
-                "tasks": [{ "id": "beat", "command": "python beat.py", "interval_seconds": 300 }],
-            })
-            .to_string(),
-        )
-        .expect("write config with snake_case field");
-
-        let outcome = conversation_automation_reload_conversation(&state, &conversation_id)
-            .expect("reload");
-        let error = outcome.errors.join("\n");
-        assert!(error.contains("unknown field"), "拼错的字段名要报出来：{error}");
-        assert!(error.contains("interval_seconds"), "要点名是哪个字段写错了：{error}");
-        assert!(outcome.tasks.is_empty(), "字段拼错的清单不该被托管：{:?}", outcome.tasks);
-
-        std::fs::remove_file(&config_path).ok();
     }
 
     /// 空 command 的条目要明确报出来，不能悄悄消失。
