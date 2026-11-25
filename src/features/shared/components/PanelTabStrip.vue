@@ -75,18 +75,30 @@
               </span>
             </template>
             <template v-else>
-              <img
-                v-if="tab.iconSrc"
-                :src="tab.iconSrc"
-                alt=""
-                class="panel-tab-strip-icon size-4 shrink-0 rounded-full object-cover"
-              />
-              <AppIcon
-                v-else-if="tab.icon"
-                :name="tab.icon"
-                class="size-4 shrink-0"
-                aria-hidden="true"
-              />
+              <span v-if="tab.iconSrc || tab.icon" class="relative flex size-4 shrink-0 items-center justify-center">
+                <img
+                  v-if="tab.iconSrc"
+                  :src="tab.iconSrc"
+                  alt=""
+                  class="panel-tab-strip-icon absolute size-4 rounded-full object-cover transition-opacity group-hover:opacity-0"
+                />
+                <AppIcon
+                  v-else-if="tab.icon"
+                  :name="tab.icon"
+                  class="absolute size-4 transition-opacity group-hover:opacity-0"
+                  aria-hidden="true"
+                />
+                <!-- 关闭按钮和图标占同一格：悬停时图标淡出、关闭浮上来，跟文件标签同一套手感 -->
+                <span
+                  v-if="overlayCloseEnabled(tab)"
+                  role="button"
+                  class="absolute inset-0 flex cursor-pointer items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+                  :title="closeTitle"
+                  @click.stop="closeTab(tab)"
+                >
+                  <AppIcon name="close" class="size-3.5" />
+                </span>
+              </span>
             </template>
             <!-- 会话状态圆点：与徽章/标签并列，不占标题的截断预算。类名由领域侧整套给出（几何+描边+填充），这里不猜 -->
             <span
@@ -109,7 +121,7 @@
             />
           </button>
           <button
-            v-if="!fileVariant && tab.closeable && shouldShowCloseButton(tab)"
+            v-if="!fileVariant && tab.closeable && !overlayCloseEnabled(tab) && shouldShowCloseButton(tab)"
             type="button"
             class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1/2 -translate-y-1/2 border border-base-300 bg-base-100"
             :class="tab.key === activeKey
@@ -369,6 +381,17 @@ const estimatedTabWidth = computed(() => {
 
 const compactInactiveClose = computed(() => estimatedTabWidth.value < CLOSE_BUTTON_MIN_TAB_WIDTH);
 
+/**
+ * 关闭按钮是否与图标叠在同一格。
+ * 有图标的标签（追问、队员）照文件标签的做法叠上去；没图标的仍留在标签右端，
+ * 免得关闭入口失去落点。队员标签 closeable 为 false，这里自然不参与。
+ */
+function overlayCloseEnabled(tab: PanelTabStripItem) {
+  if (fileVariant.value) return false;
+  if (!tab.closeable || tab.disabled) return false;
+  return Boolean(tab.icon || tab.iconSrc);
+}
+
 function shouldShowCloseButton(tab: PanelTabStripItem) {
   if (!tab.closeable || tab.disabled) return false;
   if (tab.key === props.activeKey) return true;
@@ -376,7 +399,7 @@ function shouldShowCloseButton(tab: PanelTabStripItem) {
 }
 
 function shouldReserveCloseSpace(tab: PanelTabStripItem) {
-  return shouldShowCloseButton(tab);
+  return shouldShowCloseButton(tab) && !overlayCloseEnabled(tab);
 }
 
 function selectTab(tab: PanelTabStripItem) {
