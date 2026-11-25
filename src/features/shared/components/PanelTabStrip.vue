@@ -146,7 +146,7 @@
             <template #trigger="{ toggle, open }">
               <button
                 type="button"
-                class="btn btn-ghost btn-xs size-7 min-h-7 rounded-lg px-0 transition-colors"
+                class="btn btn-ghost btn-xs h-7 min-h-7 min-w-7 rounded-lg border border-base-300 px-1 text-[11px] font-semibold tabular-nums leading-none transition-colors"
                 :class="[
                   open ? 'bg-base-300 text-base-content' : 'text-base-content/70 hover:bg-base-300/60 hover:text-base-content',
                   activeInOverflow ? 'bg-base-100/80 font-semibold shadow-xs ring-1 ring-base-content/15' : '',
@@ -154,7 +154,7 @@
                 :title="overflowButtonTitle"
                 @click.stop="toggle"
               >
-                <AppIcon name="more-horizontal" class="size-4" />
+                {{ overflowTabs.length }}
               </button>
             </template>
             <template #default>
