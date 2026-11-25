@@ -700,7 +700,7 @@ async fn run_genai_tool_loop(
         .await?;
         // 零 delta 门禁 + 空轮次重发同一请求：推过任何 delta（文本/推理）就不再重试；
         // 有工具调用的轮次直接走执行；纯空轮次原样重发，不重跑之前轮次的工具。
-        let round_output = retry_request_once(
+        let request_future = retry_request_once(
             request_max_attempts,
             genai_tool_loop_round_should_retry,
             || async {
@@ -905,8 +905,36 @@ async fn run_genai_tool_loop(
             .await;
             (outcome, pushed_any)
             },
-        )
-        .await;
+        );
+        // 整段请求（含重试循环）与结束信号赛跑：命中就把整段丢掉，本轮正常完结、不重试。
+        // 请求还没发出、正在退避等待、正在等连接，都在这一步结束，不会再有下一次发起。
+        let round_output = match tool_abort_state {
+            Some(state) if !round_stop_ids.is_empty() => {
+                match race_with_chat_stop(state, &round_stop_ids, request_future).await {
+                    Some(output) => output,
+                    None => {
+                        runtime_log_info(format!(
+                            "[聊天] 本轮请求被结束信号中止，按正常完结收束 会话={}",
+                            usage_conversation_id.unwrap_or("(none)")
+                        ));
+                        // 停止：这一轮到此为止，直接按正常完结返回。
+                        // 不产生任何错误、不进入候选模型的内容判定、不再发起下一次请求。
+                        return Ok(ModelReply {
+                            assistant_text: full_assistant_text,
+                            final_response_text: String::new(),
+                            activity_reasoning_text: full_activity_reasoning_text,
+                            assistant_provider_meta: final_assistant_provider_meta_override.clone(),
+                            tool_history_events,
+                            suppress_assistant_message: true,
+                            trusted_input_tokens,
+                            usage: latest_usage,
+                            round_logs_recorded_internally: true,
+                        });
+                    }
+                }
+            }
+            _ => request_future.await,
+        };
         runtime_log_info(format!(
             "[聊天] 阶段=tool_loop.round_model_request.finish 模式=stream 轮次={} 模型={} 模型配置={} 状态={} 耗时={}ms",
             round_index + 1,

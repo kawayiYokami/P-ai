@@ -2466,6 +2466,20 @@ async fn send_chat_message_inner(
                 }
             }
 
+            // 本轮已被要求停止：直接跳到完成，不再走后续任何流程（不判内容形状、
+            // 不切候选、不落盘、不组装消息、不弹框）。停止不是错误。
+            let stopped_request_ids =
+                inflight_round_request_ids_by_conversation(&state, &conversation_id);
+            if round_stop_requested(&state, &stopped_request_ids) {
+                runtime_log_info(format!(
+                    "[聊天] 本轮已被要求停止，直接完结 模型配置={} 尝试={}",
+                    candidate_selected_api.id, attempt
+                ));
+                return Ok(empty_chat_round_result(
+                    &conversation_id,
+                    runtime_context.request_id.as_deref().unwrap_or(""),
+                ));
+            }
             let retry_kind = classify_retry_kind_for_result(&chat_round_execution.result);
             // 用户中止不是模型失败：若按失败处理，收尾层会走失败落盘，把本轮已产生的流式正文
             // 与工具行整段丢掉，还会回报成「所有候选模型均失败」。所以中止要立刻收束、
