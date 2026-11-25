@@ -57,6 +57,14 @@ type ConversationViewRuntimeOptions = {
 
 type ConversationRuntimeState = "idle" | "assistant_streaming" | "organizing_context" | "compacting";
 
+// 追问 / 队员面板和主会话走的是同一套「最近快照 + 向上翻页」，条数必须同档，
+// 否则同一个懒加载机制在右面板会退化成近似全量：主会话一次 4 条，
+// 追问一次 50 条，等于每次切标签都把整个会话读回来。
+// 对齐口径：use-chat-runtime.ts 的 FOREGROUND_SNAPSHOT_RECENT_LIMIT、
+// use-chat-window-state.ts 的 OLDER_HISTORY_PAGE_SIZE，两处都是 4。
+const FOREGROUND_SNAPSHOT_RECENT_LIMIT = 4;
+const OLDER_HISTORY_PAGE_SIZE = 4;
+
 type ConversationLightSnapshot = {
   conversationId?: string;
   messages?: ChatMessage[];
@@ -190,7 +198,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       return null;
     }
     const snapshot = await invokeTauri<ConversationLightSnapshot>("conversation.foregroundLightSnapshot", {
-      input: { conversationId, agentId: null, limit: 50, resumeProjection: true },
+      input: { conversationId, agentId: null, limit: FOREGROUND_SNAPSHOT_RECENT_LIMIT, resumeProjection: true },
     });
     const snapshotConversationId = String(snapshot?.conversationId || conversationId).trim();
     if (
@@ -285,7 +293,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     loadingOlderHistory.value = true;
     try {
       const result = await invokeTauri<{ messages?: ChatMessage[]; hasMore?: boolean }>("conversation.messagesBefore", {
-        input: { conversationId, beforeMessageId: oldestMessageId, limit: 50 },
+        input: { conversationId, beforeMessageId: oldestMessageId, limit: OLDER_HISTORY_PAGE_SIZE },
       });
       if (conversationId !== currentConversationId()) return;
       const incoming = ensureConversationMessageIds(Array.isArray(result?.messages) ? result.messages : []);
