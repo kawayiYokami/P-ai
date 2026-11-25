@@ -843,7 +843,13 @@
           @clear-context-references="clearFileReaderContextReferences"
         >
           <template #tabLeadingActions>
-            <ChatRightPanelSwitcher @select-home="selectChatRightPanelMode('home')" />
+            <ChatRightPanelNav
+              :can-go-back="chatRightPanelCanGoBack"
+              :can-go-forward="chatRightPanelCanGoForward"
+              @go-back="emit('goBackChatRightPanel')"
+              @go-forward="emit('goForwardChatRightPanel')"
+              @select-home="selectChatRightPanelMode('home')"
+            />
           </template>
           <template #empty>
             <div class="space-y-2 px-5 text-center">
@@ -884,7 +890,13 @@
             @select-tab="selectMonitorPanelTab"
           >
             <template #leading>
-              <ChatRightPanelSwitcher @select-home="selectChatRightPanelMode('home')" />
+              <ChatRightPanelNav
+                :can-go-back="chatRightPanelCanGoBack"
+                :can-go-forward="chatRightPanelCanGoForward"
+                @go-back="emit('goBackChatRightPanel')"
+                @go-forward="emit('goForwardChatRightPanel')"
+                @select-home="selectChatRightPanelMode('home')"
+              />
             </template>
           </PanelTabStrip>
           <ToolReviewSidebar class="min-h-0 flex-1"
@@ -968,7 +980,7 @@ import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
 import ChatHomePanel from "../components/ChatHomePanel.vue";
 import type { LatestPlanSummary } from "../components/chat-home/HomePlanCard.vue";
-import ChatRightPanelSwitcher from "../components/ChatRightPanelSwitcher.vue";
+import ChatRightPanelNav from "../components/ChatRightPanelNav.vue";
 import ToolReviewTargetDialog from "../components/ToolReviewTargetDialog.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import { useWorkspaceGitStatus } from "../../file-reader/composables/use-workspace-git-status";
@@ -1089,6 +1101,8 @@ const props = defineProps<{
   conversationListTab: "local" | "contact" | "timer";
   chatLeftPanelMode: "local" | "contact" | "timer";
   chatRightPanelMode: ChatRightPanelMode;
+  chatRightPanelCanGoBack?: boolean;
+  chatRightPanelCanGoForward?: boolean;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
   teamVisible?: boolean;
@@ -1142,6 +1156,8 @@ const emit = defineEmits<{
   (e: "update:conversation-list-tab", value: "local" | "contact" | "timer"): void;
   (e: "update:chatLeftPanelMode", value: "local" | "contact" | "timer"): void;
   (e: "update:chatRightPanelMode", value: ChatRightPanelMode): void;
+  (e: "goBackChatRightPanel"): void;
+  (e: "goForwardChatRightPanel"): void;
   (e: "update:chatMonitorPanelMode", value: ChatMonitorPanelMode): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
@@ -4668,7 +4684,12 @@ async function handleAssistantLinkClick(event: MouseEvent) {
     event.preventDefault(); event.stopPropagation();
     try { await openTransportExternalUrl(href); linkOpenErrorText.value = ""; }
     catch (error) { linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) }); }
+    return;
   }
+  // 既不是绝对路径也不是外链：相对路径没能解析出可打开的绝对路径。
+  // 以前这里直接返回，点了毫无反应，也看不到原因——至少把落空的路径说出来。
+  event.preventDefault(); event.stopPropagation();
+  linkOpenErrorText.value = t("status.openLinkFailed", { err: href });
 }
 
 function openLocalFileInChatReader(path: string, line?: number) {

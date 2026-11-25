@@ -104,6 +104,8 @@
     @close-goal-task="closeGoalTaskDialog"
     @save-goal-task="saveGoalTask"
     @stop-goal-task="stopGoalTask"
+    @open-chat-reader-file="handleOpenChatReaderFile"
+    @open-chat-reader-directory="handleOpenChatReaderDirectory"
   />
 </template>
 
@@ -160,6 +162,22 @@ const props = defineProps<{
 
 const { t } = useI18n();
 let unlistenGoalUpdated: (() => void) | null = null;
+
+const emit = defineEmits<{
+  (e: "openChatReaderFile", path: string, line?: number): void;
+  (e: "openChatReaderDirectory", path: string, line?: number): void;
+}>();
+
+/** 侧边会话里的消息也带文件链接与计划卡片，点击必须往上抛：
+    这里不转发，事件就断在 ConversationView，表现是「点了没反应」。 */
+function handleOpenChatReaderFile(path: string, line?: number) {
+  emit("openChatReaderFile", path, line);
+}
+
+function handleOpenChatReaderDirectory(path: string, line?: number) {
+  emit("openChatReaderDirectory", path, line);
+}
+
 const conversationId = toRef(props, "conversationId");
 const apiConfigId = toRef(props, "apiConfigId");
 const agentId = toRef(props, "agentId");

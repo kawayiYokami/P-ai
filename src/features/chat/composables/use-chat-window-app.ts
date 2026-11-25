@@ -38,6 +38,7 @@ import {
   type SideConversationPanel,
 } from "./side-conversation-panel";
 import { loadStoredChatRightPanelMode } from "./chat-ui-layout-storage";
+import { useChatRightPanelHistory, type ChatRightPanelView } from "./use-chat-right-panel-history";
 import { useChatWindowPaneExpansion } from "./use-chat-window-pane-expansion";
 
 type ConversationActionsBridge = {
@@ -855,6 +856,40 @@ export function useChatWindowApp() {
     const cid = String(nextId || "").trim();
     if (cid) clearSideConversationUnread(cid);
   });
+  // 右面板浏览历史：文件页、侧边会话、队伍成员之间来回切，靠它后退/前进。
+  // 只记「模式 + 模式内会话」；文件页记到哪个文件由文件阅读器自己维持。
+  function currentRightPanelView(): ChatRightPanelView {
+    const mode = chatRightPanelMode.value;
+    const scopedToConversation = mode === "sideChat" || mode === "teamMember";
+    return {
+      mode,
+      conversationId: scopedToConversation ? String(sideConversationId.value || "").trim() : "",
+    };
+  }
+  function applyRightPanelView(view: ChatRightPanelView): boolean {
+    if (view.mode === "sideChat" || view.mode === "teamMember") {
+      const id = String(view.conversationId || "").trim();
+      if (id) {
+        // 会话可能已经被删：这一页打不开，让历史继续往前退
+        const alive = sideConversations.value.some(
+          (item) => String(item?.conversationId || "").trim() === id,
+        );
+        if (!alive) return false;
+        selectSideChatConversation(id);
+      }
+    }
+    chatUiState.updateChatRightPanelMode(view.mode);
+    return true;
+  }
+  const {
+    canGoBack: canGoBackRightPanel,
+    canGoForward: canGoForwardRightPanel,
+    goBack: goBackRightPanel,
+    goForward: goForwardRightPanel,
+  } = useChatRightPanelHistory({
+    currentView: currentRightPanelView,
+    applyView: applyRightPanelView,
+  });
   const createSideChatConversation = async (withContext = true) => {
     const conversationId = await conversationOrchestrator.createSideChatConversation(undefined, withContext);
     if (conversationId) {
@@ -1230,6 +1265,10 @@ export function useChatWindowApp() {
     sideConversationUnreadMap,
     backgroundConversationBadgeMap,
     selectSideChatConversation,
+    canGoBackRightPanel,
+    canGoForwardRightPanel,
+    goBackRightPanel,
+    goForwardRightPanel,
     openSideChatNewPage,
     createSideChatConversation,
     createSideConversationBranchFromTurn,

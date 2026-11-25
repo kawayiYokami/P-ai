@@ -2011,6 +2011,10 @@
     "filePanelTab": "檔案",
     "monitorPanelTab": "監控",
     "moreTabs": "更多分頁",
+    "rightPanelNav": {
+      "back": "後退",
+      "forward": "前進"
+    },
     "homePanel": {
       "title": "預覽",
       "gitChanges": "Git 變更",

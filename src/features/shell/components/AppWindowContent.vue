@@ -202,6 +202,8 @@
         :conversation-list-tab="conversationListTab"
         :chat-left-panel-mode="chatLeftPanelMode"
         :chat-right-panel-mode="chatRightPanelMode"
+        :chat-right-panel-can-go-back="chatRightPanelCanGoBack"
+        :chat-right-panel-can-go-forward="chatRightPanelCanGoForward"
         :chat-monitor-panel-mode="chatMonitorPanelMode"
         :side-chat-panel-enabled="true"
         :show-attach-action="true"
@@ -223,6 +225,8 @@
         @update:conversation-list-tab="updateConversationListTab"
         @update:chat-left-panel-mode="updateChatLeftPanelMode"
         @update:chat-right-panel-mode="updateChatRightPanelMode"
+        @go-back-chat-right-panel="goBackChatRightPanel"
+        @go-forward-chat-right-panel="goForwardChatRightPanel"
         @update:chat-monitor-panel-mode="updateChatMonitorPanelMode"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
@@ -294,7 +298,13 @@
               @close-other-tabs="closeOtherSideChatTabs"
             >
               <template #leading>
-                <ChatRightPanelSwitcher @select-home="updateChatRightPanelMode('home')" />
+                <ChatRightPanelNav
+                  :can-go-back="chatRightPanelCanGoBack"
+                  :can-go-forward="chatRightPanelCanGoForward"
+                  @go-back="goBackChatRightPanel"
+                  @go-forward="goForwardChatRightPanel"
+                  @select-home="updateChatRightPanelMode('home')"
+                />
               </template>
               <template #tabTrailing>
                 <button
@@ -336,6 +346,8 @@
               :approve-terminal-approval-for-workspace="(requestId) => approveTerminalApprovalForWorkspace(requestId)"
               :request-recall-mode="requestRecallMode"
               :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: sideChatPanelConversationId })"
+              @open-chat-reader-file="openChatReaderFile"
+              @open-chat-reader-directory="openChatReaderDirectory"
             />
             <div v-else class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden px-6">
               <div class="relative flex w-full max-w-80 flex-col items-center gap-5">
@@ -382,7 +394,13 @@
               @close-other-tabs="closeOtherSideChatTabs"
             >
               <template #leading>
-                <ChatRightPanelSwitcher @select-home="updateChatRightPanelMode('home')" />
+                <ChatRightPanelNav
+                  :can-go-back="chatRightPanelCanGoBack"
+                  :can-go-forward="chatRightPanelCanGoForward"
+                  @go-back="goBackChatRightPanel"
+                  @go-forward="goForwardChatRightPanel"
+                  @select-home="updateChatRightPanelMode('home')"
+                />
               </template>
             </PanelTabStrip>
             <ConversationView
@@ -414,6 +432,8 @@
               :approve-terminal-approval-for-workspace="(requestId) => approveTerminalApprovalForWorkspace(requestId)"
               :request-recall-mode="requestRecallMode"
               :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: teamMemberPanelConversationId })"
+              @open-chat-reader-file="openChatReaderFile"
+              @open-chat-reader-directory="openChatReaderDirectory"
             />
             <div v-else class="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
               <div class="text-sm text-base-content/60">{{ t('chat.teamMember.empty') }}</div>
@@ -573,7 +593,7 @@
 const ConfigView = defineAsyncComponent(() => import("../../config/views/ConfigView.vue"));
 const ChatView = defineAsyncComponent(() => import("../../chat/views/ChatView.vue"));
 import ConversationView from "../../chat/views/ConversationView.vue";
-import ChatRightPanelSwitcher from "../../chat/components/ChatRightPanelSwitcher.vue";
+import ChatRightPanelNav from "../../chat/components/ChatRightPanelNav.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { conversationRuntimeBusy } from "../../chat/utils/conversation-item-display";
@@ -652,6 +672,10 @@ const props = defineProps<{
   conversationListTab: "local" | "contact" | "timer";
   chatLeftPanelMode: "local" | "contact" | "timer";
   chatRightPanelMode: ChatRightPanelMode;
+  chatRightPanelCanGoBack: boolean;
+  chatRightPanelCanGoForward: boolean;
+  goBackChatRightPanel: () => void;
+  goForwardChatRightPanel: () => void;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
   configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "timer" | "logs" | "appearance" | "migration" | "about";

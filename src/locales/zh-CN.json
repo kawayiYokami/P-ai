@@ -2014,6 +2014,10 @@
     "filePanelTab": "文件",
     "monitorPanelTab": "监控",
     "moreTabs": "更多标签页",
+    "rightPanelNav": {
+      "back": "后退",
+      "forward": "前进"
+    },
     "homePanel": {
       "title": "预览",
       "gitChanges": "Git 更改",

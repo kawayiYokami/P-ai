@@ -1878,6 +1878,10 @@
     "filePanelTab": "Files",
     "monitorPanelTab": "Monitor",
     "moreTabs": "More Tabs",
+    "rightPanelNav": {
+      "back": "Back",
+      "forward": "Forward"
+    },
     "homePanel": {
       "title": "Preview",
       "gitChanges": "Git changes",

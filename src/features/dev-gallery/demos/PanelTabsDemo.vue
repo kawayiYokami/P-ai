@@ -15,6 +15,14 @@
       <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 240">窄视口 (240px)</button>
       <button type="button" class="btn btn-ghost btn-xs" @click="containerWidth = 560">宽视口 (560px)</button>
       <button type="button" class="btn btn-ghost btn-xs text-primary" @click="resetTabs">重置标签列表</button>
+      <label class="flex items-center gap-1 text-xs">
+        <input v-model="navCanGoBack" type="checkbox" class="checkbox checkbox-xs" />
+        可后退
+      </label>
+      <label class="flex items-center gap-1 text-xs">
+        <input v-model="navCanGoForward" type="checkbox" class="checkbox checkbox-xs" />
+        可前进
+      </label>
     </GalleryControls>
 
     <div class="space-y-4">
@@ -35,6 +43,36 @@
             @select-tab="(k) => (activeKey = k)"
             @close-tab="onCloseTab"
           />
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-1.5 flex items-center justify-between text-xs font-medium text-base-content/70">
+          <span>会话风格 + 右面板导航条 (leading 插槽)</span>
+          <span class="text-micro text-base-content/50">后退 / 前进 / 回预览，三颗一组贴在标签左边</span>
+        </div>
+        <div
+          class="overflow-hidden rounded-box border border-base-300 bg-base-200"
+          :style="{ width: `${containerWidth}px`, maxWidth: '100%' }"
+        >
+          <PanelTabStrip
+            :tabs="tabs"
+            :active-key="activeKey"
+            aria-label="Demo Tabs With Nav"
+            close-title="关闭"
+            @select-tab="(k) => (activeKey = k)"
+            @close-tab="onCloseTab"
+          >
+            <template #leading>
+              <ChatRightPanelNav
+                :can-go-back="navCanGoBack"
+                :can-go-forward="navCanGoForward"
+                @go-back="navCanGoBack = false"
+                @go-forward="navCanGoForward = false"
+                @select-home="() => undefined"
+              />
+            </template>
+          </PanelTabStrip>
         </div>
       </div>
 
@@ -66,6 +104,7 @@
 import { ref } from "vue";
 import GalleryControls from "../GalleryControls.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
+import ChatRightPanelNav from "../../chat/components/ChatRightPanelNav.vue";
 import type { PanelTabStripItem } from "../../shared/components/panel-tab-strip.types";
 
 function svgDataUrl(svg: string): string {
@@ -83,6 +122,8 @@ const avatarMap: Record<string, string> = {
 
 const containerWidth = ref(360);
 const activeKey = ref("herta");
+const navCanGoBack = ref(true);
+const navCanGoForward = ref(true);
 const fileActiveKey = ref("readme");
 
 const initialTabs: PanelTabStripItem[] = [
