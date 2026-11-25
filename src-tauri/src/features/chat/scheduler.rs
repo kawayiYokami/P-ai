@@ -587,10 +587,29 @@ fn claim_queued_conversation_batches(
     let mut claimed_batches = Vec::<(String, Vec<ChatPendingEvent>)>::new();
     for (conversation_id, _) in eligible.into_iter().take(available_slots) {
         let slot = conversation_slot_mut(&mut slots, &conversation_id);
-        let Some(event) = slot.pending_queue.pop_front() else {
+        // 截止时间只在这里用。worker 还没起来的活没有信号可读，只能按时间拒绝：
+        // 不晚于截止时间的事件，是被打断那一刻之前就排着的活，一律丢弃。
+        // 用户停完立刻发的新消息时间晚于截止时间，照常放行。
+        let cutoff = slot.interrupt_cutoff_ms;
+        let mut kept_event = None;
+        while let Some(event) = slot.pending_queue.pop_front() {
+            if round_blocked_by_interrupt_cutoff(cutoff, event.created_at_ms) {
+                runtime_log_info(format!(
+                    "[聊天调度] 丢弃被打断之前的排队事件 会话={} 事件时间={} 截止时间={}",
+                    conversation_id,
+                    event.created_at_ms,
+                    cutoff.unwrap_or_default()
+                ));
+                continue;
+            }
+            kept_event = Some(event);
+            break;
+        }
+        slot.last_activity_at = now_iso();
+        let Some(event) = kept_event else {
+            // 整个队列都是打断之前的活：不认领、不 spawn，worker 不出现。
             continue;
         };
-        slot.last_activity_at = now_iso();
         claims.insert(conversation_id.clone());
         claimed_batches.push((conversation_id, vec![event]));
     }
@@ -642,6 +661,43 @@ async fn process_conversation_batch(
         .iter()
         .map(|event| event.id.clone())
         .collect::<Vec<_>>();
+    // 这一轮自己的停止通道：worker 一起来就建好，写历史阶段就能读到「本轮是否已被点名」。
+    // 它挂在本轮登记上，随收尾摘除一起消失，不跨轮次、不需要任何复位。
+    let round_agent_id = events
+        .iter()
+        .find_map(|event| {
+            let agent_id = event.session_info.agent_id.trim();
+            (!agent_id.is_empty()).then(|| agent_id.to_string())
+        })
+        .unwrap_or_else(|| DEFAULT_AGENT_ID.to_string());
+    let round_request_id = events
+        .iter()
+        .find_map(|event| {
+            event
+                .runtime_context
+                .as_ref()
+                .and_then(|context| context.request_id.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        // 事件没带号（定时器、远程 IM、会话激活）就在这里定一个：登记发生在激活之前，
+        // 号晚一步生成，表里记的号和 worker 手里的号就会是两个，同一轮被登记两次、互相接管。
+        .unwrap_or_else(|| format!("chat-{}", Uuid::new_v4()));
+    let round_chat_key = inflight_chat_key(&round_agent_id, Some(conversation_id));
+    if let Err(err) = register_inflight_chat_abort_handle(
+        state,
+        &round_chat_key,
+        &round_request_id,
+        "",
+    ) {
+        runtime_log_warn(format!(
+            "[聊天调度] 登记本轮失败 会话={} 原因={}",
+            conversation_id, err
+        ));
+    }
+    // 这一轮的停止判据：本轮的号（当前号 + 压缩重启换掉的旧号）在不在待停列表里。
+    let round_stop_ids = inflight_round_request_ids(state, &round_chat_key);
     let latest_user_text = latest_user_text_from_events(&events);
     let history_flush_time = now_iso();
     let oldest_queue_created_at = events
@@ -781,15 +837,30 @@ async fn process_conversation_batch(
             persisted.created_at = history_flush_time.clone();
             let recall_payload = if persisted.role.trim() == "user"
                 && !matches!(event.source, ChatEventSource::RemoteIm)
+                && !round_stop_requested(state, &round_stop_ids)
             {
-                with_memory_lock(state, "scheduler_user_message_recall", || {
-                    collect_recall_payload_for_user_message(
-                        &state.data_path,
-                        &scheduler_agents,
-                        &event.session_info.agent_id,
-                        &persisted,
-                    )
-                })?
+                // 召回是同步检索（读记忆库 + 打分，全程无 await 点），塞进 blocking 线程：
+                // worker 只等一个可放弃的句柄，信号先到就不再等它。那次检索自己跑完、结果丢弃，
+                // 同时把 std::sync::Mutex 的持锁从 async 线程上摘走。
+                let recall_state = state.clone();
+                let recall_data_path = state.data_path.clone();
+                let recall_agents = scheduler_agents.clone();
+                let recall_agent_id = event.session_info.agent_id.clone();
+                let recall_message = persisted.clone();
+                let recall_task = tokio::task::spawn_blocking(move || {
+                    with_memory_lock(&recall_state, "scheduler_user_message_recall", || {
+                        collect_recall_payload_for_user_message(
+                            &recall_data_path,
+                            &recall_agents,
+                            &recall_agent_id,
+                            &recall_message,
+                        )
+                    })
+                });
+                match race_with_chat_stop(state, &round_stop_ids, recall_task).await {
+                    Some(joined) => joined.map_err(|err| format!("记忆召回任务失败：{err}"))??,
+                    None => UserMessageRecallPayload::default(),
+                }
             } else {
                 UserMessageRecallPayload::default()
             };
@@ -840,32 +911,17 @@ async fn process_conversation_batch(
             should_activate && (!matches!(event.source, ChatEventSource::RemoteIm)
                 || !remote_im_event_requires_reply_delegate(event))
         });
-    // 本批最新的事件产生时间。同批里只要有一条晚于截止时间（用户停完立刻发的新消息），
-    // 这一批就该正常放行，所以比的是最大值，不是第一条。
-    let batch_created_at_ms = events
-        .iter()
-        .map(|event| event.created_at_ms)
-        .max()
-        .unwrap_or(0);
-    // 打断门栅（出队侧）：整批事件的产生时间都不晚于会话截止时间时，这一批在门口就作废。
-    // 放在这里是为了让后面的远程联系人秘书判断、上下文装配全部跳过——已经作废的活不该再花模型成本。
-    if should_activate {
-        match conversation_interrupt_cutoff_ms(state, conversation_id) {
-            Ok(cutoff) if round_blocked_by_interrupt_cutoff(cutoff, batch_created_at_ms) => {
-                should_activate = false;
-                runtime_log_info(format!(
-                    "[聊天调度] 拦截：本批事件产生时间旧于会话截止时间，跳过激活 会话={} 事件时间={} 截止时间={}",
-                    conversation_id,
-                    batch_created_at_ms,
-                    cutoff.unwrap_or_default()
-                ));
-            }
-            Ok(_) => {}
-            Err(err) => runtime_log_warn(format!(
-                "[聊天] 失败 任务=读取打断截止时间 原因={}",
-                err
-            )),
-        }
+    // 写历史是 worker 第一步；写完再看要不要激活。
+    // 读到结束信号就不激活：不建轮次、不装配上下文、不发请求，直接落到下面的非激活收尾
+    // （释放占位、看队列）。用户发的消息照常留在历史里，丢的只是这一轮的回复。
+    //
+    // 截止时间不在这一层判：它管的是 worker 还没起来的活，已挪到出队处（claim_queued_conversation_batches）。
+    if should_activate && round_stop_requested(state, &round_stop_ids) {
+        should_activate = false;
+        runtime_log_info(format!(
+            "[聊天调度] 本轮已被要求停止，这一批不激活 会话={}",
+            conversation_id
+        ));
     }
     let has_remote_group_messages = events.iter().any(remote_im_event_requires_reply_delegate);
     if has_remote_group_messages {
@@ -1163,7 +1219,7 @@ async fn process_conversation_batch(
         .filter(|event| event.queue_mode == ChatQueueMode::Guided)
         .map(|event| event.id.clone())
         .collect::<Vec<_>>();
-    let activating_runtime_context = events
+    let mut activating_runtime_context = events
         .iter()
         .zip(event_activate_flags.iter().copied())
         .rev()
@@ -1174,6 +1230,14 @@ async fn process_conversation_batch(
                 None
             }
         });
+    // 本轮的号在批次入口已经定死，这里把它钉进激活上下文：下游 activate_main_assistant
+    // 与 send_chat_message_inner 见到非空号会原样沿用，不会再另起一个号。
+    if activating_runtime_context.is_none() && event_activate_flags.iter().any(|flag| *flag) {
+        activating_runtime_context = Some(RuntimeContext::default());
+    }
+    if let Some(context) = activating_runtime_context.as_mut() {
+        context.request_id = Some(round_request_id.clone());
+    }
     let activating_assistant_message_id = events
         .iter()
         .zip(event_activate_flags.iter().copied())
@@ -1232,7 +1296,6 @@ async fn process_conversation_batch(
                 activating_runtime_context.clone(),
                 activated_remote_im_sources.clone(),
                 oldest_queue_created_at,
-                batch_created_at_ms,
             )
             .await
             {
@@ -1296,9 +1359,6 @@ async fn process_conversation_batch(
                             Some(follow_up_context),
                             follow_up_sources.clone(),
                             &follow_up_started_at,
-                            // 续跑属于本批的派生轮次，时间基准必须继承本批：
-                            // 取当前时刻会让「上一轮途中被停止的活」穿透门卫继续回复。
-                            batch_created_at_ms,
                         )
                         .await
                         {
@@ -1337,6 +1397,7 @@ async fn process_conversation_batch(
                                 activated_round_completed = true;
                             }
                             Err(err) => {
+                                // 停止不走 Err：走到这里的续跑失败是真的失败，照常上报。
                                 emit_round_failed_event(
                                     state,
                                     conversation_id,
@@ -1363,25 +1424,7 @@ async fn process_conversation_batch(
                     }
                 }
                 Err(err) => {
-                    if err == CHAT_ABORTED_BY_USER_ERROR {
-                        complete_pending_chat_events_with_error(state, &event_ids, &err)?;
-                        if let Err(finalize_err) = remote_im_finalize_round_completion(
-                            state,
-                            &activated_remote_im_sources,
-                            None,
-                            None,
-                            None,
-                            &history_flush_time,
-                        ) {
-                            runtime_log_warn(format!(
-                                "[聊天] 远程联系人轮次收尾失败（停止分支） 原因={}",
-                                finalize_err
-                            ));
-                        }
-                        clear_conversation_list_activity_mark(state, conversation_id);
-                        // 用户中止：本轮没有产出完整回复，不算可审的最终态。
-                        return Ok(false);
-                    }
+                    // 这里的 Err 只代表真正的失败：停止不再走 Err，worker 正常返回 Ok 收尾。
                     emit_round_failed_event(
                         state,
                         conversation_id,
@@ -1408,6 +1451,10 @@ async fn process_conversation_batch(
             }
         }
     } else {
+        // 这一批没进激活就收口：登记还挂在表上，不擦掉的话下一次调度会报
+        // 「同一键上已有在跑的轮次」，看起来像上一轮还活着。
+        // 按本轮自己的号认领，摘不到别人的条目；摘掉后顺手清掉本轮留在待停列表里的号。
+        unregister_inflight_chat_round(state, &round_chat_key, &round_stop_ids);
         set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new())?;
         set_conversation_remote_im_assistant_context(state, conversation_id, None)?;
         if !guided_event_ids.is_empty() {
@@ -1460,29 +1507,9 @@ async fn activate_main_assistant(
     runtime_context: Option<RuntimeContext>,
     remote_im_activation_sources: Vec<RemoteImActivationSource>,
     oldest_queue_created_at: &str,
-    round_created_at_ms: u64,
 ) -> Result<ActivatedAssistantResult, String> {
-    // 打断门栅（激活侧）：这一轮的产生时间若不晚于会话截止时间，它就是在被打断那一刻
-    // 之前就已经等待的活，已被停止方判过死刑。这里直接短路，不写空助理消息、不切流式、
-    // 不广播轮次开始——深度报错再回退会让界面出现「消失 → 冒出 → 消失」的抽搐。
-    if round_created_at_ms > 0 {
-        match conversation_interrupt_cutoff_ms(state, conversation_id) {
-            Ok(cutoff) if round_blocked_by_interrupt_cutoff(cutoff, round_created_at_ms) => {
-                runtime_log_info(format!(
-                    "[聊天调度] 拦截：轮次创建时间旧于会话截止时间，跳过激活 会话={} 轮次时间={} 截止时间={}",
-                    conversation_id,
-                    round_created_at_ms,
-                    cutoff.unwrap_or_default()
-                ));
-                return Err(CHAT_ABORTED_BY_USER_ERROR.to_string());
-            }
-            Ok(_) => {}
-            Err(err) => runtime_log_warn(format!(
-                "[聊天] 失败 任务=读取打断截止时间 原因={}",
-                err
-            )),
-        }
-    }
+    // 这里不再看截止时间：它只管 worker 还没起来的活，已经在出队处判过。
+    // worker 起来之后只认结束信号，上一层（写历史之后）已经判过。
     let mut runtime_context = runtime_context.unwrap_or_default();
     if runtime_context.bound_remote_im_activation_source.is_none() {
         runtime_context.bound_remote_im_activation_source =
@@ -1856,19 +1883,16 @@ async fn activate_main_assistant(
                 );
             }
             Err(err) => {
-                if err != CHAT_ABORTED_BY_USER_ERROR {
-                    set_conversation_list_activity_mark(
-                        state,
-                        conversation_id,
-                        ConversationListActivityMark {
-                            activity: "failed".to_string(),
-                            failed_message: Some(err.clone()),
-                            completed_at: None,
-                        },
-                    );
-                } else {
-                    clear_conversation_list_activity_mark(state, conversation_id);
-                }
+                // 停止不走 Err；能走到这里的就是真失败，如实标记。
+                set_conversation_list_activity_mark(
+                    state,
+                    conversation_id,
+                    ConversationListActivityMark {
+                        activity: "failed".to_string(),
+                        failed_message: Some(err.clone()),
+                        completed_at: None,
+                    },
+                );
             }
         }
     }

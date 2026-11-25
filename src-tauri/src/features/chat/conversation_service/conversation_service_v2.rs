@@ -26,7 +26,7 @@ impl ConversationServiceV2ErrorCode {
             Self::MessageNotFound => "MSG_NOT_FOUND",
             Self::AnchorNotFound => "MSG_ANCHOR_NOT_FOUND",
             Self::ToolAppendClosed => "MSG_TOOL_APPEND_CLOSED",
-            Self::FinalTextAlreadyCommitted => "MSG_FINAL_TEXT_ALREADY_COMMITTED",
+            Self::FinalTextAlreadyCommitted => MSG_FINAL_TEXT_ALREADY_COMMITTED,
             Self::MessageNotWritable => "MSG_NOT_WRITABLE",
             Self::IntegrityCheckFailed => "STORE_INTEGRITY_FAILED",
             Self::StorageCorrupted => "STORE_CORRUPTED",

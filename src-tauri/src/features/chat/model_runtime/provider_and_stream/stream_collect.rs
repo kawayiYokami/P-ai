@@ -60,7 +60,30 @@ where
     let mut trusted_input_tokens: Option<u64> = None;
     let mut usage = None;
     let mut assistant_provider_meta = None::<Value>;
+    // 这一轮是否已被要求停止。命中就按「流已结束」处理：已收到的增量就是本轮正文，
+    // 继续往下走，不抛错、不取消。
+    //
+    // 判据是待停列表里的调度号：按本轮会话取自己用过的号（取不到就当这一轮不会被打断）。
+    let stop_request_ids = match (app_state, usage_conversation_id) {
+        (Some(state), Some(conversation_id)) => {
+            inflight_round_request_ids_by_conversation(state, conversation_id)
+        }
+        _ => Vec::new(),
+    };
+    let stop_check_conversation_id = app_state
+        .and(usage_conversation_id)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     while let Some(chunk) = stream.next().await {
+        if let (Some(state), Some(conversation_id)) = (app_state, stop_check_conversation_id) {
+            if round_stop_requested(state, &stop_request_ids) {
+                runtime_log_info(format!(
+                    "[聊天] 流式读到本轮被点名，按流结束处理 会话={}",
+                    conversation_id
+                ));
+                break;
+            }
+        }
         match chunk {
             Ok(genai::chat::ChatStreamEvent::Start) => {}
             Ok(genai::chat::ChatStreamEvent::Heartbeat) => {}
@@ -186,6 +209,90 @@ where
 #[cfg(test)]
 mod stream_collect_tests {
     use super::*;
+
+    /// 流式阶段也必须能被结束：慢流（10ms 一块）读到结束信号就按流结束处理。
+    ///
+    /// 钉的是「已收到的增量完整保留 + 一百毫秒内收口」，不是零毫秒——
+    /// 检查点在每块之间，这是这一阶段的物理粒度。
+    #[test]
+    fn stop_during_stream_breaks_within_100ms() {
+        use crate::tests::test_chat_runtime_state;
+        use std::time::{Duration, Instant};
+
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-stop-stream";
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime");
+
+        runtime.block_on(async {
+            let stream = futures_util::stream::unfold(0usize, |index| async move {
+                // 最多推 60 块（约 600ms）：修复被摘掉时用例会在这之后收口并因超时断言变红，
+                // 而不是永远挂着。
+                if index >= 60 {
+                    return None;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                let chunk = genai::chat::ChatStreamEvent::Chunk(genai::chat::StreamChunk {
+                    content: format!("第{index}块"),
+                });
+                Some((Ok(chunk), index + 1))
+            });
+            let stream = Box::pin(stream);
+
+            // 先按真实链路登记这一轮：停止方按这一轮自己的号记进待停列表。
+            let chat_key = format!("agent-a::{conversation_id}");
+            register_inflight_chat_abort_handle(
+                &state,
+                &chat_key,
+                "req-stop-stream",
+                "assistant-stop-stream",
+            )
+            .expect("登记本轮");
+
+            // 20ms 后按下停止：此时流已经推过一两块。
+            let stopper_state = state.clone();
+            let stopper_key = chat_key.clone();
+            let stopper_conversation_id = conversation_id.to_string();
+            let stopper = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                request_stop_inflight_chat_round(
+                    &stopper_state,
+                    &stopper_key,
+                    &stopper_conversation_id,
+                )
+                .expect("request stop");
+            });
+
+            let mut pushed_any = false;
+            let started = Instant::now();
+            let reply = collect_streaming_model_reply_genai(
+                stream,
+                None,
+                Some(&state),
+                Some(conversation_id),
+                None,
+                None,
+                None,
+                &mut pushed_any,
+            )
+            .await
+            .expect("打断不是错误：流式收集必须正常返回");
+            let elapsed = started.elapsed();
+            stopper.await.expect("stopper");
+
+            assert!(
+                elapsed < Duration::from_millis(100),
+                "结束信号命中后必须立刻收口，实测 {elapsed:?}"
+            );
+            assert!(
+                reply.assistant_text.starts_with("第0块"),
+                "已收到的增量必须完整保留，实测 {:?}",
+                reply.assistant_text
+            );
+        });
+    }
 
     #[test]
     fn join_model_text_blocks_should_drop_consecutive_duplicate_blocks() {

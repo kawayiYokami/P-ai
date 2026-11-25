@@ -617,40 +617,17 @@ fn abort_remote_im_reply_delegate(
         runtimes.remove(delegate_id);
         runtime
     };
-    // 聊天句柄与工具句柄共用同一个身份串：一次调度只有一个身份。
-    // 委托形态是 `{agent}::{conversation}::remote_reply_delegate:{delegate_id}`，
-    // 与登记时用的 chat_key 完全一致，停止命令按同一个 key 就能同时命中两者。
+    // 聊天记录与工具都随同一个身份走：只发结束信号，让那一轮自己收尾，不从外面中止。
     let chat_key = format!(
         "{}::{}::remote_reply_delegate:{}",
         runtime.session_agent_id, runtime.conversation_id, delegate_id
     );
-    let aborted_chat = {
-        let mut inflight = match state.inflight_chat_abort_handles.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                runtime_log_warn(format!(
-                    "[远程IM] 聊天取消句柄锁中毒，已恢复"
-                ));
-                poisoned.into_inner()
-            }
-        };
-        if let Some(InflightChatAbortEntry::Running { handle, .. }) = inflight.remove(&chat_key) {
-            handle.abort();
-            true
-        } else {
-            false
-        }
-    };
-    let aborted_tool = match abort_inflight_tool_abort_handle(state, &chat_key) {
-        Ok(aborted) => aborted,
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[远程IM] 工具取消降级 原因={}",
-                err
-            ));
-            false
-        }
-    };
+    let stopped_chat = request_stop_inflight_chat_round(
+        state,
+        &chat_key,
+        runtime.conversation_id.as_str(),
+    )
+    .unwrap_or(false);
     if let Err(err) = remote_im_reply_delegate_finalize(
         state,
         runtime,
@@ -663,8 +640,8 @@ fn abort_remote_im_reply_delegate(
         ));
     }
     runtime_log_info(format!(
-        "[远程IM] 完成 任务=取消 中止聊天={} 中止工具={} 原因={}",
-        aborted_chat, aborted_tool, reason
+        "[远程IM] 完成 任务=取消 命中在跑轮次={} 原因={}",
+        stopped_chat, reason
     ));
     Ok(true)
 }

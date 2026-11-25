@@ -405,6 +405,7 @@ fn collect_group_outcomes(
 async fn execute_prepared_tool_call_group(
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
+    stop_conversation_id: Option<&str>,
     tools: &[Box<dyn RuntimeToolDyn>],
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     request_id: Option<&str>,
@@ -454,70 +455,36 @@ async fn execute_prepared_tool_call_group(
         .iter()
         .map(|call| (call.tool_name.clone(), call.tool_call_id.clone()))
         .collect();
-    // 中断信号只做通知，不取消整组：已经跑完的调用照常交付结果，
-    // 只有还没返回的调用被标记为打断，避免同一批里已完成工具的结果被整批丢掉。
-    let abort_signal = if let Some(state) = tool_abort_state {
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        // 注册不上等于停止按钮对这组工具失效：不跑这组，把错误交给调用方按原样上抛。
-        if let Err(err) =
-            register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)
-        {
-            runtime_log_error(format!(
-                "[聊天] 登记工具组中断句柄失败，跳过本组执行 (会话=): {}",
-                err
-            ));
-            return ExecutedToolGroup {
-                executed: Vec::new(),
-                aborted_call_ids: Vec::new(),
-                error: Some(format!("登记工具组中断句柄失败：{err}")),
-            };
+    // 本轮自己的号：按会话从在跑轮次登记里取（取不到就当这一轮不会被打断）。
+    let stop_request_ids = match (tool_abort_state, stop_conversation_id) {
+        (Some(state), Some(conversation_id)) => {
+            inflight_round_request_ids_by_conversation(state, conversation_id)
         }
-        Some(futures_util::future::FutureExt::shared(
-            futures_util::future::FutureExt::map(
-                futures_util::future::Abortable::new(
-                    futures_util::future::pending::<()>(),
-                    abort_registration,
-                ),
-                |_| (),
-            ),
-        ))
-    } else {
-        None
+        _ => Vec::new(),
     };
+    // 结束信号：不取消整组，只用来给还没返回的调用交付「被用户打断」。
+    // 已跑完的调用照常交付结果，不会因为同批有人被打断就整组丢掉。
     let group_outcomes = {
         let futures = calls
             .into_iter()
             .map(|call| {
-                let signal = abort_signal.clone();
+                let stop_ids = stop_request_ids.clone();
                 async move {
                     let execution = execute_prepared_tool_call(tools, on_delta, call);
-                    match signal {
-                        Some(signal) => {
-                            futures_util::pin_mut!(execution);
-                            match futures_util::future::select(execution, signal).await {
-                                futures_util::future::Either::Left((result, _)) => {
-                                    GroupCallOutcome::Finished(result)
-                                }
-                                futures_util::future::Either::Right((_aborted, _)) => {
-                                    GroupCallOutcome::Aborted
-                                }
-                            }
-                        }
-                        None => GroupCallOutcome::Finished(execution.await),
+                    let Some(state) = tool_abort_state else {
+                        return GroupCallOutcome::Finished(execution.await);
+                    };
+                    // 工具跑完交付结果；本轮被点名就交付「被用户打断」——
+                    // 不等那个工具，它跑完跑不完都不关这一轮的事了。
+                    match race_with_chat_stop(state, &stop_ids, execution).await {
+                        Some(result) => GroupCallOutcome::Finished(result),
+                        None => GroupCallOutcome::Aborted,
                     }
                 }
             })
             .collect::<Vec<_>>();
         futures_util::future::join_all(futures).await
     };
-    if let Some(state) = tool_abort_state {
-        if let Err(err) = clear_inflight_tool_abort_handle(state, chat_session_key) {
-            runtime_log_error(format!(
-                "[聊天] 清理进行中工具组中断句柄失败 (会话=): {}",
-                err
-            ));
-        }
-    }
 
     let group = collect_group_outcomes(group_outcomes, &calls_snapshot);
     if !group.aborted_call_ids.is_empty() {

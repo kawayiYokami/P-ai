@@ -257,7 +257,7 @@ fn restart_dispatch_round_after_context_compaction(
         assistant_message_id.as_str(),
     ) {
         runtime_log_error(format!(
-            "[聊天] 压缩重启后刷新打断句柄失败 错误={}",
+            "[聊天] 压缩重启后刷新调度身份失败 错误={}",
             err
         ));
     }
@@ -535,8 +535,8 @@ async fn send_chat_message_inner(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
     let mut runtime_context = input.runtime_context.clone().unwrap_or_default();
-    // 打断门栅（最早一道）：确权之后到这里之间隔着事件广播、状态推送与上下文装配，
-    // 停止可能正好落在这段空隙里。先自检一次，命中就不做任何后续工作（连队员预创建都省）。
+    // 打断自检（最早一道）：确权之后到这里之间隔着事件广播、状态推送与上下文装配，
+    // 停止可能正好落在这段空隙里。命中就带着空结果直奔完结路线——不是错误，也不发请求。
     if let Some(conversation_id) = input
         .session
         .as_ref()
@@ -544,11 +544,10 @@ async fn send_chat_message_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        reject_if_round_interrupted(
-            state,
-            conversation_id,
-            runtime_context.round_owner.as_deref(),
-        )?;
+        let stop_ids = inflight_round_request_ids_by_conversation(state, conversation_id);
+        if round_stop_requested(state, &stop_ids) {
+            return Ok(empty_chat_round_result(conversation_id, ""));
+        }
     }
     let trace_id = runtime_context_request_id_or_new(
         Some(&runtime_context),
@@ -646,13 +645,11 @@ async fn send_chat_message_inner(
                             compaction_preserved_messages: None,
                         },
                     )?;
-                    // 只有「本轮自己建消息」才算这一轮从这里开始，才允许重置流式缓存与
-                    // 清掉上一轮遗留的打断凭据。
+                    // 只有「本轮自己建消息」才算这一轮从这里开始，才允许重置流式缓存。
                     //
                     // 前台主助理激活路径（带 assistant_message_id 进来）早在
                     // activate_main_assistant 里初始化好了缓存，这里再重置会把确权时的
-                    // 启动时刻覆盖成更晚的时间，还会抹掉停止命令刚写下的落盘凭据——
-                    // 两道门栅随即全部失效，请求照样发出去。
+                    // 启动时刻覆盖成更晚的时间。
                     let _ = reset_conversation_stream_runtime_cache(
                         state,
                         cid,
@@ -663,12 +660,6 @@ async fn send_chat_message_inner(
                         &stream_started_at,
                         stream_started_at_ms,
                     );
-                    if let Err(err) = clear_conversation_interrupt_record(state, cid) {
-                        runtime_log_warn(format!(
-                            "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
-                            cid, err
-                        ));
-                    }
                 }
                 // 同样更新后端缓存中的可见状态，否则 has_visible_progress 仍为 false，
                 // 窗口最小化/最大化恢复时后端快照不会包含投影消息，导致所有气泡丢失。
@@ -1479,30 +1470,20 @@ async fn send_chat_message_inner(
             inflight_chat_key(&effective_agent_id, requested_conversation_id.as_deref())
         });
     let chat_session_key = chat_key.clone();
-    // 打断门栅（发请求前最后一道）：装配上下文、加载技能这一段也可能被打断，
-    // 这里再自检一次；命中同样以用户中止短路，不再登记句柄、不再发请求。
-    if let Some(conversation_id) = requested_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        reject_if_round_interrupted(
-            state,
-            conversation_id,
-            runtime_context.round_owner.as_deref(),
-        )?;
-    }
-    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    // 发请求前最后一道自检：这一轮还没开始生成时就已经被要求停止，就按「这次提交自己收尾」
+    // 处理——不生成、不发请求，直接走完结路线，不报错。
+    let own_request_id = trace_id.trim().to_string();
+    let stop_requested_before_start =
+        round_stop_requested(state, std::slice::from_ref(&own_request_id));
     // 登记时带上本次调度的身份，停止请求按身份命中，不按会话猜。
-    let stopped_before_start = register_inflight_chat_abort_handle(
+    let stopped_by_cancel = register_inflight_chat_abort_handle(
         state,
         &chat_key,
-        abort_handle,
         trace_id.as_str(),
         dispatch_assistant_message_id.as_str(),
     )?;
+    let stopped_before_start = stopped_by_cancel || stop_requested_before_start;
     reset_inflight_completed_tool_history(state, &chat_key)?;
-    let _ = abort_inflight_tool_abort_handle(state, &chat_key);
 
     let chat_session_key_for_log = chat_session_key.clone();
     let selected_api_for_log = selected_api.clone();
@@ -3075,14 +3056,33 @@ async fn send_chat_message_inner(
     }
     };
 
-    let result = if stopped_before_start {
-        // 停止意图在本轮登记句柄之前就已到达：不要开始生成，直接走用户中止的收尾路径。
-        runtime_log_info(
-            "[聊天] 停止请求先于轮次开始，已跳过生成".to_string(),
-        );
-        Err(futures_util::future::Aborted)
+    let result: Result<SendChatResult, String> = if stopped_before_start {
+        // 停止意图在本轮登记之前就已到达：这一轮不生成，直接按「没有内容就结束」收尾。
+        // 走 Ok 而不是取消——取消会让 worker 跳过自己的完结路线。
+        runtime_log_info("[聊天] 停止请求先于轮次开始，已跳过生成".to_string());
+        Ok(SendChatResult {
+            conversation_id: requested_conversation_id_for_failure_persist
+                .clone()
+                .unwrap_or_default(),
+            latest_user_text: String::new(),
+            assistant_text: String::new(),
+            final_response_text: String::new(),
+            archived_before_send: false,
+            assistant_message: None,
+            provider_prompt_tokens: None,
+            estimated_prompt_tokens: None,
+            effective_prompt_tokens: None,
+            effective_prompt_source: None,
+            context_window_tokens: None,
+            max_output_tokens: None,
+            context_usage_percent: None,
+            remote_im_reply_decision: None,
+            remote_im_reply_target: None,
+            usage: None,
+            activation_request_id: None,
+        })
     } else {
-        futures_util::future::Abortable::new(run, abort_registration).await
+        run.await
     };
     emit_conversation_work_status(conversation_work_status_for(&result));
     flush_chat_timeline("send_chat_message_inner.finish");
@@ -3099,122 +3099,17 @@ async fn send_chat_message_inner(
             inflight.remove(&chat_key);
         }
     }
-    if let Err(err) = clear_inflight_tool_abort_handle(state, &chat_key) {
-        runtime_log_error(format!(
-            "[聊天] 清理进行中工具中断句柄失败: {}",
-            err
-        ));
-    }
-    let final_result = match result {
-        Ok(inner) => inner,
-        Err(_) => {
-            runtime_log_info("[聊天] 用户中止聊天请求".to_string());
-            Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
-        }
-    };
+    // 打断不再产生取消态：worker 一路走到这里都是正常返回，结果直接就是最终结果。
+    let final_result = result;
     let should_clear_completed_tool_history = true;
     if let Err(err) = final_result.as_ref() {
-        if is_user_abort_error(err) {
-            let failure_persist_target = failure_persist_target
-                .lock()
-                .ok()
-                .and_then(|guard| guard.clone());
-            let interrupted_conversation_id = failure_persist_target
-                .as_ref()
-                .map(|(conversation_id, _)| conversation_id.as_str())
-                .or(requested_conversation_id_for_failure_persist.as_deref());
-            let interrupted_agent_id = failure_persist_target
-                .as_ref()
-                .map(|(_, agent_id)| agent_id.as_str())
-                .unwrap_or(effective_agent_id_for_failure_persist.as_str());
-            // 这一轮若已被停止命令当场收走（内容已写库、会话已置就绪），收尾一律短路：
-            // 再落一次是二次写库，再发一次终态会让前端收到两个收口。
-            let collected_by_stop = interrupted_conversation_id.is_some_and(|conversation_id| {
-                match conversation_interrupt_persisted(state, conversation_id) {
-                    Ok(value) => value,
-                    Err(lock_err) => {
-                        runtime_log_warn(format!(
-                            "[聊天] 跳过 任务=打断收走判定 原因=读取会话槽失败 错误={}",
-                            lock_err
-                        ));
-                        false
-                    }
-                }
-            });
-            let interrupted_persist_outcome: Result<Option<SendChatResult>, String> =
-                if collected_by_stop {
-                    Ok(None)
-                } else {
-                    persist_aborted_chat_partial_result(
-                        state,
-                        interrupted_conversation_id,
-                        interrupted_agent_id,
-                        &chat_key,
-                    )
-                };
-            match interrupted_persist_outcome {
-                _ if collected_by_stop => {
-                    runtime_log_info(
-                        "[聊天] 跳过 任务=中止后二次落盘 原因=已由停止命令就地收走".to_string(),
-                    );
-                }
-                Ok(Some(interrupted_result)) => {
-                    // 轮次身份用中断结果里携带的实时 request_id，而不是函数开头捕获的 trace_id：
-                    // 生成途中若发生上下文压缩重启，轮次身份会被换成新的 request_id 广播，
-                    // 沿用旧 id 会让同会话的其它客户端把这条终态判为过期而丢弃。
-                    let interrupted_identity = interrupted_result
-                        .activation_request_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty());
-                    emit_round_completed_event(
-                        state,
-                        interrupted_result.conversation_id.as_str(),
-                        &interrupted_result,
-                        interrupted_identity,
-                        interrupted_identity,
-                    )
-                }
-                Ok(None) => {
-                    if let Some(cid) = interrupted_conversation_id {
-                        let empty_identity = read_conversation_runtime_snapshot(state, cid)
-                            .ok()
-                            .map(|snapshot| snapshot.stream_cache.request_id)
-                            .map(|value| value.trim().to_string())
-                            .filter(|value| !value.is_empty());
-                        let empty_result = SendChatResult {
-                            conversation_id: cid.to_string(),
-                            latest_user_text: String::new(),
-                            assistant_text: String::new(),
-                            final_response_text: String::new(),
-                            archived_before_send: false,
-                            assistant_message: None,
-                            provider_prompt_tokens: None,
-                            estimated_prompt_tokens: None,
-                            effective_prompt_tokens: None,
-                            effective_prompt_source: None,
-                            context_window_tokens: None,
-                            max_output_tokens: None,
-                            context_usage_percent: None,
-                            remote_im_reply_decision: None,
-                            remote_im_reply_target: None,
-                            usage: None,
-                            activation_request_id: None,
-                        };
-                        emit_round_completed_event(
-                            state,
-                            cid,
-                            &empty_result,
-                            empty_identity.as_deref(),
-                            empty_identity.as_deref(),
-                        );
-                    }
-                }
-                Err(persist_err) => runtime_log_warn(format!(
-                    "[聊天] 用户停止后 partial 收尾失败 错误={} 落盘错误={}",
-                    err, persist_err
-                )),
-            }
+        // 「正文已被别的路径写进这条助理消息」不是失败：这一轮的实际成果已经在库里，
+        // 再按失败落盘会写出第二条。停止不走 Err，这里只剩这一种内部重复提交的余量。
+        if err.contains(MSG_FINAL_TEXT_ALREADY_COMMITTED) {
+            runtime_log_info(format!(
+                "[聊天] 跳过 任务=失败落盘 原因=正文已由别的路径提交 会话={:?}",
+                requested_conversation_id_for_failure_persist
+            ));
         } else {
             let failure_persist_target = failure_persist_target
                 .lock()
@@ -3367,16 +3262,15 @@ fn is_user_abort_error(message: &str) -> bool {
 
 /// 一轮结束后的工作状态。
 ///
-/// 中止不算出错：硬打断走外层 `Err(Aborted)`，工具执行中返回的中止走 `Ok(Err(中止))`，
-/// 两条路径必须给同一个反馈——同一个停止按钮不该有两种结果。
+/// 打断不是错误：停止信号命中后整轮按正常结束收尾，返回的就是 `Ok`，
+/// 因此这里不需要为打断单开一条分支——它本来就走「完成」。
 fn conversation_work_status_for(
-    result: &Result<Result<SendChatResult, String>, futures_util::future::Aborted>,
+    result: &Result<SendChatResult, String>,
 ) -> &'static str {
     match result {
-        Err(_) => "completed",
-        Ok(Ok(_)) => "completed",
-        Ok(Err(error)) if is_user_abort_error(error) => "completed",
-        Ok(Err(_)) => "error",
+        Ok(_) => "completed",
+        Err(error) if is_user_abort_error(error) => "completed",
+        Err(_) => "error",
     }
 }
 
@@ -3462,27 +3356,18 @@ mod core_send_inner_tests {
 
     #[test]
     fn aborted_dispatch_should_not_report_error_work_status() {
-        // 同一次「停止」不能有两种反馈：硬打断走外层取消，工具执行中停止走内层中止，
-        // 两者都必须映射成非 error 的工作状态。
-        let cancelled: Result<Result<SendChatResult, String>, futures_util::future::Aborted> =
-            Err(futures_util::future::Aborted);
-        let aborted_in_tool_loop: Result<
-            Result<SendChatResult, String>,
-            futures_util::future::Aborted,
-        > = Ok(Err(CHAT_ABORTED_BY_USER_ERROR.to_string()));
-        assert_eq!(conversation_work_status_for(&cancelled), "completed");
+        // 打断不是错误：worker 读到结束信号时自己停下，走的也是 Ok 路径，
+        // 所以工作状态必须是 completed，界面上不能出现一次「出错」。
+        let interrupted: Result<SendChatResult, String> =
+            Ok(empty_chat_round_result("conversation-1", "req-1"));
         assert_eq!(
-            conversation_work_status_for(&aborted_in_tool_loop),
-            "completed"
-        );
-        assert_ne!(
-            conversation_work_status_for(&aborted_in_tool_loop),
-            "error"
+            conversation_work_status_for(&interrupted),
+            "completed",
+            "打断收尾必须报完成，不许报错"
         );
 
-        // 真正的模型失败仍要报 error，中止豁免不能糊到全部错误上。
-        let failed: Result<Result<SendChatResult, String>, futures_util::future::Aborted> =
-            Ok(Err("所有候选模型均失败：a: x".to_string()));
+        // 真正的模型失败仍要报 error，打断豁免不能糊到全部错误上。
+        let failed: Result<SendChatResult, String> = Err("所有候选模型均失败：a: x".to_string());
         assert_eq!(conversation_work_status_for(&failed), "error");
     }
 

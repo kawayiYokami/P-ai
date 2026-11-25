@@ -62,5 +62,8 @@ const DEFAULT_RESPONSE_STYLE_ID: &str = "concise";
 const DEFAULT_PDF_READ_MODE: &str = "image";
 const DEFAULT_BACKGROUND_VOICE_SCREENSHOT_MODE: &str = "focused_window";
 const CHAT_ABORTED_BY_USER_ERROR: &str = "CHAT_ABORTED_BY_USER";
+/// 「这一轮正文已经落盘」的错误码。同一轮的正文提交只允许成功一次，第二次提交会撞上它——
+/// 那不是失败，是重复提交，收尾层按「已完成」处理，不写第二条、不报 failed。
+const MSG_FINAL_TEXT_ALREADY_COMMITTED: &str = "MSG_FINAL_TEXT_ALREADY_COMMITTED";
 const CHAT_DISPATCH_RESTART_AFTER_COMPACTION: &str = "CHAT_DISPATCH_RESTART_AFTER_COMPACTION";
 const APP_HTTP_ORIGINATOR: &str = "p_ai_desktop";

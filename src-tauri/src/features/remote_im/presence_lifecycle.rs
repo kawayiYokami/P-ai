@@ -274,7 +274,6 @@ fn spawn_remote_im_departure_reflection_delegate(
     let state_clone = state.clone();
     let delegate_for_task = delegate.clone();
     let contact_name = remote_im_secretary_contact_display_name(&contact);
-    let (abort_handle, abort_registration) = futures_util::future::AbortHandle::new_pair();
     let thread = delegate_runtime_thread_get(state, &delegate.delegate_id)?
         .ok_or_else(|| "离场反思委托线程创建后丢失".to_string())?;
     let chat_key = delegate_thread_chat_key(&thread);
@@ -285,31 +284,30 @@ fn spawn_remote_im_departure_reflection_delegate(
         .insert(
             chat_key.clone(),
             InflightChatAbortEntry::Running {
-                handle: abort_handle,
-                // 离场反思委托不是用户能停止的对象：不带身份，只供内部按 key 打断。
+                // 离场反思委托不是用户能停止的对象：不带身份，只供内部按 key 收口。
                 request_id: String::new(),
                 assistant_message_id: String::new(),
                 // 内部委托不会触发压缩重启，没有历史身份。
-                retired_identities: Vec::new(),
+                retired_request_ids: Vec::new(),
             },
         );
     tauri::async_runtime::spawn(async move {
-        let result = futures_util::future::Abortable::new(
+        // 这项任务没有外部停止方：跑完自己收口，谁也不从外面中止它。
+        let outcome = Some(
             run_remote_im_departure_reflection(
                 &state_clone,
                 &delegate_for_task,
                 &context,
                 &contact_name,
                 &api_config_id,
-            ),
-            abort_registration,
-        )
-        .await;
+            )
+            .await,
+        );
         if let Ok(mut handles) = state_clone.inflight_chat_abort_handles.lock() {
             handles.remove(&chat_key);
         }
-        match result {
-            Ok(Ok(())) => {
+        match outcome {
+            Some(Ok(())) => {
                 let _ = finalize_remote_im_departure_reflection_delegate(
                     &state_clone,
                     &delegate_for_task,
@@ -317,7 +315,7 @@ fn spawn_remote_im_departure_reflection_delegate(
                     "完成",
                 );
             }
-            Ok(Err(err)) => {
+            Some(Err(err)) => {
                 runtime_log_error(format!(
                     "[远程IM] 离场反思失败 原因={}",
                     err
@@ -329,8 +327,8 @@ fn spawn_remote_im_departure_reflection_delegate(
                     &err,
                 );
             }
-            Err(_) => {
-                runtime_log_info("[远程IM] 离场反思打断".to_string());
+            None => {
+                runtime_log_info("[远程IM] 离场反思收到结束信号，就地放弃".to_string());
             }
         }
     });

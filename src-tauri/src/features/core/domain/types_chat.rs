@@ -790,13 +790,9 @@ struct ConversationRuntimeSlot {
     wheelchair_suggestion: Option<WheelchairSuggestion>,
     last_activity_at: String,
     /// 本轮所有权令牌：激活新一轮时换成新值，压缩重启属于同一轮、不动它。
-    /// 收尾环节只认自己的令牌——认不上就说明这一轮已被停止命令收走、
-    /// 或已被用户紧接着发起的新一轮接管，此时必须静默退出。
+    /// 收尾环节只认自己的令牌——认不上就说明这一轮已被用户紧接着发起的新一轮接管，
+    /// 此时必须静默退出。
     round_owner: String,
-    /// 打断就地落盘的凭据：停止命令当场把半成品写库后记下时间戳。
-    /// 有值即表示这一轮已由停止方收走，旧协程退出时据此短路，不二次写库、不重发终态。
-    /// 新一轮开始时清空；落盘失败也清空，让兜底落盘照旧生效。
-    stop_persisted_at_ms: Option<u64>,
     /// 会话打断截止时间（纯内存态，不落盘）：打断时用后端 `now_unix_ms()` 更新。
     ///
     /// 调度链路里凡是产生时间不晚于它的批次与轮次，一律在门前拦下——
@@ -871,7 +867,6 @@ impl Default for ConversationRuntimeSlot {
             wheelchair_suggestion: None,
             last_activity_at: String::new(),
             round_owner: String::new(),
-            stop_persisted_at_ms: None,
             interrupt_cutoff_ms: None,
         }
     }

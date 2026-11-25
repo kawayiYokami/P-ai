@@ -97,15 +97,9 @@
 
     // ==================== 停止：按调度身份中止，不留跨轮次残留 ====================
 
-    fn new_inflight_abort_handle() -> futures_util::future::AbortHandle {
-        let (abortable, handle) = futures_util::future::abortable(async {});
-        drop(abortable);
-        handle
-    }
-
     /// 停止命令不允许等待收尾。
     ///
-    /// 状态组合是本轮已在跑（登记了 Running 句柄）+ 工具组正在执行 + 会话流式缓存里已有正文，
+    /// 状态组合是本轮已在跑（登记了运行中的轮次）+ 工具组正在执行 + 会话流式缓存里已有正文，
     /// 这正是旧实现走 `for _ in 0..25 { sleep(100ms) }` 轮询的入口。
     ///
     /// 为什么不允许等：abort 之后协程的收口必然会发生（落盘 partial → 置 Idle → 清流式缓存），
@@ -136,17 +130,11 @@
                 .insert(
                     chat_key.clone(),
                     InflightChatAbortEntry::Running {
-                        handle: new_inflight_abort_handle(),
                         request_id: "req-stop-latency".to_string(),
                         assistant_message_id: "assistant-stop-latency".to_string(),
-                        retired_identities: Vec::new(),
+                        retired_request_ids: Vec::new(),
                     },
                 );
-            state
-                .inflight_tool_abort_handles
-                .lock()
-                .expect("lock inflight tool abort handles")
-                .insert(chat_key.clone(), new_inflight_abort_handle());
 
             // 「有流式内容」这个条件也要成立：旧实现除了看请求字段，还会读该会话的流式缓存。
             // 少这一条，守卫只守得住「有工具在跑」，守不住「有内容可等」——将来有人把等待
@@ -185,13 +173,13 @@
         });
     }
 
-    /// 打断必须当场把半成品收走落盘，不等生成协程收口。
+    /// 停止**不落盘**：它只写水位、翻信号，然后立刻返回。
     ///
     /// 构造的是「这一轮正在流式输出、容器里已有正文」的状态。停止命令返回时：
-    /// 内容必须已经写进会话（persisted = true 并带回助理消息）、会话当场回到空闲，
-    /// 并且这一轮的所有权已经被停止方收走——旧协程退出时认不上号，不会再二次落盘复位。
+    /// 会话必须还在跑、所有权还在 worker 手上、库里没有多出半截消息——
+    /// 落盘与收尾全是 worker 读到信号后自己走的完结路线。
     #[test]
-    fn stop_chat_message_should_persist_partial_content_immediately() {
+    fn stop_chat_message_should_not_persist_and_leave_finishing_to_worker() {
         let runtime = test_runtime();
         runtime.block_on(async {
             let state = test_chat_runtime_state();
@@ -218,12 +206,11 @@
                 .lock()
                 .expect("lock inflight chat abort handles")
                 .insert(
-                    chat_key,
+                    chat_key.clone(),
                     InflightChatAbortEntry::Running {
-                        handle: new_inflight_abort_handle(),
                         request_id: "req-stop-persist".to_string(),
                         assistant_message_id: "assistant-stop-persist".to_string(),
-                        retired_identities: Vec::new(),
+                        retired_request_ids: Vec::new(),
                     },
                 );
             {
@@ -255,18 +242,13 @@
                 .expect("停止不应失败");
 
             assert!(result.aborted, "应当中止到这一轮");
-            assert!(result.persisted, "打断必须当场落盘，而不是等协程收口");
-            assert_eq!(result.assistant_text, "流到一半的正文");
-            assert_eq!(
-                result
-                    .assistant_message
-                    .as_ref()
-                    .map(|message| message.id.as_str()),
-                Some("assistant-stop-persist"),
-                "落盘写在本轮那条助理消息上"
+            assert!(!result.persisted, "停止方不许代 worker 落盘");
+            assert!(
+                result.assistant_text.is_empty(),
+                "停止方不返回正文，正文随 worker 的完结结果回前台"
             );
 
-            // 内容真的进了会话存储：同一 id 上读回来就是这段半成品正文。
+            // 库里那条助理消息上不该多出半截正文：落盘仍是 worker 的活。
             let stored = conversation_service_v2()
                 .read_message_by_id(&state, &conversation.id, "assistant-stop-persist")
                 .expect("read stored message");
@@ -274,90 +256,38 @@
                 MessagePart::Text { text, .. } => Some(text.as_str()),
                 _ => None,
             });
-            assert_eq!(stored_text, Some("流到一半的正文"));
+            assert_ne!(
+                stored_text,
+                Some("流到一半的正文"),
+                "停止方不许把流式容器里的正文写进库"
+            );
 
-            // 会话当场就绪，所有权已交还：旧协程退出时不得再复位这一轮。
+            // 会话仍在跑、所有权仍在 worker 手上：它要自己走完结路线。
             assert_eq!(
                 get_conversation_runtime_state(&state, &conversation.id).expect("read state"),
-                MainSessionState::Idle
+                MainSessionState::AssistantStreaming,
+                "停止方不许把会话置空闲"
             );
             assert!(
-                conversation_interrupt_persisted(&state, &conversation.id)
-                    .expect("read interrupt record"),
-                "应当留下「已就地落盘」的凭据"
-            );
-            assert!(
-                !finish_conversation_round(&state, &conversation.id, "owner-stop-persist")
+                finish_conversation_round(&state, &conversation.id, "owner-stop-persist")
                     .expect("finish round"),
-                "旧协程的收尾必须短路，不能再复位会话"
+                "所有权必须还在 worker 手上，由它自己交还"
+            );
+            assert!(
+                test_round_requested(&state, &conversation.id),
+                "必须把这一轮的调度号记进待停列表，让 worker 读到并自己收尾"
+            );
+            assert!(
+                inflight_has_running(&state, &chat_key),
+                "停止方不许摘掉 worker 的登记"
             );
         });
     }
 
-    /// 认领只允许发生在「槽位持有运行中所有权」且「身份对得上」同时成立时。
-    ///
-    /// 两条边都不能松：所有权在、身份不对，认领就是误夺别人的轮次；
-    /// 所有权不在、只是残留缓存身份恰好命中，认领就是把早就收完的旧内容再写一遍。
+    /// 停止只做两件事：立截止时间（给 worker 还没起来的活用）＋ 翻转本会话的结束信号（给
+    /// 已经起来的 worker 用）。**不中止任何协程**——worker 必须活着走完自己的收尾。
     #[test]
-    fn claim_conversation_round_should_require_both_ownership_and_identity() {
-        let state = test_chat_runtime_state();
-        let conversation_id = "conversation-claim-guard";
-
-        // 情况一：这一轮在跑（所有权在），但停止身份对不上。
-        {
-            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            let slot = slots.entry(conversation_id.to_string()).or_default();
-            slot.round_owner = "owner-running".to_string();
-            slot.stream_cache.activation_id = "req-running".to_string();
-            slot.stream_cache.request_id = "req-running".to_string();
-            slot.stream_cache.persisted_assistant_message_id = "assistant-running".to_string();
-        }
-        let claimed = claim_conversation_round_for_interrupt(
-            &state,
-            conversation_id,
-            &stop_identity("req-other", ""),
-        )
-        .expect("claim round");
-        assert!(!claimed, "身份对不上时不许认领");
-        {
-            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            let slot = slots.get(conversation_id).expect("slot");
-            assert_eq!(slot.round_owner, "owner-running", "所有权不得被动");
-            assert!(slot.stop_persisted_at_ms.is_none(), "不得留下落盘凭据");
-        }
-
-        // 情况二：这一轮已经收完（所有权已交还），残留缓存身份恰好命中。
-        {
-            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            slots
-                .get_mut(conversation_id)
-                .expect("slot")
-                .round_owner
-                .clear();
-        }
-        let claimed = claim_conversation_round_for_interrupt(
-            &state,
-            conversation_id,
-            &stop_identity("req-running", "assistant-running"),
-        )
-        .expect("claim round");
-        assert!(!claimed, "没有运行中的所有权时不许认领");
-        assert!(
-            lock_conversation_runtime_slots(&state)
-                .expect("lock runtime slots")
-                .get(conversation_id)
-                .expect("slot")
-                .stop_persisted_at_ms
-                .is_none(),
-            "不得留下落盘凭据"
-        );
-    }
-
-    /// 前端乐观打断一个 id 都拿不到时，停止仍必须立下截止时间、掐断在跑的轮次并认领这一轮。
-    ///
-    /// 这是「不再靠调度身份判生死」的那条路：身份全空时，正确性由截止时间 + 会话所有权承担。
-    #[test]
-    fn stop_chat_message_without_identity_should_set_cutoff_and_abort_running_round() {
+    fn stop_chat_message_without_identity_should_set_cutoff_and_signal_worker() {
         let runtime = test_runtime();
         runtime.block_on(async {
             let state = test_chat_runtime_state();
@@ -370,10 +300,9 @@
                 .insert(
                     chat_key.clone(),
                     InflightChatAbortEntry::Running {
-                        handle: new_inflight_abort_handle(),
                         request_id: "req-running".to_string(),
                         assistant_message_id: "assistant-running".to_string(),
-                        retired_identities: Vec::new(),
+                        retired_request_ids: Vec::new(),
                     },
                 );
             {
@@ -402,96 +331,34 @@
                 .await
                 .expect("无身份的停止不应失败");
 
-            assert!(result.aborted, "无身份的停止也必须掐断在跑的轮次");
+            assert!(result.aborted, "无身份的停止也算一次成立的停止");
             assert!(
-                !inflight_has_running(&state, &chat_key),
-                "在跑句柄必须被摘掉"
+                inflight_has_running(&state, &chat_key),
+                "不许把在跑的轮次登记摘掉：worker 要活着走完自己的收尾"
             );
-            let cutoff = conversation_interrupt_cutoff_ms(&state, conversation_id)
-                .expect("read cutoff")
+            let cutoff = lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .get(conversation_id)
+                .and_then(|slot| slot.interrupt_cutoff_ms)
                 .expect("无身份的停止也必须立下截止时间");
             assert!(
                 cutoff >= before,
                 "截止时间必须由后端 now_unix_ms() 立下，实测 {cutoff} < {before}"
             );
-            let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            let slot = slots.get(conversation_id).expect("slot");
             assert!(
-                slot.round_owner.is_empty(),
-                "无身份时以所有权为准认领，认领后必须交还所有权"
-            );
-            assert!(
-                slot.stop_persisted_at_ms.is_some(),
-                "认领后必须留下打断落盘凭据"
+                test_round_requested(&state, conversation_id),
+                "必须把这一轮的调度号记进待停列表，让已经起来的 worker 自己停"
             );
         });
     }
 
-    /// 被打断那一刻之前就在等的轮次，在激活门前就该被判死：不写空助理消息、不切流式。
+    /// 截止时间只用来在出队处拒掉「worker 还没起来」的旧批次：区间闭、按事件时间比。
     #[test]
-    fn activate_main_assistant_should_block_round_older_than_interrupt_cutoff() {
-        let runtime = test_runtime();
-        runtime.block_on(async {
-            let state = test_chat_runtime_state();
-            let now = now_iso();
-            let conversation = test_chat_conversation("conversation-cutoff-block", "active", &now);
-            state_schedule_conversation_persist(&state, &conversation)
-                .expect("persist conversation");
-
-            let cutoff = now_unix_ms();
-            mark_conversation_interrupt_cutoff(&state, &conversation.id, cutoff)
-                .expect("mark cutoff");
-
-            let err = activate_main_assistant(
-                &state,
-                &ChatSessionInfo {
-                    agent_id: DEFAULT_AGENT_ID.to_string(),
-                },
-                &conversation.id,
-                None,
-                None,
-                None,
-                None,
-                Vec::new(),
-                "",
-                cutoff - 1,
-            )
-            .await
-            .expect_err("旧于截止时间的轮次必须被门前拦下");
-            assert_eq!(err, CHAT_ABORTED_BY_USER_ERROR, "拦截要走用户中止这条既有收尾");
-
-            let messages = conversation_service_v2()
-                .get_conversation_recent_messages(&state, &conversation.id, 5)
-                .expect("read recent messages");
-            assert!(
-                messages.is_empty(),
-                "门前拦截不得写入任何消息（含空助理消息），实测 {messages:?}"
-            );
-            assert_eq!(
-                get_conversation_runtime_state(&state, &conversation.id).expect("read state"),
-                MainSessionState::Idle,
-                "门前拦截不得把会话切成流式"
-            );
-            let cache_activation_id = lock_conversation_runtime_slots(&state)
-                .expect("lock runtime slots")
-                .get(&conversation.id)
-                .map(|slot| slot.stream_cache.activation_id.clone())
-                .unwrap_or_default();
-            assert!(
-                cache_activation_id.is_empty(),
-                "门前拦截不得建立流式缓存，实测 {cache_activation_id}"
-            );
-        });
-    }
-
-    /// 截止时间之后产生的轮次必须放行；同一毫秒算旧；没有截止时间或事件没带时间时不拦。
-    /// 新轮次越过门卫、确权后截止时间作废。
-    #[test]
-    fn interrupt_cutoff_should_let_newer_round_through_and_clear_on_new_round() {
+    fn interrupt_cutoff_should_reject_batches_older_or_equal_to_cutoff() {
         let cutoff = 1_700_000_000_000u64;
         assert!(
             round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff - 1),
-            "更早的轮次必须拦"
+            "更早的事件必须丢"
         );
         assert!(
             round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff),
@@ -499,7 +366,7 @@
         );
         assert!(
             !round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff + 1),
-            "晚于截止时间的新轮次必须放行"
+            "晚于截止时间的新事件必须放行"
         );
         assert!(
             !round_blocked_by_interrupt_cutoff(None, cutoff),
@@ -509,31 +376,14 @@
             !round_blocked_by_interrupt_cutoff(Some(cutoff), 0),
             "事件没带时间（旧数据缺字段）时不拦"
         );
-
-        let state = test_chat_runtime_state();
-        let conversation_id = "conversation-cutoff-reset";
-        mark_conversation_interrupt_cutoff(&state, conversation_id, cutoff).expect("mark cutoff");
-        assert_eq!(
-            conversation_interrupt_cutoff_ms(&state, conversation_id)
-                .expect("read cutoff")
-                .expect("cutoff present"),
-            cutoff
-        );
-        // 新轮次越过门卫、建立所有权后，这条水位作废。
-        begin_conversation_round_owner(&state, conversation_id).expect("begin round");
-        assert_eq!(
-            conversation_interrupt_cutoff_ms(&state, conversation_id).expect("read cutoff"),
-            None,
-            "新轮次确权后截止时间必须复位"
-        );
     }
 
-    /// 确权之后、句柄登记之前被打断：表里没有句柄可中止，也必须把这次打断算成立。
+    /// 确权之后、登记之前被打断：表里没有这条记录，也不许停止方替它收尾。
     ///
-    /// 这一段空隙里轮次已经在装配上下文但还没登记句柄，按句柄找必然落空；
-    /// 若不看会话所有权，打断会被判成「什么也没停」，那一轮随后就把请求发给模型了。
+    /// 这一段空隙里轮次已在装配上下文但还没登记。停止只写水位、翻信号：
+    /// 所有权仍归 worker，落盘凭据不许由停止方写——它自己会在下一个检查点收尾。
     #[test]
-    fn stop_chat_message_should_claim_round_before_handle_registered() {
+    fn stop_before_handle_registered_should_signal_without_claiming_round() {
         let runtime = test_runtime();
         runtime.block_on(async {
             let state = test_chat_runtime_state();
@@ -560,107 +410,66 @@
                 .await
                 .expect("停止不应失败");
 
-            assert!(result.aborted, "没有句柄时也必须把这次打断算成立");
+            assert!(result.aborted, "表里没有登记时也必须把这次停止算成立");
+            // 这一轮还没登记、停止也没带任何身份号：没有可点名的对象，
+            // 停止只留下作废水位，不在会话上造任何「已停止」状态。
+            assert!(
+                lock_conversation_runtime_slots(&state)
+                    .expect("lock runtime slots")
+                    .get(conversation_id)
+                    .and_then(|slot| slot.interrupt_cutoff_ms)
+                    .is_some(),
+                "没有身份也没有在跑轮次时，停止至少要立下作废水位"
+            );
             let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.get(conversation_id).expect("slot");
-            assert!(slot.round_owner.is_empty(), "所有权必须当场收走");
-            assert!(
-                slot.stop_persisted_at_ms.is_some(),
-                "必须留下打断落盘凭据，发请求前的自检才拦得住"
+            assert_eq!(
+                slot.round_owner, "owner-before-handle",
+                "所有权必须留在 worker 手上，由它自己收尾"
             );
             assert!(
                 slot.interrupt_cutoff_ms.is_some(),
-                "无身份的打断必须立下会话截止时间"
+                "停止必须立下会话截止时间，拒掉还没起来的旧批次"
             );
         });
     }
 
-    /// 发请求前的自检必须用会话槽里这一轮的真实启动时刻与所有权令牌，不能用发送入口的就地采样。
-    ///
-    /// 关键场景：本轮 `started_at_ms` 早于 `cutoff`，而发送入口的采样晚于 `cutoff`
-    /// （确权 → 广播 → 装配上下文这段空隙里被打断）。就地采样会把它判成「停完之后的新轮次」
-    /// 放行，槽内时基才拦得住。
+    /// worker 起来之后只认待停列表里的调度号：不看截止时间、不看所有权令牌。
     #[test]
-    fn dispatch_should_short_circuit_when_round_already_interrupted() {
+    fn round_stop_requested_reads_only_the_stop_list() {
         let state = test_chat_runtime_state();
-        let conversation_id = "conversation-dispatch-guard";
+        let chat_key = "agent-1::conversation-stop-signal-only";
 
-        // 没有任何打断：放行。
+        // 没有登记：没有可等待的号，worker 不许自行判死。
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id, None)
-                .expect("check interrupted"),
-            "没有打断时不许短路"
+            !round_stop_requested(&state, &[]),
+            "没有本轮信号时不许自行判死"
         );
 
-        {
-            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            let slot = slots.entry(conversation_id.to_string()).or_default();
-            slot.round_owner = "owner-current".to_string();
-            slot.stream_cache.started_at_ms = 1_000;
-        }
+        // 本轮登记之后：没被要求停止就放行。
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
+            .expect("register");
+        let round_ids = inflight_round_request_ids(&state, chat_key);
+        assert!(!round_stop_requested(&state, &round_ids), "没被点名时必须放行");
 
-        // 打断落在本轮启动之后（1000 <= 1100）：必须短路。
-        // 注意这里没有传任何「入口时间」——判据只取槽里的启动时刻。
-        mark_conversation_interrupt_cutoff(&state, conversation_id, 1_100).expect("mark cutoff");
+        // 点名到本轮自己的号就必须承认，与时间、令牌无关。
+        mark_round_stop_requested(&state, &["req-1".to_string()]).expect("mark stop");
         assert!(
-            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
-                .expect("check interrupted"),
-            "打断不早于本轮启动时刻时必须短路"
+            round_stop_requested(&state, &round_ids),
+            "点名到本轮，worker 必须立刻认到"
         );
 
-        // 打断早于本轮启动（停完才起的新轮次）：放行。
-        mark_conversation_interrupt_cutoff(&state, conversation_id, 900).expect("mark cutoff");
+        // 别的轮次的号留在列表里也伤不到这一轮。
+        clear_round_stop_requested(&state, &["req-1".to_string()]);
+        mark_round_stop_requested(&state, &["req-other".to_string()]).expect("mark other");
         assert!(
-            !conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
-                .expect("check interrupted"),
-            "晚于截止时间启动的新轮次必须放行"
-        );
-
-        // 同一毫秒也算旧（区间闭）。
-        mark_conversation_interrupt_cutoff(&state, conversation_id, 1_000).expect("mark cutoff");
-        assert!(
-            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
-                .expect("check interrupted"),
-            "启动时刻与截止时间同一毫秒也必须拦"
-        );
-
-        // 令牌已被剥离（停止认领会清空槽上的令牌）：即使时间对不上也必须拦。
-        {
-            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            let slot = slots
-                .entry(conversation_id.to_string())
-                .or_default();
-            slot.round_owner.clear();
-            slot.interrupt_cutoff_ms = None;
-        }
-        assert!(
-            conversation_round_interrupted_since(&state, conversation_id, Some("owner-current"))
-                .expect("check interrupted"),
-            "令牌被剥离后必须短路，不许靠时间侥幸放行"
-        );
-
-        // 本轮已被停止收走（留下落盘凭据）：与时间、令牌无关，一律短路。
-        {
-            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
-            slots
-                .entry(conversation_id.to_string())
-                .or_default()
-                .stop_persisted_at_ms = Some(1_300);
-        }
-        mark_conversation_interrupt_cutoff(&state, conversation_id, 0).expect("mark cutoff");
-        assert!(
-            conversation_round_interrupted_since(&state, conversation_id, None)
-                .expect("check interrupted"),
-            "已被停止收走的轮次不论时间一律短路"
+            !round_stop_requested(&state, &round_ids),
+            "别人的号不许命中这一轮"
         );
     }
 
-    /// 端到端时序：主助理确权（T1）→ 中途被打断（认领、落盘、清缓存、留凭据）→
-    /// 旧协程继续走进 send_chat_message_inner，必须在发请求前被拦下，
-    /// 且不得把确权时的时基与凭据二次改写。
-    ///
-    /// 这条钉的是历史缺陷：发送入口曾经无条件重置流式缓存（把 started_at_ms 覆盖成更晚的
-    /// 时间、并把打断凭据抹成 None），导致两道门栅同时失效、请求照样发给模型。
+    /// 端到端时序：主助理确权（T1）→ 中途被打断 → 旧协程继续走进 send_chat_message_inner，
+    /// 必须在发请求前看到结束信号，带着空结果走完结路线——不是报错。
     #[test]
     fn interrupted_round_should_not_be_resurrected_by_send_entry() {
         let runtime = test_runtime();
@@ -705,14 +514,13 @@
                 .insert(
                     chat_key,
                     InflightChatAbortEntry::Running {
-                        handle: new_inflight_abort_handle(),
                         request_id: "req-send-gate".to_string(),
                         assistant_message_id: "assistant-send-gate".to_string(),
-                        retired_identities: Vec::new(),
+                        retired_request_ids: Vec::new(),
                     },
                 );
 
-            // 打断：认领成功、落盘、会话置就绪、缓存被清、凭据留下。
+            // 打断：只写水位、翻信号。收尾留给这一轮的 worker。
             let stop_input = StopChatRequest {
                 session: SessionSelector {
                     api_config_id: None,
@@ -726,7 +534,8 @@
             let stop_result = stop_chat_message_inner(stop_input, &state)
                 .await
                 .expect("停止不应失败");
-            assert!(stop_result.aborted, "应当认领并停住这一轮");
+            assert!(stop_result.aborted, "应当停住这一轮");
+            assert!(!stop_result.persisted, "停止方不许代 worker 落盘");
 
             // 旧协程继续走到发送入口（带着本轮确权时的令牌）。
             let channel = tauri::ipc::Channel::new(|_| Ok(()));
@@ -760,30 +569,29 @@
                     ..RuntimeContext::default()
                 }),
             };
-            let send_err = send_chat_message_inner(request, &state, &channel)
+            let send_result = send_chat_message_inner(request, &state, &channel)
                 .await
-                .expect_err("被打断的轮次不许走到模型请求");
-            assert_eq!(send_err, CHAT_ABORTED_BY_USER_ERROR);
+                .expect("打断不是错误：本轮必须正常收口，不许抛错");
+            assert!(
+                send_result.assistant_text.is_empty(),
+                "已收到结束信号的轮次不许再发请求、不许产出正文"
+            );
 
             let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.get(&conversation.id).expect("slot");
             assert_eq!(
-                slot.stream_cache.started_at_ms, 0,
-                "停止已清空缓存，发送入口不得把它重写成更晚的时间（重写会让 cutoff 判定失效）"
-            );
-            assert!(
-                slot.stop_persisted_at_ms.is_some(),
-                "打断落盘凭据不许被发送入口抹掉"
+                slot.stream_cache.started_at_ms, confirmed_started_at_ms,
+                "停止方不碰流式缓存，发送入口也不许改写它"
             );
         });
     }
 
-    /// 停止带了不匹配的身份时不许把「别人的轮次」当成停住了。
+    /// 停止带上不匹配的身份，仍然是一次成立的停止：打断不认身份。
     ///
-    /// 这一条钉的是身份隔离：句柄没命中、只是槽上有别的轮次在跑，`aborted` 必须为 false，
-    /// 既不能报给前端「已中止」，也不能顺手压目标、清队员待办，更不能把那一轮的所有权收走。
+    /// 断言的重点从「算不算停住了」变成「停完之后谁做收尾」：别人的轮次登记不许被摘、
+    /// 所有权不许被收走、不许留落盘凭据——收尾只能由那一轮的 worker 自己做。
     #[test]
-    fn stop_with_mismatched_identity_should_not_report_aborted() {
+    fn stop_with_mismatched_identity_still_reports_stopped_without_taking_over_round() {
         let runtime = test_runtime();
         runtime.block_on(async {
             let state = test_chat_runtime_state();
@@ -796,10 +604,9 @@
                 .insert(
                     chat_key.clone(),
                     InflightChatAbortEntry::Running {
-                        handle: new_inflight_abort_handle(),
                         request_id: "req-actually-running".to_string(),
                         assistant_message_id: "assistant-actually-running".to_string(),
-                        retired_identities: Vec::new(),
+                        retired_request_ids: Vec::new(),
                     },
                 );
             {
@@ -821,7 +628,7 @@
                     agent_id: DEFAULT_AGENT_ID.to_string(),
                     conversation_id: Some(conversation_id.to_string()),
                 },
-                // 身份对不上任何在跑的调度：这次停止没有对象。
+                // 身份对不上任何在跑的调度：但停止针对的是「这个会话这一轮」。
                 request_id: Some("req-stale".to_string()),
                 activation_id: Some("req-stale".to_string()),
                 assistant_message_id: Some("assistant-stale".to_string()),
@@ -830,18 +637,15 @@
                 .await
                 .expect("停止不应失败");
 
-            assert!(!result.aborted, "身份对不上时不许报「已中止」");
+            assert!(result.aborted, "指定了会话就是一次成立的停止");
+            assert!(!result.persisted, "停止方不许代 worker 落盘");
             assert!(
-                inflight_has_running(&state, &chat_key),
-                "别人那一轮的句柄不许被摘掉"
+                test_round_requested(&state, conversation_id),
+                "必须把这一轮的调度号记进待停列表，由这一轮的 worker 自己停"
             );
             assert!(
-                !state
-                    .goal_continue_suppressed_conversation_ids
-                    .lock()
-                    .expect("lock suppressed ids")
-                    .contains(conversation_id),
-                "没停住任何东西时不许压目标继续"
+                inflight_has_running(&state, &chat_key),
+                "别人那一轮的登记不许被摘掉"
             );
             let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.get(conversation_id).expect("slot");
@@ -849,20 +653,15 @@
                 slot.round_owner, "owner-actually-running",
                 "别人那一轮的所有权不许被收走"
             );
-            assert!(
-                slot.stop_persisted_at_ms.is_none(),
-                "没认领成功就不许留下打断落盘凭据"
-            );
         });
     }
 
-    /// 构造一次停止请求要终止的调度身份。
-    fn stop_identity(request_id: &str, assistant_message_id: &str) -> StopDispatchIdentity {
-        StopDispatchIdentity {
-            request_id: request_id.to_string(),
-            activation_id: request_id.to_string(),
-            assistant_message_id: assistant_message_id.to_string(),
-        }
+    /// 测试用：这一轮是否已被要求停止。
+    fn test_round_requested(state: &AppState, conversation_id: &str) -> bool {
+        round_stop_requested(
+            state,
+            &inflight_round_request_ids_by_conversation(state, conversation_id),
+        )
     }
 
     fn inflight_has_running(state: &AppState, chat_key: &str) -> bool {
@@ -878,20 +677,19 @@
 
     #[test]
     fn register_inflight_chat_abort_handle_consumes_matching_cancel_request() {
-        // 提交窗口：消息已发出、句柄还没登记，用户此刻按下停止。
+        // 提交窗口：消息已发出、登记还没写上，用户此刻按下停止。
         // 停止只能落在「这一次提交」的请求号上，由这次提交登记时消费一次。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
 
         assert!(
-            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+            request_stop_inflight_chat(&state, chat_key, "req-1")
                 .expect("request stop"),
             "提交期停止要给这次提交留下取消标记"
         );
         let stopped_before_start = register_inflight_chat_abort_handle(
             &state,
             chat_key,
-            new_inflight_abort_handle(),
             "req-1",
             "assistant-1",
         )
@@ -908,12 +706,11 @@
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
 
-        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+        request_stop_inflight_chat(&state, chat_key, "req-1")
             .expect("request stop");
         let stopped_before_start = register_inflight_chat_abort_handle(
             &state,
             chat_key,
-            new_inflight_abort_handle(),
             "req-2",
             "assistant-2",
         )
@@ -929,20 +726,70 @@
     }
 
     #[test]
-    fn register_inflight_chat_abort_handle_aborts_previous_running_handle() {
+    fn register_inflight_chat_abort_handle_takes_over_previous_record() {
+        // 同一键上还挂着上一轮的记录：后登记的直接把记录换成本轮的，不中止任何协程。
+        // 上一轮该自己走完结路线——它读到的是自己那一份信号，不是这一轮的登记动作。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let first = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, first.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register first");
 
-        let second = new_inflight_abort_handle();
         let stopped_before_start =
-            register_inflight_chat_abort_handle(&state, chat_key, second.clone(), "req-2", "assistant-2")
+            register_inflight_chat_abort_handle(&state, chat_key, "req-2", "assistant-2")
                 .expect("register second");
-        assert!(!stopped_before_start);
-        assert!(first.is_aborted(), "后登记的句柄必须中止前一个");
-        assert!(!second.is_aborted());
+        assert!(!stopped_before_start, "没有取消标记时新一轮照常开跑");
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(
+            matches!(
+                inflight.get(chat_key),
+                Some(InflightChatAbortEntry::Running { request_id, .. }) if request_id == "req-2"
+            ),
+            "表里只留新一轮自己"
+        );
+    }
+
+    #[test]
+    fn register_same_request_id_again_should_refresh_without_dropping_retired_ids() {
+        // 同一轮会被登记两次：批次入口先按本轮定死的号登，发送入口再登一次补消息 id。
+        // 号相同就是同一次调度的刷新，不是被新一轮接管——已退役的旧号必须留着，
+        // 否则压缩重启前那个号丢了，那一轮就再也停不住。
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-1";
+        register_inflight_chat_abort_handle(&state, chat_key, "req-old", "assistant-old")
+            .expect("register first");
+        refresh_inflight_chat_dispatch_identity(
+            &state,
+            chat_key,
+            "req-old",
+            "req-new",
+            "assistant-old",
+        )
+        .expect("refresh round id");
+
+        let stopped_before_start =
+            register_inflight_chat_abort_handle(&state, chat_key, "req-new", "assistant-new")
+                .expect("register same round again");
+        assert!(!stopped_before_start, "重复登记不是取消标记");
+        let inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .expect("lock inflight chat abort handles");
+        assert!(
+            matches!(
+                inflight.get(chat_key),
+                Some(InflightChatAbortEntry::Running {
+                    request_id,
+                    assistant_message_id,
+                    retired_request_ids,
+                }) if request_id == "req-new"
+                    && assistant_message_id == "assistant-new"
+                    && retired_request_ids == &vec!["req-old".to_string()]
+            ),
+            "同号重复登记只补消息 id，保留已退役的旧号"
+        );
     }
 
     #[test]
@@ -951,19 +798,12 @@
         let target_key = "agent-1::conversation-1";
         let other_key = "agent-1::conversation-2";
         let running_key = "agent-1::conversation-1::delegate";
-        request_stop_inflight_chat(&state, target_key, &stop_identity("req-1", ""))
+        request_stop_inflight_chat(&state, target_key, "req-1")
             .expect("request stop target");
-        request_stop_inflight_chat(&state, other_key, &stop_identity("req-2", ""))
+        request_stop_inflight_chat(&state, other_key, "req-2")
             .expect("request stop other");
-        let running_handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(
-            &state,
-            running_key,
-            running_handle.clone(),
-            "req-3",
-            "assistant-3",
-        )
-        .expect("register running");
+        register_inflight_chat_abort_handle(&state, running_key, "req-3", "assistant-3")
+            .expect("register running");
 
         let cleared = clear_conversation_cancel_requests(&state, "conversation-1")
             .expect("clear cancel requests");
@@ -978,79 +818,68 @@
             inflight.get(other_key),
             Some(InflightChatAbortEntry::CancelRequested { .. })
         ));
-        assert!(matches!(
-            inflight.get(running_key),
-            Some(InflightChatAbortEntry::Running { .. })
-        ));
-        assert!(!running_handle.is_aborted(), "清理取消标记不应动运行中的句柄");
+        assert!(
+            matches!(
+                inflight.get(running_key),
+                Some(InflightChatAbortEntry::Running { .. })
+            ),
+            "清理取消标记不应动运行中的轮次"
+        );
     }
 
     #[test]
-    fn request_stop_inflight_chat_aborts_registered_round() {
-        // 停止一个正在跑的轮次：当场 abort，事后共享状态里不留任何残留。
+    fn request_stop_inflight_chat_reports_hit_without_aborting_worker() {
+        // 停止一个正在跑的轮次：如实报告命中，但**不中止**任何协程，也不摘表项。
+        // 收尾（落盘、广播、置空闲、释放占位）全是 worker 自己的活。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
 
         assert!(
-            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+            request_stop_inflight_chat(&state, chat_key, "req-1")
                 .expect("request stop")
         );
-        assert!(handle.is_aborted(), "已登记的轮次必须被立即中止");
-        let inflight = state
-            .inflight_chat_abort_handles
-            .lock()
-            .expect("lock inflight chat abort handles");
-        assert!(inflight.get(chat_key).is_none(), "停止之后不得留下任何残留");
+        assert!(inflight_has_running(&state, chat_key), "表项必须留着给 worker 自己摘");
     }
 
     #[test]
     fn request_stop_inflight_chat_hits_after_compaction_restart() {
-        // 压缩重启会换用新的请求号与助理消息 id，但继续跑在同一次 run 里、句柄不变。
-        // 前端采纳新身份后点停止，必须命中同一个句柄。
+        // 压缩重启会换用新的请求号与助理消息 id，但继续跑在同一次 run 里、同一条登记。
+        // 停止不看身份，命中即报告；这一轮照样由 worker 自己收尾。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
 
         refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
             .expect("refresh identity");
 
         assert!(
-            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-2", "assistant-2"))
+            request_stop_inflight_chat(&state, chat_key, "req-2")
                 .expect("stop with new identity"),
-            "压缩重启后的新身份必须能停住这一轮"
+            "压缩重启后的新号同样命中同一轮"
         );
-        assert!(handle.is_aborted(), "新身份命中后应立即中止");
-        let inflight = state
-            .inflight_chat_abort_handles
-            .lock()
-            .expect("lock inflight chat abort handles");
-        assert!(inflight.get(chat_key).is_none(), "停止之后不得留下任何残留");
+        assert!(inflight_has_running(&state, chat_key));
     }
 
     #[test]
     fn request_stop_inflight_chat_still_hits_with_retired_identity() {
         // 压缩边界的完成事件只走单发通道，Web / VS Code 收不到，那一端会丢弃新的轮次开始
-        // 事件、一直持有压缩前的旧身份。旧号必须继续能停住同一轮，否则 Web 端会从
+        // 事件、一直持有压缩前的旧身份。旧号也必须能停住同一轮，否则 Web 端会从
         // 「能停」退化成「不能停」。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
         refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
             .expect("refresh identity");
 
         assert!(
-            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+            request_stop_inflight_chat(&state, chat_key, "req-1")
                 .expect("stop with retired identity"),
-            "压缩前的旧身份仍代表同一轮，必须能停住"
+            "压缩前的旧号仍代表同一轮，必须能停住"
         );
-        assert!(handle.is_aborted(), "旧身份命中后也应立即中止");
     }
 
     #[test]
@@ -1059,8 +888,7 @@
         // 否则那个调度按自己的号就停不掉了。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-2", "assistant-2")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-2", "assistant-2")
             .expect("register");
 
         // 本轮以为表内还是 req-1，实际已是 req-2：应跳过改写。
@@ -1073,8 +901,8 @@
             .expect("lock inflight chat abort handles");
         assert!(matches!(
             inflight.get(chat_key),
-            Some(InflightChatAbortEntry::Running { request_id, retired_identities, .. })
-                if request_id == "req-2" && retired_identities.is_empty()
+            Some(InflightChatAbortEntry::Running { request_id, retired_request_ids, .. })
+                if request_id == "req-2" && retired_request_ids.is_empty()
         ));
     }
 
@@ -1084,8 +912,7 @@
         // 而残留的 Running 会让下一轮提交期的停止撞上它并对不上。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
         refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-1", "req-2", "assistant-2")
             .expect("refresh identity");
@@ -1113,9 +940,7 @@
         // 刷新只针对已登记的运行轮次；挂着的「提交期取消」标记不属于任何一轮，不能被它改掉。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let mut identity = stop_identity("req-pending", "");
-        identity.assistant_message_id.clear();
-        request_stop_inflight_chat(&state, chat_key, &identity).expect("record cancel request");
+        request_stop_inflight_chat(&state, chat_key, "req-pending").expect("record cancel request");
 
         refresh_inflight_chat_dispatch_identity(&state, chat_key, "req-new", "req-newer", "assistant-newer")
             .expect("refresh identity");
@@ -1131,66 +956,40 @@
     }
 
     #[test]
-    fn request_stop_inflight_chat_matches_by_assistant_message_id() {
-        // 前端手上未必有请求号，但一定有本轮助理消息 id：只给消息 id 也要能精确命中。
+    fn request_stop_inflight_chat_does_not_compare_identity() {
+        // 停止不按身份比对：键上正跑着轮次就如实报告「停到了」，但绝不从外面把它中止，
+        // 也绝不把表项摘掉——worker 必须活着走完自己的收尾。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
 
-        let mut identity = stop_identity("", "");
-        identity.assistant_message_id = "assistant-1".to_string();
-        assert!(request_stop_inflight_chat(&state, chat_key, &identity).expect("request stop"));
-        assert!(handle.is_aborted());
-    }
-
-    #[test]
-    fn request_stop_inflight_chat_leaves_other_dispatch_untouched() {
-        // 不猜：带 A 身份停止，只中止 A；表里 B 那一份必须原样留着。
-        let state = test_chat_runtime_state();
-        let chat_key_b = "agent-1::conversation-1";
-        let handle_b = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(
-            &state,
-            chat_key_b,
-            handle_b.clone(),
-            "req-b",
-            "assistant-b",
-        )
-        .expect("register b");
-
         assert!(
-            !request_stop_inflight_chat(&state, chat_key_b, &stop_identity("req-a", "assistant-a"))
-                .expect("request stop a"),
-            "身份对不上时停止必须落空"
+            request_stop_inflight_chat(&state, chat_key, "req-other").expect("request stop"),
+            "键上有在跑的轮次，停止就必须如实报告命中"
         );
-        assert!(!handle_b.is_aborted(), "另一个调度不得被误伤");
-        assert!(inflight_has_running(&state, chat_key_b), "B 必须仍在表里");
+        assert!(inflight_has_running(&state, chat_key), "表项必须留着给 worker 自己摘");
     }
 
     #[test]
     fn request_stop_inflight_chat_records_cancel_for_pending_commit() {
-        // 提交窗口：句柄还没登记，停止按请求号记下取消；这一条只能被消费一次。
+        // 提交窗口：登记还没写上，停止按请求号记下取消；这一条只能被消费一次。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
 
         assert!(
-            request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+            request_stop_inflight_chat(&state, chat_key, "req-1")
                 .expect("request stop"),
             "带请求号的停止要给这次提交留下取消标记"
         );
-        assert!(
-            register_inflight_chat_abort_handle(
-                &state,
-                chat_key,
-                new_inflight_abort_handle(),
-                "req-1",
-                "assistant-1",
-            )
-            .expect("register"),
-            "同请求号的提交必须被中止"
-        );
+        let stopped_before_start = register_inflight_chat_abort_handle(
+            &state,
+            chat_key,
+            "req-1",
+            "assistant-1",
+        )
+        .expect("register");
+        assert!(stopped_before_start, "同请求号的提交必须被中止");
         assert!(
             !inflight_has_running(&state, chat_key),
             "取消标记只能被消费一次，且消费后不留槽位"
@@ -1199,33 +998,30 @@
 
     #[test]
     fn request_stop_inflight_chat_after_round_finished_does_not_affect_next_round() {
-        // 现场：点停止时上一轮刚好收尾，句柄已经撤掉；用户紧接着发新消息，
+        // 现场：点停止时上一轮刚好收尾，记录已经撤掉；用户紧接着发新消息，
         // 新一轮必须照常登记、照常进入激活，不能被上一轮的停止残留吞掉。
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
 
-        let finished = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, finished.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register previous round");
-        // 上一轮收尾：句柄被摘掉，之后停止才姗姗来迟。
+        // 上一轮收尾：记录被摘掉，之后停止才姗姗来迟。
         state
             .inflight_chat_abort_handles
             .lock()
             .expect("lock inflight chat abort handles")
             .remove(chat_key);
-        // 表里已经没有可中止的对象，此刻它与「提交窗口里句柄尚未登记」在形态上完全一致，
+        // 表里已经没有可中止的对象，此刻它与「提交窗口里轮次尚未登记」在形态上完全一致，
         // 后端无法也不该去猜。停止最多在 req-1 这个请求号上留一枚只能被同一个请求号
         // 消费一次的取消标记——它指不到任何别的调度，也不会中止任何轮次。
-        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", "assistant-1"))
+        request_stop_inflight_chat(&state, chat_key, "req-1")
             .expect("late stop");
 
         // 新一轮：请求号不同，必须照常登记、照常进入激活。
-        let next = new_inflight_abort_handle();
         let stopped_before_start =
-            register_inflight_chat_abort_handle(&state, chat_key, next.clone(), "req-2", "assistant-2")
+            register_inflight_chat_abort_handle(&state, chat_key, "req-2", "assistant-2")
                 .expect("register next round");
         assert!(!stopped_before_start, "新一轮不得被上一轮的停止中止");
-        assert!(!next.is_aborted(), "新一轮必须真正进入激活");
         assert!(inflight_has_running(&state, chat_key), "新一轮必须正常登记");
         let inflight = state
             .inflight_chat_abort_handles
@@ -1247,7 +1043,7 @@
         let chat_key = "agent-1::conversation-1";
 
         assert!(
-            !request_stop_inflight_chat(&state, chat_key, &StopDispatchIdentity::default())
+            !request_stop_inflight_chat(&state, chat_key, "")
                 .expect("request stop"),
             "没有身份的停止必须落空"
         );
@@ -1259,28 +1055,28 @@
     }
 
     #[test]
-    fn clear_inflight_chat_cancel_request_keeps_running_handle() {
+    fn clear_inflight_chat_cancel_request_keeps_running_round() {
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        let handle = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(&state, chat_key, handle.clone(), "req-1", "assistant-1")
+        register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
             .expect("register");
 
         clear_inflight_chat_cancel_request(&state, chat_key).expect("clear cancel request");
-        assert!(!handle.is_aborted(), "清理取消标记不应影响运行中的句柄");
-        assert!(inflight_has_running(&state, chat_key));
+        assert!(inflight_has_running(&state, chat_key), "清理取消标记不应影响运行中的轮次");
     }
 
+    /// 只有提交期取消标记、没有在跑轮次时，停止不许凭空认领一轮。
     #[test]
-    fn abort_running_inflight_chat_preserves_cancel_request() {
+    fn stop_with_only_cancel_request_keeps_it_for_that_commit() {
         let state = test_chat_runtime_state();
         let chat_key = "agent-1::conversation-1";
-        request_stop_inflight_chat(&state, chat_key, &stop_identity("req-1", ""))
+        request_stop_inflight_chat(&state, chat_key, "req-1")
             .expect("request stop");
 
         assert!(
-            !abort_running_inflight_chat(&state, chat_key).expect("abort running"),
-            "只有提交期取消标记时不应视为中止到运行中的轮次"
+            !request_stop_inflight_chat(&state, chat_key, "req-other")
+                .expect("request stop other"),
+            "号对不上的停止不许认领这一枚标记"
         );
         let inflight = state
             .inflight_chat_abort_handles
@@ -1291,7 +1087,7 @@
                 inflight.get(chat_key),
                 Some(InflightChatAbortEntry::CancelRequested { .. })
             ),
-            "针对尚未登记句柄的那次提交的取消标记必须保留"
+            "针对尚未登记的那次提交的取消标记必须保留"
         );
     }
 
@@ -1307,22 +1103,15 @@
         write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
         let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
 
-        // 上一轮：登记过句柄、已经收尾，停止姗姗来迟（就发生在同一秒内）。
-        let previous = new_inflight_abort_handle();
-        register_inflight_chat_abort_handle(
-            &state,
-            &chat_key,
-            previous.clone(),
-            "req-1",
-            "assistant-1",
-        )
-        .expect("register previous round");
+        // 上一轮：登记过、已经收尾，停止姗姗来迟（就发生在同一秒内）。
+        register_inflight_chat_abort_handle(&state, &chat_key, "req-1", "assistant-1")
+            .expect("register previous round");
         state
             .inflight_chat_abort_handles
             .lock()
             .expect("lock inflight chat abort handles")
             .remove(&chat_key);
-        let _ = request_stop_inflight_chat(&state, &chat_key, &stop_identity("req-1", "assistant-1"))
+        let _ = request_stop_inflight_chat(&state, &chat_key, "req-1")
             .expect("late stop");
 
         // 紧接着发出的新消息：它有自己的请求号，必须真的被激活。
@@ -1354,7 +1143,297 @@
         );
     }
 
-    // ==================== 全局短 ID 基建 ====================
+    // ==================== 打断：各阶段的毫秒级验收 ====================
+
+    /// 阶段一（worker 还没起来）：截止时间之前的排队事件在出队处就被丢掉。
+    ///
+    /// 这一阶段没有 worker、没有信号可读，唯一的判据是时间：被丢掉的事件不 claim、
+    /// 不 spawn，队列清空，占位名额一个不占。
+    #[test]
+    fn stop_before_worker_starts_never_spawns() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-stop-before-spawn";
+        let mut event = test_pending_event(conversation_id);
+        event.created_at_ms = 1_000;
+        {
+            let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
+            let slot = slots.entry(conversation_id.to_string()).or_default();
+            slot.pending_queue.push_back(event);
+        }
+        // 截止时间晚于事件：这条活是「被打断那一刻之前就排着的」。
+        mark_conversation_interrupt_cutoff(&state, conversation_id, 2_000).expect("mark cutoff");
+
+        let started = std::time::Instant::now();
+        let batches = claim_queued_conversation_batches(&state).expect("claim batches");
+        let elapsed = started.elapsed();
+
+        assert!(
+            batches.is_empty(),
+            "旧事件必须在出队处丢掉，不许 claim 成批次（否则 worker 会被建出来）"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "出队过滤只读内存，必须远快于 50ms，实测 {elapsed:?}"
+        );
+        assert!(
+            lock_conversation_processing_claims(&state)
+                .expect("lock claims")
+                .is_empty(),
+            "全丢之后不许占会话名额（否则该会话哑掉、名额不还）"
+        );
+        assert!(
+            lock_conversation_runtime_slots(&state)
+                .expect("lock runtime slots")
+                .get(conversation_id)
+                .map(|slot| slot.pending_queue.is_empty())
+                .unwrap_or(true),
+            "被丢掉的事件不许留在队列里反复重试"
+        );
+    }
+
+    /// 阶段二（worker 第一步：写历史）：信号已到 → 跳过召回、照常写盘、不激活任何轮次。
+    #[test]
+    fn stop_during_write_history_skips_recall_and_activates_nothing() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-stop-write-history";
+        let now = now_iso();
+        let conversation = test_chat_conversation(conversation_id, "active", &now);
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+
+        // 停止先到：这一轮登记时用的就是同一个号，worker 起来读到的是同一张待停列表。
+        let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
+        register_inflight_chat_abort_handle(&state, &chat_key, "req-write-history", "")
+            .expect("登记本轮");
+        assert!(
+            request_stop_inflight_chat_round(&state, &chat_key, conversation_id)
+                .expect("点名本轮"),
+            "该键上有在跑的轮次，点名必须命中"
+        );
+        assert!(
+            test_round_requested(&state, conversation_id),
+            "记下号之后这一轮必须认得出自己"
+        );
+
+        let mut event = test_pending_event(conversation_id);
+        let mut runtime_context = runtime_context_new("user_message", "user_send");
+        runtime_context.request_id = Some("req-write-history".to_string());
+        event.runtime_context = Some(runtime_context);
+
+        let started = std::time::Instant::now();
+        let outcome = test_runtime().block_on(process_conversation_batch(
+            &state,
+            conversation_id,
+            vec![event],
+        ));
+        let elapsed = started.elapsed();
+
+        if let Err(err) = &outcome {
+            assert_ne!(
+                err, CHAT_ABORTED_BY_USER_ERROR,
+                "打断不是错误：写历史阶段不允许返回用户中止错误"
+            );
+        }
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "写历史阶段不许挂住（这一段含 SQLite 写，不钉毫秒，钉的是不等到 provider 超时），实测 {elapsed:?}"
+        );
+
+        // 用户发的字必须留在历史里：丢的只是这一轮的回复。
+        let updated =
+            state_read_conversation_cached(&state, conversation_id).expect("read conversation");
+        assert!(
+            updated
+                .messages
+                .iter()
+                .any(|message| message.role.trim() == "user"),
+            "被打断也要把用户消息写进去，实测 {:?}",
+            updated.messages.len()
+        );
+        assert!(
+            !updated
+                .messages
+                .iter()
+                .any(|message| message.role.trim() == "assistant"),
+            "不许建轮次：信号已到时一个助理消息都不该出现"
+        );
+        assert_eq!(
+            get_conversation_runtime_state(&state, conversation_id).expect("read state"),
+            MainSessionState::Idle,
+            "收尾之后会话必须回到空闲"
+        );
+        assert!(
+            lock_conversation_processing_claims(&state)
+                .expect("lock claims")
+                .is_empty(),
+            "收尾必须释放会话名额"
+        );
+    }
+
+    /// 事故钉子：一轮被点名收尾之后，下一条消息必须照常激活。
+    ///
+    /// 线上事故是「一次停止永久停止」——旧实现把会话级的「已停止」布尔置 true 之后没有人复位，
+    /// 于是之后每条消息都被拦在激活之前。这里跑完整两轮：第一轮被点名收尾，
+    /// 第二轮必须真的激活出助理轮次。只要会话上还留着「已停止」这种东西，这条就会变红。
+    #[test]
+    fn stopped_round_must_not_block_the_next_message() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-stop-then-next";
+        let now = now_iso();
+        let conversation = test_chat_conversation(conversation_id, "active", &now);
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+        let chat_key = inflight_chat_key(DEFAULT_AGENT_ID, Some(conversation_id));
+
+        // 第一轮：登记、被点名、跑完不激活。
+        register_inflight_chat_abort_handle(&state, &chat_key, "req-stop-first", "")
+            .expect("登记第一轮");
+        assert!(
+            request_stop_inflight_chat_round(&state, &chat_key, conversation_id)
+                .expect("点名第一轮"),
+            "点名必须命中在跑的轮次"
+        );
+        let mut stopped_event = test_pending_event(conversation_id);
+        let mut first_context = runtime_context_new("user_message", "user_send");
+        first_context.request_id = Some("req-stop-first".to_string());
+        stopped_event.runtime_context = Some(first_context);
+        let first_outcome = test_runtime().block_on(process_conversation_batch(
+            &state,
+            conversation_id,
+            vec![stopped_event],
+        ));
+        if let Err(err) = &first_outcome {
+            assert_ne!(err, CHAT_ABORTED_BY_USER_ERROR, "打断不是错误");
+        }
+        let after_first =
+            state_read_conversation_cached(&state, conversation_id).expect("read conversation");
+        assert!(
+            !after_first
+                .messages
+                .iter()
+                .any(|message| message.role.trim() == "assistant"),
+            "被点名的那一轮不许激活"
+        );
+
+        // 第二轮：新号、新事件，必须照常激活。
+        let mut next_event = test_pending_event(conversation_id);
+        let mut next_context = runtime_context_new("user_message", "user_send");
+        next_context.request_id = Some("req-after-stop".to_string());
+        next_event.runtime_context = Some(next_context);
+        let next_outcome = test_runtime().block_on(process_conversation_batch(
+            &state,
+            conversation_id,
+            vec![next_event],
+        ));
+        if let Err(err) = &next_outcome {
+            assert_ne!(
+                err, CHAT_ABORTED_BY_USER_ERROR,
+                "上一轮的停止不许波及这一轮"
+            );
+        }
+        let after_next =
+            state_read_conversation_cached(&state, conversation_id).expect("read conversation");
+        assert!(
+            after_next
+                .messages
+                .iter()
+                .any(|message| message.role.trim() == "assistant"),
+            "被停止之后的下一条消息必须真的激活出助理轮次"
+        );
+    }
+
+    /// 阶段四（请求建连）：provider 不接、不回时，结束信号必须当场放弃等待。
+    ///
+    /// 这是最常被卡住的一处：裸 await 会一直挂到 provider 自己的超时，
+    /// 用户按了停止毫无反应。这里用「挂 30 秒的 future」代替真实建连。
+    #[test]
+    fn stop_during_connect_returns_within_100ms() {
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-stop-connect";
+        test_runtime().block_on(async {
+            register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
+                .expect("register");
+            let round_ids = inflight_round_request_ids(&state, chat_key);
+            let stopper = {
+                let stopper_state = state.clone();
+                let stopper_ids = round_ids.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    mark_round_stop_requested(&stopper_state, &stopper_ids).expect("mark stop");
+                })
+            };
+
+            let started = std::time::Instant::now();
+            let outcome = race_with_chat_stop(&state, &round_ids, async {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                "connected"
+            })
+            .await;
+            let elapsed = started.elapsed();
+            stopper.await.expect("stopper");
+
+            assert!(
+                outcome.is_none(),
+                "信号先到时必须放弃等待，不许等建连自己回来"
+            );
+            assert!(
+                elapsed < std::time::Duration::from_millis(100),
+                "建连阶段必须能被打断，实测 {elapsed:?}"
+            );
+        });
+    }
+
+    /// 建连先成功时照常拿到结果：赛跑不许把正常路径也判成「已结束」。
+    #[test]
+    fn race_with_chat_stop_keeps_work_that_finishes_first() {
+        let state = test_chat_runtime_state();
+        let chat_key = "agent-1::conversation-race-normal";
+        test_runtime().block_on(async {
+            register_inflight_chat_abort_handle(&state, chat_key, "req-1", "assistant-1")
+                .expect("register");
+            let round_ids = inflight_round_request_ids(&state, chat_key);
+            let outcome = race_with_chat_stop(&state, &round_ids, async {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                "connected"
+            })
+            .await;
+            assert_eq!(outcome, Some("connected"), "没有信号时工作结果必须原样返回");
+        });
+    }
+
+    /// 阶段八（空闲时被停止）：没有任何活可停，也不许写库、不许拖时间。
+    #[test]
+    fn stop_after_idle_is_noop() {
+        let runtime = test_runtime();
+        runtime.block_on(async {
+            let state = test_chat_runtime_state();
+            let conversation_id = "conversation-stop-idle";
+            let input = StopChatRequest {
+                session: SessionSelector {
+                    api_config_id: None,
+                    agent_id: DEFAULT_AGENT_ID.to_string(),
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+                request_id: None,
+                activation_id: None,
+                assistant_message_id: None,
+            };
+            let started = std::time::Instant::now();
+            let result = stop_chat_message_inner(input, &state)
+                .await
+                .expect("空闲时停止不应失败");
+            let elapsed = started.elapsed();
+
+            assert!(!result.persisted, "空闲时停止不许写库");
+            assert!(
+                result.assistant_message.is_none(),
+                "空闲时停止不许造出任何消息"
+            );
+            assert!(
+                elapsed < std::time::Duration::from_secs(3),
+                "空闲时停止只有内存动作加一次目标压制落账，不许挂住，实测 {elapsed:?}"
+            );
+        });
+    }
+
 
     /// 各域独立单调递增，号只增不减：删除/跳过都不会把号重新发出去。
     #[test]

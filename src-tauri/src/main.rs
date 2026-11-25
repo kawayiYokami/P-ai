@@ -9,7 +9,7 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
-use futures_util::{future::AbortHandle, future::join_all, future::BoxFuture, StreamExt};
+use futures_util::{future::join_all, future::BoxFuture, StreamExt};
 use image::ImageFormat;
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rmcp::{schemars, ServiceExt};

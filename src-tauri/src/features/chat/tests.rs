@@ -3442,7 +3442,8 @@
             app_data_persist_write_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            stopped_request_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            chat_stop_notify: Arc::new(tokio::sync::Notify::new()),
             inflight_completed_tool_history: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(

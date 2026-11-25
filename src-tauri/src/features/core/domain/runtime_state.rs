@@ -29,38 +29,30 @@ struct IdeContextSnapshot {
 
 /// 一个会话上「正在进行中的聊天轮次」的打断状态。
 ///
-/// 停止是「终止我正在收流的那个调度」，所以这张表按身份命中，不按会话猜：
-/// 每个条目都带着它属于哪一个调度实例的标识，停止请求带着身份来，只中止对得上号的那一个。
+/// 表里**没有任何句柄**：轮次一旦跑起来就只认结束信号，自己停、自己收尾，
+/// 谁都不许从外面把它掐掉。留下的身份信息只有一个用途——本轮收尾时认出
+/// 「表里这条是我的」，从而只摘自己的记录，不把已被更晚一次调度接手的条目一起摘掉。
 ///
 /// 两种状态：
-/// - `Running`：轮次已宣布并在跑，持有可中止其生成协程的句柄；
-/// - `CancelRequested`：这一次提交还在启动途中（句柄未登记），停止落在它的请求号上；
-///   登记句柄时按请求号精确消费一次，被消费或本轮收尾即消失，绝不跨轮次存活。
-/// 一次调度用过的身份（请求号 + 助理消息 id）。
-///
-/// 上下文压缩重启会让同一轮换一套新身份，旧的一套留在 `retired_identities` 里继续可命中。
-#[derive(Debug, Clone)]
-struct RetiredDispatchIdentity {
-    request_id: String,
-    assistant_message_id: String,
-}
-
+/// - `Running`：轮次已宣布并在跑；
+/// - `CancelRequested`：这一次提交还在启动途中（还没登记），停止落在它的请求号上；
+///   登记时按请求号精确消费一次，被消费或本轮收尾即消失，绝不跨轮次存活。
 #[derive(Debug)]
 enum InflightChatAbortEntry {
-    /// 轮次已开始，持有可中止其生成协程的句柄，并记下它属于哪个调度。
+    /// 轮次已开始，记下它属于哪个调度。
+    ///
+    /// 这条记录只用于「这个键上有没有在跑的轮次」与收尾认领，不承载任何中止手段。
     Running {
-        handle: AbortHandle,
         /// 这一次调度的请求号（与前端发送时用的 traceId 一致）。
         request_id: String,
-        /// 本轮正在写的助理消息 id。
+        /// 本轮正在写的助理消息 id。只用于排障：能说清停掉的是哪条消息。
         assistant_message_id: String,
-        /// 本轮此前用过的身份，最新一版在 `request_id` / `assistant_message_id` 上。
+        /// 本轮此前用过的请求号，最新一版在 `request_id` 上。
         ///
-        /// 上下文压缩重启会换一套新身份，但前端未必采纳：压缩边界的完成事件只走单发通道，
-        /// Web / VS Code 收不到，于是该端会丢弃新的轮次开始事件、继续持有旧身份。
-        /// 旧身份仍代表同一轮，必须继续能停住它，所以这里累积而不覆盖。
+        /// 上下文压缩重启会把同一轮的请求号换成新的。收尾认领要按「用过的任一请求号」
+        /// 才认得出自己——只比最初那个号会把重启过的这一轮认成别人的，条目便永远摘不掉。
         /// 只在一轮内累积，下一轮重新登记时清空。
-        retired_identities: Vec<RetiredDispatchIdentity>,
+        retired_request_ids: Vec<String>,
     },
     /// 这一次提交在轮次启动途中被停止：只认这个请求号，别的调度撞不上。
     CancelRequested {
@@ -104,7 +96,14 @@ struct AppState {
     last_panic_snapshot: Arc<Mutex<Option<String>>>,
     inflight_chat_abort_handles:
         Arc<Mutex<std::collections::HashMap<String, InflightChatAbortEntry>>>,
-    inflight_tool_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
+    /// 已被要求停止的调度号（`request_id`）。
+    ///
+    /// 停止方把「要停的那一次调度」的号放进来，worker 在检查点问「我的号在不在里面」，
+    /// 命中就自己收尾。新一轮的号天生不同，所以旧号留着也伤不到它——清理只是卫生，
+    /// 不是正确性前置：漏清的那一条是死号，永远不会被任何新一轮匹配。
+    stopped_request_ids: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// 叫醒正在 `await` 的轮次：只拍一下，不承载任何信息（判据在 `stopped_request_ids`）。
+    chat_stop_notify: Arc<tokio::sync::Notify>,
     inflight_completed_tool_history:
         Arc<Mutex<std::collections::HashMap<String, Vec<Value>>>>,
     terminal_session_roots: Arc<Mutex<std::collections::HashMap<String, String>>>,
@@ -353,7 +352,8 @@ impl AppState {
             app_data_persist_write_lock: Arc::new(Mutex::new(())),
             last_panic_snapshot: Arc::new(Mutex::new(None)),
             inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            stopped_request_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            chat_stop_notify: Arc::new(tokio::sync::Notify::new()),
             inflight_completed_tool_history:
                 Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),

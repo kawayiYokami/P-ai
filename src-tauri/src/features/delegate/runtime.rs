@@ -469,8 +469,9 @@ fn abort_delegate_runtime_thread(
     // 委托被中断时其调用方不会走到正常释放分支，这里补一次深度回忆内存索引释放。
     deep_recall_index_release(normalized_delegate_id);
     let chat_key = delegate_thread_chat_key(&thread);
-    let aborted_chat = abort_running_inflight_chat(app_state, &chat_key)?;
-    let aborted_tool = abort_inflight_tool_abort_handle(app_state, &chat_key)?;
+    // 只发结束信号，让委托会话自己的 worker 收尾；不再从外面中止任何协程。
+    let stopped_chat =
+        request_stop_inflight_chat_round(app_state, &chat_key, &thread.conversation.id)?;
     let descendant_count = abort_delegate_runtime_descendants_by_parent_session(app_state, &chat_key)?;
     if let Err(err) = clear_conversation_queue(
         app_state,
@@ -515,10 +516,9 @@ fn abort_delegate_runtime_thread(
         DELEGATE_STATUS_FAILED,
     );
     runtime_log_info(format!(
-        "[委托] 会话 已打断 原因={} 中止聊天={} 中止工具={} 后代数量={}",
+        "[委托] 会话 已请求收尾 原因={} 命中在跑轮次={} 后代数量={}",
         reason,
-        aborted_chat,
-        aborted_tool,
+        stopped_chat,
         descendant_count
     ));
     Ok(true)
@@ -776,14 +776,13 @@ fn delegate_runtime_thread_conversation_delete(
     };
     if let Some(thread) = active_thread.as_ref() {
         let chat_key = delegate_thread_chat_key(thread);
-        let aborted_chat = abort_running_inflight_chat(app_state, &chat_key)?;
-        let aborted_tool = abort_inflight_tool_abort_handle(app_state, &chat_key)?;
+        let stopped_chat =
+            request_stop_inflight_chat_round(app_state, &chat_key, &thread.conversation.id)?;
         let descendant_count = abort_delegate_runtime_descendants_by_parent_session(app_state, &chat_key)?;
         clear_inflight_completed_tool_history(app_state, &chat_key)?;
         runtime_log_info(format!(
-            "[委托] 会话 完成 任务=删除前中止委托调度 中止聊天={} 中止工具={} 后代数量={}",
-            aborted_chat,
-            aborted_tool,
+            "[委托] 会话 完成 任务=删除前后代调度收尾 命中在跑轮次={} 后代数量={}",
+            stopped_chat,
             descendant_count
         ));
     }

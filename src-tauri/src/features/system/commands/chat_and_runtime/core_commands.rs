@@ -2242,135 +2242,103 @@ async fn stop_chat_message_inner(
         requested_conversation_id.as_deref(),
     );
 
-    // 停止请求要终止的对象身份：前端在收这条流，它知道自己在停谁。
-    // 三者任一即可精确命中；全空表示前端没给出对象，此时停止不做任何事（不按会话猜）。
-    let stop_identity = StopDispatchIdentity {
-        request_id: input.request_id.as_deref().unwrap_or("").trim().to_string(),
-        activation_id: input.activation_id.as_deref().unwrap_or("").trim().to_string(),
-        assistant_message_id: input
-            .assistant_message_id
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .to_string(),
-    };
-    let stop_identity_is_empty = stop_identity.request_id.is_empty()
-        && stop_identity.activation_id.is_empty()
-        && stop_identity.assistant_message_id.is_empty();
+    // 停止不认任何调度身份。请求号只留给「提交期取消标记」用：那是一条「这次提交还没
+    // 登记句柄」的欠账，必须被同一个号消费掉，否则会把下一个刚提交的轮次一起误杀。
+    let stop_request_id = input
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
 
-    // 打断立刻在会话上立下截止时间（单一时基：后端 `now_unix_ms()`）。
+    // ==================== 一、写下作废水位 ====================
     //
-    // 这条水位不依赖任何调度身份：前端乐观打断时可能一个 id 都拿不到，但只要它指定了
-    // 会话，这一刻之前就存在的批次与轮次就全部作废——门栅在出队与激活前各拦一次。
+    // 停止时刻之前就已经排在队列里的批次，属于「还没起来」的活：没有内容、没有人收尾，
+    // 只能靠这条水位在出队/激活门前作废掉，不让它跑起来。
     if let Some(conversation_id) = requested_conversation_id.as_deref() {
         if let Err(err) =
             mark_conversation_interrupt_cutoff(state, conversation_id, now_unix_ms())
         {
             runtime_log_warn(format!(
-                "[聊天] 打断截止时间写入失败 会话={} 错误={}",
+                "[聊天] 打断作废水位写入失败 会话={} 错误={}",
                 conversation_id, err
             ));
         }
+
+        // ==================== 二、让这一轮自己收尾 ====================
+        //
+        // 这里不再单独发信号：下面按 key 找在跑的那一轮，把它的调度 ID 写进它自己的通道。
+        // 找不到在跑的轮次（提交窗口）才走取消标记。停止方不写库、不置空闲、不广播、不续跑。
     }
 
-    // 收集所有与当前会话关联的 Inflight chat 句柄 key
-    let matching_keys = {
-        let inflight = state
-            .inflight_chat_abort_handles
-            .lock()
-            .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-        let mut keys = Vec::new();
-        if inflight.contains_key(&chat_key) {
-            keys.push(chat_key.clone());
-        }
+    // ==================== 三、还没登记句柄的提交：留一个取消标记 ====================
+    //
+    // 三条匹配都带分隔符，只认「同一个会话」的句柄：
+    //   cid                    —— 没带 agent 的裸会话 id
+    //   agent::cid             —— 普通调度
+    //   agent::cid::子用途     —— 同一会话下派生的调度（远程应答委托等）
+    // 不能用 `contains(cid)`：会话 id 是短串时会命中别的会话的 key。
+    let stop_keys = {
+        let mut keys = vec![chat_key.clone()];
         if let Some(cid) = requested_conversation_id.as_deref() {
-            // 三条匹配都带分隔符，只认「同一个会话」的句柄：
-            //   cid                    —— 没带 agent 的裸会话 id
-            //   agent::cid             —— 普通调度
-            //   agent::cid::子用途     —— 同一会话下派生的调度（远程应答委托等）
-            // 不能用 `contains(cid)`：会话 id 是短串时会命中别的会话的 key。
-            let suffix = format!("::{cid}");
-            let infix = format!("::{cid}::");
-            for k in inflight.keys() {
-                if (k == cid || k.ends_with(&suffix) || k.contains(&infix)) && !keys.contains(k) {
-                    keys.push(k.clone());
+            match state.inflight_chat_abort_handles.lock() {
+                Ok(inflight) => {
+                    let suffix = format!("::{cid}");
+                    let infix = format!("::{cid}::");
+                    for k in inflight.keys() {
+                        if (k == cid || k.ends_with(&suffix) || k.contains(&infix))
+                            && !keys.contains(k)
+                        {
+                            keys.push(k.clone());
+                        }
+                    }
                 }
+                Err(err) => runtime_log_warn(format!(
+                    "[聊天] 打断扫描句柄失败 会话={} 错误={}",
+                    cid, err
+                )),
             }
         }
         keys
     };
-
-    // 停止只做一件事：立刻中止这一轮，不等它收尾。
-    //
-    // abort 取消的是包在 Abortable 里的那一轮 run；外层收尾（落盘 partial → 置 Idle →
-    // 清流式缓存）在 abort 之后照样会执行，毫秒级就走完。等它「优雅退出」，等的是一个
-    // 必然会发生的事件——那段 25×100ms 轮询只制造延迟，不提高任何正确性。
-    //
-    // 顺序不能颠倒：先中止工具句柄，让正在执行的工具当场失败、工具循环随之退出，
-    // 收尾才有内容可落；再按身份中止这一轮本身。
-    let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
-    // 表里没有对得上的调度时，若这次停止带了请求号，就记下「取消这一次提交」，
-    // 由这一次提交登记句柄时消费一次；没带请求号则什么都不写——找不到对象就是空操作。
-    let mut stop_keys = matching_keys.clone();
-    if !stop_keys.iter().any(|k| k == &chat_key) {
-        stop_keys.push(chat_key.clone());
-    }
     let mut aborted_chat = false;
-    for k in &stop_keys {
-        // 没带任何身份（前端乐观打断）时不能按身份找对象：只中止「这个会话上正在跑的
-        // 句柄」，也不去写提交期取消标记——那需要请求号，没有就是没有。
-        let hit = if stop_identity_is_empty {
-            abort_running_inflight_chat(state, k)?
-        } else {
-            request_stop_inflight_chat(state, k, &stop_identity)?
-        };
-        if hit {
-            aborted_chat = true;
+    for key in &stop_keys {
+        // 一、该 key 上正跑着轮次：把它的调度号记进待停列表。worker 到检查点读到自己的号，
+        // 自己收尾——这里不中止任何协程，也不写库、不置空闲。
+        let round_conversation_id = requested_conversation_id.as_deref().unwrap_or(key.as_str());
+        match request_stop_inflight_chat_round(state, key, round_conversation_id) {
+            Ok(true) => aborted_chat = true,
+            Ok(false) => {}
+            Err(err) => runtime_log_warn(format!(
+                "[聊天] 打断在跑轮次失败 键={} 错误={}",
+                key, err
+            )),
+        }
+        // 二、该 key 上什么都没有（提交窗口）：按请求号留一笔取消标记。
+        // 有在跑的轮次时这一条是空操作，不会误伤下一轮。
+        match request_stop_inflight_chat(state, key, &stop_request_id) {
+            Ok(true) => aborted_chat = true,
+            Ok(false) => {}
+            Err(err) => runtime_log_warn(format!(
+                "[聊天] 打断登记取消标记失败 键={} 错误={}",
+                key, err
+            )),
         }
     }
-    let aborted_delegate_children =
-        abort_delegate_runtime_descendants_by_parent_context(
-            state,
-            &chat_key,
-            requested_conversation_id.as_deref(),
-        )?;
-    // 没有句柄可中止，不等于没有活要停：轮次在「已确权」到「登记句柄」之间有一段空隙
-    // （广播事件、装配上下文、加载技能），此时表里还没有句柄，按句柄找必然落空。
-    //
-    // 但这里不许靠「扫一遍表看看有没有别人在跑」来预判——那样会击穿身份隔离：
-    // 停止带了不匹配的身份、句柄没命中，却因为槽上有别的轮次在跑而被判成打断成立，
-    // 前端收到 aborted=true，实际那一轮根本没被停掉，还顺手压了目标、清了待办。
-    // 所以是否算打断成立，只认认领的最终结果：认领拿到所有权，才算真的停住了这一轮。
-    let claimed_round = match requested_conversation_id.as_deref() {
-        Some(conversation_id) => {
-            match claim_conversation_round_for_interrupt(state, conversation_id, &stop_identity) {
-                Ok(claimed) => claimed,
-                Err(err) => {
-                    runtime_log_warn(format!(
-                        "[聊天] 打断就地认领失败 会话={} 错误={}",
-                        conversation_id, err
-                    ));
-                    false
-                }
-            }
+    let aborted_delegate_children = match abort_delegate_runtime_descendants_by_parent_context(
+        state,
+        &chat_key,
+        requested_conversation_id.as_deref(),
+    ) {
+        Ok(count) => count,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天] 打断级联中止委托子会话失败 键={} 错误={}",
+                chat_key, err
+            ));
+            0
         }
-        None => false,
     };
-    let aborted =
-        aborted_chat || aborted_tool || aborted_delegate_children > 0 || claimed_round;
-    if aborted {
-        if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            mark_goal_continue_suppressed_by_user_interrupt(
-                state,
-                conversation_id,
-                "stop_chat_message",
-            )?;
-            // 用户打断这一轮之后，队员欠队长的那封信也一并销账。
-            // 不挂在调度收口上：用户停下后紧接着发新消息时那一批会转去处理队列，
-            // 收口不会执行，标记就带着旧锚点留给了下一轮。
-            team_clear_member_pending_report_on_user_interrupt(state, conversation_id);
-        }
-    }
     if aborted_delegate_children > 0 {
         runtime_log_info(format!(
             "[聊天] 停止请求已级联到同步委托子会话 子项数={}",
@@ -2378,97 +2346,41 @@ async fn stop_chat_message_inner(
         ));
     }
 
-    // 就地没收这一轮：不等生成协程收口。
-    //
-    // 停止的意义是「立刻收走她手上没做完的东西，然后当她不存在」，不是「请她做完手上的活再走」。
-    // 所以内容直接从现成的会话流式快照取，落盘由停止方自己做；协程那边随后怎么退、退到哪、
-    // 退多久，都与这次停止无关——认领之后它已经不是这一轮的主人了。
-    let mut interrupted_result: Option<SendChatResult> = None;
-    if claimed_round {
+    // 指定了会话就是一次成立的停止：这一轮已经在上面被要求结束了，
+    // 与「当时表里有没有句柄」无关。
+    let aborted =
+        requested_conversation_id.is_some() || aborted_chat || aborted_delegate_children > 0;
+    if aborted {
         if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            let collect_started = std::time::Instant::now();
-            match persist_aborted_chat_partial_result(
+            if let Err(err) = mark_goal_continue_suppressed_by_user_interrupt(
                 state,
-                Some(conversation_id),
-                &agent_id,
-                &chat_key,
+                conversation_id,
+                "stop_chat_message",
             ) {
-                Ok(persisted) => {
-                    let round_result = match persisted {
-                        Some(result) => result,
-                        None => {
-                            empty_chat_round_result(conversation_id, &stop_identity.request_id)
-                        }
-                    };
-                    runtime_log_info(format!(
-                        "[聊天] 打断就地落盘 完成 会话={} 已落盘={} 正文长度={} 耗时={}ms",
-                        conversation_id,
-                        round_result.assistant_message.is_some(),
-                        round_result.assistant_text.chars().count(),
-                        collect_started.elapsed().as_millis()
-                    ));
-                    if let Err(err) = release_conversation_after_interrupt(state, conversation_id) {
-                        runtime_log_warn(format!(
-                            "[聊天] 打断后就绪失败 会话={} 错误={}",
-                            conversation_id, err
-                        ));
-                    }
-                    // 轮次终态由停止方发出：旧协程已被认领短路，不会再发第二个。
-                    let identity = round_result
-                        .activation_request_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .or_else(|| {
-                            let request_id = stop_identity.request_id.trim();
-                            (!request_id.is_empty()).then_some(request_id)
-                        })
-                        .or_else(|| {
-                            let activation_id = stop_identity.activation_id.trim();
-                            (!activation_id.is_empty()).then_some(activation_id)
-                        });
-                    emit_round_completed_event(
-                        state,
-                        conversation_id,
-                        &round_result,
-                        identity,
-                        identity,
-                    );
-                    interrupted_result = Some(round_result);
-                }
-                Err(err) => {
-                    // 落盘失败：撤掉认领凭据，让旧协程退出去时的兜底落盘照旧生效。
-                    runtime_log_error(format!(
-                        "[聊天] 打断就地落盘 失败 会话={} 错误={}",
-                        conversation_id, err
-                    ));
-                    if let Err(clear_err) =
-                        clear_conversation_interrupt_record(state, conversation_id)
-                    {
-                        runtime_log_warn(format!(
-                            "[聊天] 撤销打断落盘凭据失败 会话={} 错误={}",
-                            conversation_id, clear_err
-                        ));
-                    }
-                }
+                runtime_log_warn(format!(
+                    "[聊天] 打断后压目标继续失败 会话={} 错误={}",
+                    conversation_id, err
+                ));
             }
+            // 用户打断这一轮之后，队员欠队长的那封信也一并销账。
+            // 不挂在调度收口上：用户停下后紧接着发新消息时那一批会转去处理队列，
+            // 收口不会执行，标记就带着旧锚点留给了下一轮。
+            team_clear_member_pending_report_on_user_interrupt(state, conversation_id);
         }
     }
-    let persisted = interrupted_result
-        .as_ref()
-        .is_some_and(|result| result.assistant_message.is_some());
-    let assistant_text = interrupted_result
-        .as_ref()
-        .map(|result| result.assistant_text.clone())
-        .unwrap_or_default();
-    let assistant_message = interrupted_result.and_then(|result| result.assistant_message);
+
+    // ==================== 四、到此为止 ====================
+    //
+    // 停止方不落盘、不置空闲、不广播、不续跑：这一轮的成果与收尾全部由 worker 走
+    // 现成完结路线交付，和正常跑完没有任何区别，唯一差别是结束原因记为「用户停止」。
+    // 这里只把「停过」如实回给前端，内容稍后随正式完结结果回到前台。
     let conversation_id = requested_conversation_id.clone();
     Ok(StopChatResult {
         aborted,
-        persisted,
+        persisted: false,
         conversation_id,
-        assistant_text,
-        assistant_message,
+        assistant_text: String::new(),
+        assistant_message: None,
     })
 }
 
@@ -2560,8 +2472,6 @@ struct InterruptConversationRuntimeResult {
     #[serde(default)]
     aborted_chat: bool,
     #[serde(default)]
-    aborted_tool: bool,
-    #[serde(default)]
     aborted_delegate_children: usize,
 }
 
@@ -2581,10 +2491,11 @@ fn interrupt_conversation_runtime_inner(
         resolve_runtime_control_agent_id(state, requested_agent_id, Some(conversation_id))?;
 
     let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
-    let aborted_chat = abort_running_inflight_chat(state, &chat_key)?;
+    // 只发结束信号，让在跑的轮次自己收尾。这里不再从外面中止任何协程。
+    let aborted_chat =
+        request_stop_inflight_chat_round(state, &chat_key, conversation_id)?;
     // 会话运行已整体中断，残留的提交期取消一并清理，避免误伤下一次发送。
     clear_inflight_chat_cancel_request(state, &chat_key)?;
-    let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
     let aborted_delegate_children = abort_delegate_runtime_descendants_by_parent_context(
         state,
         &chat_key,
@@ -2599,7 +2510,7 @@ fn interrupt_conversation_runtime_inner(
     let _ = set_conversation_runtime_state_and_emit(state, conversation_id, MainSessionState::Idle);
     let _ = set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new());
 
-    let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    let aborted = aborted_chat || aborted_delegate_children > 0;
     if aborted || cleared_queue_count > 0 {
         mark_goal_continue_suppressed_by_user_interrupt(
             state,
@@ -2617,7 +2528,6 @@ fn interrupt_conversation_runtime_inner(
         aborted,
         cleared_queue_count,
         aborted_chat,
-        aborted_tool,
         aborted_delegate_children,
     })
 }
@@ -2646,24 +2556,6 @@ async fn get_main_session_state_snapshot(
     state: State<'_, AppState>,
 ) -> Result<MainSessionState, String> {
     get_main_session_state(state.inner())
-}
-
-fn assistant_text_from_stream_blocks(blocks: &[AssistantStreamBlock]) -> String {
-    blocks
-        .iter()
-        .map(|block| block.text.as_str())
-        .collect::<Vec<_>>()
-        .join("")
-}
-
-fn reasoning_text_from_stream_blocks(blocks: &[AssistantStreamBlock]) -> String {
-    blocks
-        .iter()
-        .map(|block| block.reasoning.trim())
-        .filter(|text| !text.is_empty())
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 /// 没有可落盘内容时的空轮次结果。

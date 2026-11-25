@@ -576,6 +576,14 @@ async fn run_genai_tool_loop(
     // 主调度按 failure_retry_count 折算后传入；其它调用方保持单次请传 1。
     request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
+    // 停止判据按本轮会话现取：取到的是「此刻在这条会话上跑着的那一轮」用过的号。
+    // 不逐层透传，各等待点自己取——新增等待点时不用改一圈签名。
+    let round_stop_ids = match (tool_abort_state, usage_conversation_id) {
+        (Some(state), Some(conversation_id)) => {
+            inflight_round_request_ids_by_conversation(state, conversation_id)
+        }
+        _ => Vec::new(),
+    };
     // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
     let mut desktop_notice_sent = false;
     let api_config = resolve_request_api_config(api_config).await?;
@@ -744,14 +752,60 @@ async fn run_genai_tool_loop(
                 if !tools_disabled_for_context_exhaustion && !genai_tools.is_empty() {
                     request = request.with_tools(genai_tools.clone());
                 }
-                client
-                    .exec_chat_stream(attempt_model_spec.clone(), request, Some(&round_options))
-                    .await
-                    .map_err(|err| format!("GenAI 流式请求构建失败：{err}"))?
-                    .stream
+                let exec_stream = client
+                    .exec_chat_stream(attempt_model_spec.clone(), request, Some(&round_options));
+                tokio::pin!(exec_stream);
+                // 建连也必须能被结束：provider 不接、不回时，裸 await 会一直挂到超时，
+                // 用户按了停止却毫无反应——这是最常被卡住的一处。
+                let build_stream_error = |err: genai::Error| format!("GenAI 流式请求构建失败：{err}");
+                let stop_conversation_id = usage_conversation_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let connected = match (tool_abort_state, stop_conversation_id) {
+                    (Some(state), Some(stop_cid)) => {
+                        // 建连也必须能被结束：provider 不接、不回时，裸 await 会一直挂到超时，
+                        // 用户按了停止却毫无反应。本轮被点名就不等了。
+                        let stop_ids = inflight_round_request_ids_by_conversation(state, stop_cid);
+                        match race_with_chat_stop(state, &stop_ids, &mut exec_stream).await {
+                            Some(result) => result,
+                            None => {
+                                runtime_log_info(format!(
+                                    "[聊天] 建连阶段本轮已被点名，不再发请求 会话={}",
+                                    stop_cid
+                                ));
+                                return Ok(GenaiToolLoopRoundOutput {
+                                    turn_text: String::new(),
+                                    turn_reasoning: String::new(),
+                                    reasoning_delta_emitted: false,
+                                    turn_tool_calls: Vec::new(),
+                                    trusted_input_tokens: None,
+                                    usage: None,
+                                    assistant_provider_meta: None,
+                                });
+                            }
+                        }
+                    }
+                    _ => (&mut exec_stream).await,
+                };
+                connected.map_err(build_stream_error)?.stream
             };
 
+            // 结束信号：读到就按「流已结束」处理，已收到的增量就是本轮正文。
+            let stop_check_conversation_id = usage_conversation_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
             while let Some(chunk) = stream.next().await {
+                if let (Some(state), Some(stop_cid)) =
+                    (tool_abort_state, stop_check_conversation_id)
+                {
+                    if round_stop_requested(state, &round_stop_ids) {
+                        runtime_log_info(format!(
+                            "[聊天] 流式读到本轮被点名，按流结束处理 会话={}",
+                            stop_cid
+                        ));
+                        break;
+                    }
+                }
                 match chunk {
                     Ok(genai::chat::ChatStreamEvent::Start) => {}
                     Ok(genai::chat::ChatStreamEvent::Heartbeat) => {}
@@ -1084,6 +1138,7 @@ async fn run_genai_tool_loop(
             let executed_group = execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
+                usage_conversation_id,
                 &tool_assembly.tools,
                 on_delta,
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
@@ -1272,8 +1327,34 @@ async fn run_genai_tool_loop(
                 &round_aborted_call_ids,
             )?;
             // 组内错误原样上抛：它可能不是中止，改写成中止串会让用户以为是自己按了停止。
-            return Err(round_group_error
-                .unwrap_or_else(|| CHAT_ABORTED_BY_USER_ERROR.to_string()));
+            if let Some(group_error) = round_group_error {
+                return Err(group_error);
+            }
+            // 用户打断：这一轮到此结束，不是失败。把已经收到的正文交出去，正常返回，
+            // 接着走现成的完结路线——落盘、广播完成、置空闲、释放占位、续跑，一样不少。
+            // 没收到任何正文时不写消息，这与「模型什么都没说」同一种收尾。
+            if !turn_text.is_empty() {
+                if !full_assistant_text.trim().is_empty() {
+                    full_assistant_text.push_str("\n\n");
+                }
+                full_assistant_text.push_str(&turn_text);
+            }
+            runtime_log_info(format!(
+                "[聊天] 工具执行被用户打断，按正常结束返回 未返回调用数={} 正文长度={}",
+                round_aborted_call_ids.len(),
+                full_assistant_text.chars().count()
+            ));
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                final_response_text: turn_text,
+                activity_reasoning_text: full_activity_reasoning_text,
+                assistant_provider_meta: final_assistant_provider_meta_override.clone(),
+                tool_history_events,
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+                usage: latest_usage,
+                round_logs_recorded_internally: true,
+            });
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -1451,6 +1532,8 @@ async fn run_genai_tool_loop_non_stream(
     // 主调度按 failure_retry_count 折算后传入；其它调用方保持单次请传 1。
     request_max_attempts: u32,
 ) -> Result<ModelReply, String> {
+    // 这条路径整段一次等完，中途没有等待点：不在这里取停止判据。
+    let _ = (tool_abort_state, usage_conversation_id);
     // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
     let mut desktop_notice_sent = false;
     let api_config = resolve_request_api_config(api_config).await?;
@@ -1864,6 +1947,7 @@ async fn run_genai_tool_loop_non_stream(
             let executed_group = execute_prepared_tool_call_group(
                 tool_abort_state,
                 chat_session_key,
+                usage_conversation_id,
                 &tool_assembly.tools,
                 on_delta,
                 auto_compaction_context.and_then(|ctx| ctx.request_id.as_deref()),
@@ -2052,8 +2136,34 @@ async fn run_genai_tool_loop_non_stream(
                 &round_aborted_call_ids,
             )?;
             // 组内错误原样上抛：它可能不是中止，改写成中止串会让用户以为是自己按了停止。
-            return Err(round_group_error
-                .unwrap_or_else(|| CHAT_ABORTED_BY_USER_ERROR.to_string()));
+            if let Some(group_error) = round_group_error {
+                return Err(group_error);
+            }
+            // 用户打断：这一轮到此结束，不是失败。把已经收到的正文交出去，正常返回，
+            // 接着走现成的完结路线——落盘、广播完成、置空闲、释放占位、续跑，一样不少。
+            // 没收到任何正文时不写消息，这与「模型什么都没说」同一种收尾。
+            if !turn_text.is_empty() {
+                if !full_assistant_text.trim().is_empty() {
+                    full_assistant_text.push_str("\n\n");
+                }
+                full_assistant_text.push_str(&turn_text);
+            }
+            runtime_log_info(format!(
+                "[聊天] 工具执行被用户打断，按正常结束返回 未返回调用数={} 正文长度={}",
+                round_aborted_call_ids.len(),
+                full_assistant_text.chars().count()
+            ));
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                final_response_text: turn_text,
+                activity_reasoning_text: full_activity_reasoning_text,
+                assistant_provider_meta: final_assistant_provider_meta_override.clone(),
+                tool_history_events,
+                suppress_assistant_message: false,
+                trusted_input_tokens,
+                usage: latest_usage,
+                round_logs_recorded_internally: true,
+            });
         }
 
         // 工具整轮执行完毕瞬间判定：判定前未写正式历史/临时账本。
@@ -2369,9 +2479,16 @@ mod tool_loop_tests {
             },
         ];
 
-        let group =
-            execute_prepared_tool_call_group(None, "test-session", &tools, &on_delta, None, calls)
-                .await;
+        let group = execute_prepared_tool_call_group(
+            None,
+            "test-session",
+            None,
+            &tools,
+            &on_delta,
+            None,
+            calls,
+        )
+        .await;
 
         assert_eq!(
             group.executed.len(),
@@ -2381,6 +2498,84 @@ mod tool_loop_tests {
         assert_eq!(group.executed[0].tool_call_id, "call-a");
         assert_eq!(group.error.as_deref(), Some(CHAT_ABORTED_BY_USER_ERROR));
         assert_eq!(group.aborted_call_ids, vec!["call-b".to_string()]);
+    }
+
+    /// 会一直挂着的工具：验证打断不等它，而是当场交付「被用户打断」。
+    struct HangingRuntimeTool;
+
+    impl RuntimeToolDyn for HangingRuntimeTool {
+        fn name(&self) -> String {
+            "hang_forever".to_string()
+        }
+
+        fn is_mcp_tool(&self) -> bool {
+            false
+        }
+
+        fn call_json(&self, _args_json: String) -> RuntimeToolCallFuture<'_> {
+            Box::pin(async {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                Ok(ProviderToolResult::text("太晚了"))
+            })
+        }
+    }
+
+    /// 工具挂着不返回，打断也必须在百毫秒内交付结果，而不是等它。
+    #[tokio::test]
+    async fn stop_during_tool_returns_within_100ms() {
+        let state = crate::tests::test_chat_runtime_state();
+        let conversation_id = "conversation-stop-during-tool";
+        let tools: Vec<Box<dyn RuntimeToolDyn>> = vec![Box::new(HangingRuntimeTool)];
+        let on_delta = tauri::ipc::Channel::new(|_| Ok(()));
+        let calls = vec![PreparedToolCall {
+            tool_call_id: "call-hang".to_string(),
+            tool_name: "hang_forever".to_string(),
+            tool_args: "{}".to_string(),
+        }];
+
+        let stop_state = state.clone();
+        let stop_conversation = conversation_id.to_string();
+        let chat_key = format!("agent-a::{conversation_id}");
+        // 按真实链路登记：停止方按这一轮自己的号记进待停列表。
+        register_inflight_chat_abort_handle(
+            &state,
+            &chat_key,
+            "req-stop-during-tool",
+            "assistant-stop-during-tool",
+        )
+        .expect("登记本轮");
+        let stop_key = chat_key.clone();
+        let stopper = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            request_stop_inflight_chat_round(&stop_state, &stop_key, &stop_conversation)
+                .expect("发送结束信号");
+        });
+
+        let started = std::time::Instant::now();
+        let group = execute_prepared_tool_call_group(
+            Some(&state),
+            "agent-a::conversation-stop-during-tool",
+            Some(conversation_id),
+            &tools,
+            &on_delta,
+            None,
+            calls,
+        )
+        .await;
+        let elapsed = started.elapsed();
+        stopper.await.expect("停止任务不应 panic");
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(100),
+            "打断必须在百毫秒内返回，实际耗时 {:?}",
+            elapsed
+        );
+        assert_eq!(
+            group.aborted_call_ids,
+            vec!["call-hang".to_string()],
+            "挂住没返回的调用必须被标成打断"
+        );
+        assert!(group.executed.is_empty(), "挂住的工具不该产出结果");
     }
 
     struct TestRuntimeTool {

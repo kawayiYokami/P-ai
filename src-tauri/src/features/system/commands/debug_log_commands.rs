@@ -115,7 +115,6 @@ struct MemoryCacheStats {
     cached_conversation_dirty_ids: usize,
     cached_deleted_conversation_ids: usize,
     inflight_chat_abort_handles: usize,
-    inflight_tool_abort_handles: usize,
     inflight_completed_tool_sessions: usize,
     inflight_completed_tool_event_count: usize,
     terminal_live_sessions: usize,
@@ -1673,11 +1672,6 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         .lock()
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?
         .len();
-    let inflight_tool_abort_handles = state
-        .inflight_tool_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?
-        .len();
 
     let inflight_completed_tool_history = state
         .inflight_completed_tool_history
@@ -1888,7 +1882,6 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         cached_conversation_dirty_ids,
         cached_deleted_conversation_ids,
         inflight_chat_abort_handles,
-        inflight_tool_abort_handles,
         inflight_completed_tool_sessions,
         inflight_completed_tool_event_count,
         terminal_live_sessions,

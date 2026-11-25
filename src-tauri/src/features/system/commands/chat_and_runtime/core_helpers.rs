@@ -10,43 +10,16 @@ fn inflight_chat_key(
     }
 }
 
-/// 停止请求要终止的那个调度的身份。
-///
-/// 三者都是「这一次调度」的标识，任一带上就能精确命中；全空说明前端也不知道在停谁，
-/// 此时停止什么都不做——绝不按会话去猜。
-#[derive(Debug, Default, Clone)]
-struct StopDispatchIdentity {
-    request_id: String,
-    activation_id: String,
-    assistant_message_id: String,
-}
-
-impl StopDispatchIdentity {
-    /// 条目是否就是这次停止要终止的调度。
-    ///
-    /// 主流程里 `activation_id` 与 `request_id` 同值（调度器宣布轮次时直接用请求号做激活号），
-    /// 所以命中比对只看请求号与助理消息 id：请求号可以来自 `request_id`，也可以来自前端
-    /// 手上那个激活号，两者对同一个调度是同一个值。
-    fn matches_running(&self, request_id: &str, assistant_message_id: &str) -> bool {
-        let running_request = request_id.trim();
-        let wanted_request = self.request_id.trim();
-        let wanted_activation = self.activation_id.trim();
-        let wanted_message = self.assistant_message_id.trim();
-        let is_request = !wanted_request.is_empty() && wanted_request == running_request;
-        let is_activation = !wanted_activation.is_empty() && wanted_activation == running_request;
-        let is_message = !wanted_message.is_empty() && wanted_message == assistant_message_id.trim();
-        is_request || is_activation || is_message
-    }
-}
-
-/// 登记一个会话轮次的打断句柄。
+/// 登记一个会话轮次的运行记录。
 ///
 /// 若同一请求号上留着「提交期取消」的标记，消费它并返回 `true`，表示这一轮不要开始生成。
 /// 标记按请求号命中：别的调度、别的轮次的标记不会影响这一次。
+///
+/// **这里不中止任何协程。** 同一键上原本若还挂着上一轮的记录，只把记录换成本轮的：
+/// 上一轮该自己走完结路线，谁也不许从外面掐它。
 fn register_inflight_chat_abort_handle(
     state: &AppState,
     chat_key: &str,
-    handle: AbortHandle,
     request_id: &str,
     assistant_message_id: &str,
 ) -> Result<bool, String> {
@@ -62,36 +35,81 @@ fn register_inflight_chat_abort_handle(
             && cancelled_request_id.trim() == request_id.trim();
         inflight.remove(chat_key);
         if cancelled {
+            // 这次提交不生成：调用方随后就走完结路线。
             return Ok(true);
         }
     }
-    if let Some(previous) = inflight.insert(
+    // 同一轮会被登记两次：批次入口先按本轮定死的号登，发送入口再登一次补
+    // assistant_message_id。号相同就是同一次调度的刷新，不是被新一轮接管——
+    // 已退役的旧号必须留着，否则压缩重启前后的号会丢，那一轮就再也停不住。
+    if let Some(InflightChatAbortEntry::Running {
+        request_id: registered_request_id,
+        assistant_message_id: registered_message_id,
+        ..
+    }) = inflight.get_mut(chat_key)
+    {
+        if registered_request_id.trim() == request_id.trim() {
+            if !assistant_message_id.trim().is_empty() {
+                *registered_message_id = assistant_message_id.trim().to_string();
+            }
+            runtime_log_debug(format!(
+                "[聊天] 同一轮重复登记已并入现有记录 键={} 请求号={}",
+                chat_key,
+                request_id.trim()
+            ));
+            return Ok(false);
+        }
+    }
+    let previous = inflight.insert(
         chat_key.to_string(),
         InflightChatAbortEntry::Running {
-            handle,
             request_id: request_id.trim().to_string(),
             assistant_message_id: assistant_message_id.trim().to_string(),
-            // 新一轮从干净身份开始：上一轮的身份不继承，避免误伤。
-            retired_identities: Vec::new(),
+            // 新一轮从干净号开始：上一轮用过的号不继承，避免认错自己的条目。
+            retired_request_ids: Vec::new(),
         },
-    ) {
-        if let InflightChatAbortEntry::Running { handle, .. } = previous {
-            handle.abort();
-        }
+    );
+    if let Some(InflightChatAbortEntry::Running { request_id, .. }) = previous {
+        runtime_log_warn(format!(
+            "[聊天] 同一键上已有在跑的轮次，记录被新一轮接管（旧轮次自己收尾） 键={} 旧请求号={}",
+            chat_key, request_id
+        ));
     }
     Ok(false)
 }
 
-/// 上下文压缩后调度换新身份时，把旧身份收进历史、换成新身份。
+/// 这一轮收尾时摘掉自己的登记（按本轮用过的任一请求号认领）。
 ///
-/// 压缩重启在同一次 run 内继续跑：abort 句柄还是同一个，但请求号与助理消息 id 都换了新的。
-/// 句柄表若不跟着换，之后前端拿新身份来停止就会比对失败；但也不能只留新身份——
-/// 压缩边界的完成事件只走单发通道，Web / VS Code 收不到，那一端会丢弃新的轮次开始事件、
-/// 继续持有旧身份，只认新身份就会让那一端从「能停」退化成「不能停」。
-/// 所以旧身份推进 `retired_identities` 继续可命中，新身份成为当前身份。
+/// 摘掉之后停止方就找不到这条通道了——这一轮已经不需要被停止。
+fn unregister_inflight_chat_round(state: &AppState, chat_key: &str, request_ids: &[String]) {
+    let removed = {
+        let Ok(mut inflight) = state.inflight_chat_abort_handles.lock() else {
+            return;
+        };
+        let ours = request_ids
+            .iter()
+            .any(|id| inflight_entry_is_ours(inflight.get(chat_key), id));
+        if ours {
+            inflight.remove(chat_key);
+            true
+        } else {
+            false
+        }
+    };
+    if removed {
+        // 收口顺便把本轮自己的号从待停列表里清掉。漏清也无害，这里只是不留垃圾。
+        clear_round_stop_requested(state, request_ids);
+    }
+}
+
+/// 上下文压缩后调度换新请求号时，把旧号收进历史、换成新号。
 ///
-/// 这里不动 handle：重新登记会把这一轮自己 abort 掉。
-/// `expected_request_id` 是调用方认为的当前身份，只有表内仍是它时才改写，
+/// 压缩重启在同一次 run 内继续跑，请求号换成了新的。
+/// 收尾认领要按「用过的任一请求号」才认得出自己，所以旧号累积进
+/// `retired_request_ids` 而不是被覆盖——只比最初那个号会把重启过的这一轮认成别人的。
+///
+/// 这里不碰任何中止手段：这一轮读到结束信号会自己停。
+/// `expected_request_id` 是调用方认为的当前号，只有表内仍是它时才改写，
 /// 避免覆盖掉已经被更晚一次调度接手的条目。
 fn refresh_inflight_chat_dispatch_identity(
     state: &AppState,
@@ -107,105 +125,240 @@ fn refresh_inflight_chat_dispatch_identity(
     let Some(InflightChatAbortEntry::Running {
         request_id: registered_request_id,
         assistant_message_id: registered_message_id,
-        retired_identities,
+        retired_request_ids,
         ..
     }) = inflight.get_mut(chat_key)
     else {
-        // 压缩重启途中这一轮已被停掉（表项没了或只剩取消标记）：没有可更新的句柄。
+        // 压缩重启途中这一轮已被停掉（表项没了或只剩取消标记）：没有可更新的记录。
         runtime_log_warn(format!(
-            "[聊天] 压缩重启后刷新打断句柄落空 期望请求={} 原因=表内无运行中轮次",
+            "[聊天] 压缩重启后刷新调度身份落空 期望请求={} 原因=表内无运行中轮次",
             expected_request_id.trim()
         ));
         return Ok(());
     };
-    if registered_request_id.trim() != expected_request_id.trim() {
+    if !expected_request_id.trim().is_empty()
+        && registered_request_id.trim() != expected_request_id.trim()
+    {
         // 已被更晚的一次调度接手：不是我们的条目，不碰。
         runtime_log_warn(format!(
-            "[聊天] 压缩重启后刷新打断句柄跳过 原因=条目已被其他调度接手 期望={} 实际={}",
+            "[聊天] 压缩重启后刷新调度身份跳过 原因=条目已被其他调度接手 期望={} 实际={}",
             expected_request_id.trim(),
             registered_request_id.trim()
         ));
         return Ok(());
     }
-    retired_identities.push(RetiredDispatchIdentity {
-        request_id: registered_request_id.trim().to_string(),
-        assistant_message_id: registered_message_id.trim().to_string(),
-    });
-    *registered_request_id = request_id.trim().to_string();
+    // 调用方没带号（这一轮的身份是登记时自发的）：保留原号，不把身份刷成空。
+    let next_request_id = if request_id.trim().is_empty() {
+        registered_request_id.trim().to_string()
+    } else {
+        request_id.trim().to_string()
+    };
+    if next_request_id != registered_request_id.trim() {
+        retired_request_ids.push(registered_request_id.trim().to_string());
+        *registered_request_id = next_request_id.clone();
+    }
     *registered_message_id = assistant_message_id.trim().to_string();
     Ok(())
 }
 
 /// 表里这一条是否属于本轮。
 ///
-/// 按本轮用过的**任一**身份认领：压缩重启会换号，旧号收在 `retired_identities` 里。
+/// 按本轮用过的**任一**请求号认领：压缩重启会换号，旧号收在 `retired_request_ids` 里。
 /// 只比最初那个 trace_id 会把重启过的这一轮认成别人，条目就永远摘不掉——
-/// 残留的 `Running` 会让下一轮提交期的停止撞上它并对不上，等于又把停止废掉一次。
+/// 残留的 `Running` 会让下一次提交期的停止撞上它并对不上号。
 fn inflight_entry_is_ours(entry: Option<&InflightChatAbortEntry>, trace_id: &str) -> bool {
     let Some(InflightChatAbortEntry::Running {
         request_id,
-        retired_identities,
+        retired_request_ids,
         ..
     }) = entry
     else {
         return false;
     };
     request_id.trim() == trace_id.trim()
-        || retired_identities
+        || retired_request_ids
             .iter()
-            .any(|retired| retired.request_id.trim() == trace_id.trim())
+            .any(|retired| retired.trim() == trace_id.trim())
 }
 
-/// 对指定会话发起停止：只终止身份对得上的那个调度。
+// ==================== 停止：一张待停号列表 ====================
+
+/// 这一轮用过的全部请求号：登记时的号，加上上下文压缩重启换掉的旧号。
 ///
-/// - 该 key 上正跑着的调度与身份匹配 → 当场 abort 并移除，返回 `true`；
-/// - 该 key 上是别的调度 → 不动它，返回 `false`（含「另一个调度正在跑」的情况）；
-/// - 该 key 上什么都没有、但这次停止带了请求号 → 记下「取消这一次提交」，
-///   由这一次提交自己登记句柄时消费，返回 `true`；
-/// - 连请求号都没有 → 空操作，什么都不写。
+/// 找不到在跑的轮次就返回空：调用方按「这一轮不会被打断」处理。
+fn inflight_round_request_ids(state: &AppState, chat_key: &str) -> Vec<String> {
+    let Ok(inflight) = state.inflight_chat_abort_handles.lock() else {
+        return Vec::new();
+    };
+    match inflight.get(chat_key) {
+        Some(InflightChatAbortEntry::Running {
+            request_id,
+            retired_request_ids,
+            ..
+        }) => {
+            let mut ids = retired_request_ids.clone();
+            ids.push(request_id.clone());
+            ids
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// 按会话 id 取那一轮用过的号（给不在 worker 调用链上的路径用，例如离场反思）。
+fn inflight_round_request_ids_by_conversation(
+    state: &AppState,
+    conversation_id: &str,
+) -> Vec<String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Vec::new();
+    }
+    let Ok(inflight) = state.inflight_chat_abort_handles.lock() else {
+        return Vec::new();
+    };
+    let suffix = format!("::{conversation_id}");
+    let mut fallback: Option<Vec<String>> = None;
+    for (key, entry) in inflight.iter() {
+        let InflightChatAbortEntry::Running {
+            request_id,
+            retired_request_ids,
+            ..
+        } = entry
+        else {
+            continue;
+        };
+        let mut ids = retired_request_ids.clone();
+        ids.push(request_id.clone());
+        if key.trim() == conversation_id {
+            return ids;
+        }
+        if key.ends_with(&suffix) && fallback.is_none() {
+            fallback = Some(ids);
+        }
+    }
+    fallback.unwrap_or_default()
+}
+
+/// 本轮是否已被要求停止：这一轮用过的任一请求号出现在待停列表里。
+fn round_stop_requested(state: &AppState, request_ids: &[String]) -> bool {
+    if request_ids.is_empty() {
+        return false;
+    }
+    let Ok(stopped) = state.stopped_request_ids.lock() else {
+        return false;
+    };
+    request_ids
+        .iter()
+        .any(|id| !id.trim().is_empty() && stopped.contains(id.trim()))
+}
+
+/// 把「要停的调度号」记进列表，并拍一下叫醒正在 `await` 的轮次。
+///
+/// 这不是开关：列表里留的是某个调度号，只有那一轮用过的号会命中它。下一轮的号天生不同，
+/// 所以不需要任何复位动作，也不存在「谁该在什么时候把它清掉」这个问题。
+fn mark_round_stop_requested(state: &AppState, request_ids: &[String]) -> Result<usize, String> {
+    let mut marked = 0usize;
+    {
+        let mut stopped = state
+            .stopped_request_ids
+            .lock()
+            .map_err(|_| "Failed to lock stopped request ids".to_string())?;
+        for id in request_ids {
+            let id = id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            if stopped.insert(id.to_string()) {
+                marked += 1;
+            }
+        }
+    }
+    if marked > 0 {
+        // 只拍一下：判据在列表里，这个通知不承载任何信息，拍空也没有副作用。
+        state.chat_stop_notify.notify_waiters();
+    }
+    Ok(marked)
+}
+
+/// 收尾时把本轮用过的号从待停列表里删掉。
+///
+/// 漏清也无害：留下的是死号，新一轮的号天生不同，匹配不到它。清理只是卫生。
+fn clear_round_stop_requested(state: &AppState, request_ids: &[String]) {
+    let Ok(mut stopped) = state.stopped_request_ids.lock() else {
+        return;
+    };
+    for id in request_ids {
+        stopped.remove(id.trim());
+    }
+}
+
+
+/// 让一次长等待与「本轮被要求停止」赛跑：本轮被点名就返回 `None`，工作就地放弃。
+///
+/// 建连、压缩、上下文装配这类「等外部东西」的步骤都该走它。裸 await 会让用户按了停止
+/// 也毫无反应，一直挂到对方自己的超时——这是最常被卡住的一处。
+///
+/// 被拍醒不等于被停：唤醒是广播的（同时在跑的轮次个位数，多拍几下无所谓），醒来先查列表，
+/// 不是自己这一轮的号就继续等工作，工作本身不会因为被拍而丢失。
+async fn race_with_chat_stop<T>(
+    state: &AppState,
+    request_ids: &[String],
+    work: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    if request_ids.is_empty() {
+        return Some(work.await);
+    }
+    let mut work = std::pin::pin!(work);
+    loop {
+        if round_stop_requested(state, request_ids) {
+            return None;
+        }
+        let notified = state.chat_stop_notify.notified();
+        tokio::select! {
+            biased;
+            _ = notified => {}
+            value = &mut work => return Some(value),
+        }
+    }
+}
+
+/// 对指定调度键发起停止通知：该键上有没有活都如实回报。
+///
+/// **这里不中止任何协程。** worker 必须活着走完自己的收尾——落盘、广播、置空闲、释放占位、续跑
+/// 都是它的活。把 worker 从外面弄死，收尾就没人做了。
+///
+/// 真正的「停」由结束信号完成（`request_graceful_chat_stop`）：worker 在各个等待点读到它，
+/// 自己结束这一轮。本函数只负责两件事：
+///
+/// - 该 key 上正跑着轮次 → 如实返回 `true`，让调用方知道这次停止命中了活；
+/// - 该 key 上什么都没有、但这次停止带了请求号 → 记下「取消这一次提交」，返回 `true`。
+///   这只是一条欠账：提交还没登记，等它提交时按同一个号认领并直接放弃。
+///   按号消费不是鉴权，是为了不把下一个刚提交的轮次一起误伤。
 fn request_stop_inflight_chat(
     state: &AppState,
     chat_key: &str,
-    identity: &StopDispatchIdentity,
+    request_id: &str,
 ) -> Result<bool, String> {
+    let request_id = request_id.trim();
     let mut inflight = state
         .inflight_chat_abort_handles
         .lock()
         .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+    if matches!(
+        inflight.get(chat_key),
+        Some(InflightChatAbortEntry::Running { .. })
+    ) {
+        runtime_log_debug(format!(
+            "[聊天] 打断命中在跑轮次，交给结束信号收尾 键={}",
+            chat_key
+        ));
+        return Ok(true);
+    }
     match inflight.remove(chat_key) {
-        Some(InflightChatAbortEntry::Running {
-            handle,
-            request_id,
-            assistant_message_id,
-            retired_identities,
-        }) => {
-            // 当前身份与历史身份同等有效：压缩重启换过号的轮次，新旧两个号指的都是同一轮。
-            let hit = identity.matches_running(&request_id, &assistant_message_id)
-                || retired_identities.iter().any(|retired| {
-                    identity.matches_running(&retired.request_id, &retired.assistant_message_id)
-                });
-            if hit {
-                handle.abort();
-                Ok(true)
-            } else {
-                // 不是这一次的调度：原样放回，绝不误伤。
-                inflight.insert(
-                    chat_key.to_string(),
-                    InflightChatAbortEntry::Running {
-                        handle,
-                        request_id,
-                        assistant_message_id,
-                        retired_identities,
-                    },
-                );
-                Ok(false)
-            }
-        }
         Some(InflightChatAbortEntry::CancelRequested {
             request_id: pending,
         }) => {
-            let same_request = !identity.request_id.trim().is_empty()
-                && pending.trim() == identity.request_id.trim();
+            let same_request = !request_id.is_empty() && pending.trim() == request_id;
             if !same_request {
                 inflight.insert(
                     chat_key.to_string(),
@@ -214,8 +367,7 @@ fn request_stop_inflight_chat(
             }
             Ok(same_request)
         }
-        None => {
-            let request_id = identity.request_id.trim();
+        _ => {
             if request_id.is_empty() {
                 // 没有可指认的对象，也没有请求号：停止就是空操作。
                 return Ok(false);
@@ -231,7 +383,7 @@ fn request_stop_inflight_chat(
     }
 }
 
-/// 清除指定会话的提交期取消标记；已登记的运行句柄不受影响。
+/// 清除指定会话的提交期取消标记；已登记的运行轮次不受影响。
 fn clear_inflight_chat_cancel_request(state: &AppState, chat_key: &str) -> Result<(), String> {
     let mut inflight = state
         .inflight_chat_abort_handles
@@ -279,39 +431,31 @@ fn clear_conversation_cancel_requests(
     Ok(cleared)
 }
 
-/// 移除并中止指定调度键上正在运行的轮次句柄；命中返回 `true`。
-/// 该键上若只有提交期取消标记，则原样保留（它针对的是尚未登记句柄的那次提交），返回 `false`。
-/// 这是「按会话键」的粗粒度打断，供委托/子调度等内部收尾使用；用户停止走 [`request_stop_inflight_chat`]。
-fn abort_running_inflight_chat(state: &AppState, chat_key: &str) -> Result<bool, String> {
-    let mut inflight = state
-        .inflight_chat_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
-    if matches!(
-        inflight.get(chat_key),
-        Some(InflightChatAbortEntry::Running { .. })
-    ) {
-        if let Some(InflightChatAbortEntry::Running { handle, .. }) = inflight.remove(chat_key) {
-            handle.abort();
-        }
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-fn register_inflight_tool_abort_handle(
+/// 让指定调度键上的轮次自己停下来：**只记号、不中止任何协程**。
+///
+/// 记的是这一轮自己用过的请求号（当前号，加上上下文压缩重启换掉的旧号）。worker 在检查点
+/// 问「我的号在不在待停列表里」，命中就自己收尾。返回该键上是否有在跑的轮次。
+/// 这是全项目唯一的「打断一个在跑的轮次」入口——用户停止、会话中断、委托中止、
+/// 远程应答取消都走它。
+fn request_stop_inflight_chat_round(
     state: &AppState,
     chat_key: &str,
-    handle: AbortHandle,
-) -> Result<(), String> {
-    let mut inflight = state
-        .inflight_tool_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
-    if let Some(previous) = inflight.insert(chat_key.to_string(), handle) {
-        previous.abort();
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
     }
-    Ok(())
+    let request_ids = inflight_round_request_ids(state, chat_key);
+    if request_ids.is_empty() {
+        return Ok(false);
+    }
+    let marked = mark_round_stop_requested(state, &request_ids)?;
+    runtime_log_info(format!(
+        "[聊天] 已记下要停的调度号 键={} 会话={} 新记号和数={}",
+        chat_key, conversation_id, marked
+    ));
+    Ok(true)
 }
 
 fn reset_inflight_completed_tool_history(state: &AppState, chat_key: &str) -> Result<(), String> {
@@ -356,28 +500,6 @@ fn clear_inflight_completed_tool_history(state: &AppState, chat_key: &str) -> Re
     Ok(())
 }
 
-fn clear_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<(), String> {
-    let mut inflight = state
-        .inflight_tool_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
-    inflight.remove(chat_key);
-    Ok(())
-}
-
-fn abort_inflight_tool_abort_handle(state: &AppState, chat_key: &str) -> Result<bool, String> {
-    let mut inflight = state
-        .inflight_tool_abort_handles
-        .lock()
-        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?;
-    if let Some(handle) = inflight.remove(chat_key) {
-        handle.abort();
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
 fn delegate_thread_chat_key(thread: &DelegateRuntimeThread) -> String {
     inflight_chat_key(
         &thread.conversation.agent_id,
@@ -398,12 +520,12 @@ fn abort_delegate_runtime_descendant_threads(
         if !visited.insert(child_chat_key.clone()) {
             continue;
         }
-        let aborted_chat = abort_running_inflight_chat(state, &child_chat_key)?;
-        let aborted_tool = abort_inflight_tool_abort_handle(state, &child_chat_key)?;
-        if aborted_chat || aborted_tool {
+        let stopped_chat =
+            request_stop_inflight_chat_round(state, &child_chat_key, &thread.conversation.id)?;
+        if stopped_chat {
             aborted_count += 1;
             runtime_log_info(format!(
-                "[聊天] 已中止同步委托子会话 父会话={} 子会话={}",
+                "[聊天] 已请求同步委托子会话收尾 父会话={} 子会话={}",
                 parent_chat_key,
                 child_chat_key
             ));
