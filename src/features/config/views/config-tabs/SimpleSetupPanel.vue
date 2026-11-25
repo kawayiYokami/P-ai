@@ -1,7 +1,7 @@
 <template>
   <SettingsStickyLayout>
     <template #header>
-      <div class="grid gap-2">
+      <div class="grid w-full gap-2">
         <div v-if="errorText" class="alert alert-error py-2 text-sm">{{ errorText }}</div>
         <div v-if="statusText" class="alert alert-success py-2 text-sm">{{ statusText }}</div>
         <div class="flex items-center justify-between gap-3">

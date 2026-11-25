@@ -1,10 +1,6 @@
 <template>
   <div class="h-full min-h-0 overflow-hidden">
-  <Transition name="ecall-config-mode" mode="out-in">
-  <div v-if="props.simpleSetupMode" key="simple" class="h-full min-h-0 overflow-hidden bg-base-200 pl-4">
-    <SimpleSetupPanel class="h-full" @switch-to-advanced="emit('update:simpleSetupMode', false)" />
-  </div>
-  <div v-else key="advanced" class="config-shell flex h-full min-h-0 overflow-hidden">
+  <div class="config-shell flex h-full min-h-0 overflow-hidden">
     <!-- 侧栏直接通到窗口上沿（覆盖式标题栏不占高度）。侧栏空白处兼作窗口拖动区，
          避免没有面包屑的页面（如欢迎页）找不到可拖的地方。 -->
     <aside
@@ -203,8 +199,13 @@
         <SettingsBreadcrumb :items="settingsBreadcrumbItems" />
       </div>
       <Transition name="ecall-config-content" mode="out-in">
-        <div :key="props.configTab" class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
-      <div v-if="props.configTab === 'api'" class="flex-1 min-h-0">
+        <div :key="props.simpleSetupMode ? 'simple-setup' : props.configTab" class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
+      <SimpleSetupPanel
+        v-if="props.simpleSetupMode"
+        class="flex min-h-0 flex-1"
+        @switch-to-advanced="emit('update:simpleSetupMode', false)"
+      />
+      <div v-else-if="props.configTab === 'api'" class="flex-1 min-h-0">
         <ApiTab
           :config="config"
           :base-url-reference="baseUrlReference"
@@ -411,7 +412,6 @@
     </div>
     </div>
   </div>
-  </Transition>
 
     <!-- Dialogs -->
 
@@ -791,6 +791,9 @@ const activeConfigTabTitle = computed(() => {
 // 所以任何设置页都有面包屑，不会出现「顶部空一行」或「内容顶到窗口上沿」。
 const settingsBreadcrumbContext = provideSettingsBreadcrumb();
 const settingsBreadcrumbItems = computed<SettingsBreadcrumbItem[]>(() => {
+  // 简单设置挂在导航栏右侧的内容区里，和其他设置页共用同一条标题栏；
+  // 它不是导航项，标题必须由这里给，否则会沿用上一次选中的 tab 名。
+  if (props.simpleSetupMode) return [{ label: t("config.welcome.quickSetupTitle") }];
   const own = settingsBreadcrumbContext.items.value;
   if (own.length > 0) return own;
   const fallback = activeConfigTabTitle.value;
@@ -806,15 +809,20 @@ function isConfigNavItemLocked(tab: ConfigTab): boolean {
 }
 
 function configNavLinkClass(tab: ConfigTab) {
+  // 简单设置占着内容区时不属于任何导航项，不高亮任何一项，避免点进去看到「当前在这页」的假象。
+  const active = !props.simpleSetupMode && props.configTab === tab;
   return {
-    active: props.configTab === tab,
-    "menu-active": props.configTab === tab,
+    active,
+    "menu-active": active,
     "opacity-50 pointer-events-none": isConfigNavItemLocked(tab),
   };
 }
 
 async function selectConfigNavTab(tab: ConfigTab) {
   if (isConfigNavItemLocked(tab)) return;
+  // 简单设置和导航项共用同一条导航栏：点任一项都得先退出简单设置，
+  // 否则点到当前 tab 时 requestTabChange 会因「tab 没变」直接返回，点了没反应。
+  if (props.simpleSetupMode) emit("update:simpleSetupMode", false);
   await requestTabChange(tab);
   configDrawerOpen.value = false;
 }

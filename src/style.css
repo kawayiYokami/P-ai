@@ -705,21 +705,17 @@ body {
     transition: none !important;
   }
 }
-/* settings: simple/advanced mode + right content 0.2s, reuse --duration-fold */
-.ecall-config-mode-enter-active,
-.ecall-config-mode-leave-active,
+/* settings: 右侧内容区切换 0.2s，reuse --duration-fold */
 .ecall-config-content-enter-active,
 .ecall-config-content-leave-active {
   transition:
     opacity var(--duration-fold) ease,
     transform var(--duration-fold) ease;
 }
-.ecall-config-mode-enter-from,
 .ecall-config-content-enter-from {
   opacity: 0;
   transform: translateY(6px);
 }
-.ecall-config-mode-leave-to,
 .ecall-config-content-leave-to {
   opacity: 0;
   transform: translateY(-6px);
@@ -777,8 +773,6 @@ body {
   opacity: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ecall-config-mode-enter-active,
-  .ecall-config-mode-leave-active,
   .ecall-config-content-enter-active,
   .ecall-config-content-leave-active,
   .ecall-tab-indicator,
