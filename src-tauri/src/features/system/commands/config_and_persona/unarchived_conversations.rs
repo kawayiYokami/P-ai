@@ -2619,6 +2619,8 @@ struct ConversationDelegateStatusSummary {
     output_token_count: u64,
     cache_read_token_count: u64,
     cache_write_token_count: u64,
+    /// 本次委托在联系人会话里落下的那组消息 id：面板照它定位过程。
+    process_message_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_agent_id: Option<String>,
     /// 发起委托的人格：磁贴卡片用它显示「谁派的」的小头像。
@@ -2814,14 +2816,6 @@ fn conversation_delegate_summary_from_thread(
     active: bool,
 ) -> Result<ConversationDelegateStatusSummary, String> {
     let delegate_id = thread.delegate_id.clone();
-    let chat_key = delegate_thread_chat_key(thread);
-    let inflight_tool_history = if active {
-        inflight_completed_tool_history(app_state, &chat_key)?
-    } else {
-        Vec::new()
-    };
-    let stats =
-        conversation_delegate_stats_from_conversation(&thread.conversation, &inflight_tool_history);
     let (status, stored_started_at, stored_completed_at) =
         conversation_delegate_status_from_entry(app_state, &delegate_id, active);
     let started_at = if stored_started_at.trim().is_empty() {
@@ -2847,18 +2841,43 @@ fn conversation_delegate_summary_from_thread(
             archived_at: thread.archived_at.clone().or_else(|| thread.conversation.archived_at.clone()),
             last_message_at: thread.conversation.messages.last().map(|message| message.created_at.clone()),
             message_count: thread.conversation.messages.len(),
-            step_count: stats.request_count,
-            tool_call_count: stats.tool_call_count,
-            last_tool_name: stats.last_tool_name.clone(),
-            cumulative_usage: stats.cumulative_usage.clone(),
+            step_count: 0,
+            tool_call_count: 0,
+            last_tool_name: String::new(),
+            cumulative_usage: ConversationCumulativeUsage::default(),
+            process_message_ids: Vec::new(),
         });
     let completed_at = stored_completed_at
         .or_else(|| thread.archived_at.clone())
         .or_else(|| thread.conversation.archived_at.clone());
+    // 应答委托的过程与统计在写回联系人会话那一刻定稿，详情读联系人会话；
+    // 其他委托仍按委托会话推算与展示。
+    let remote_reply = snapshot.kind.trim() == "remote_im_reply";
+    let stats = if remote_reply {
+        DelegateConversationStats {
+            request_count: snapshot.step_count,
+            tool_call_count: snapshot.tool_call_count,
+            last_tool_name: snapshot.last_tool_name.clone(),
+            token_count: conversation_cumulative_usage_weighted_tokens(&snapshot.cumulative_usage),
+            cumulative_usage: snapshot.cumulative_usage.clone(),
+        }
+    } else {
+        let chat_key = delegate_thread_chat_key(thread);
+        let inflight_tool_history = if active {
+            inflight_completed_tool_history(app_state, &chat_key)?
+        } else {
+            Vec::new()
+        };
+        conversation_delegate_stats_from_conversation(&thread.conversation, &inflight_tool_history)
+    };
     Ok(ConversationDelegateStatusSummary {
         delegate_id: delegate_id.clone(),
         kind: snapshot.kind.clone(),
-        conversation_id: thread.conversation.id.clone(),
+        conversation_id: if remote_reply {
+            snapshot.root_conversation_id.clone()
+        } else {
+            thread.conversation.id.clone()
+        },
         root_conversation_id: thread.root_conversation_id.clone(),
         title: delegate_display_title_from_id(
             app_state,
@@ -2881,6 +2900,7 @@ fn conversation_delegate_summary_from_thread(
         output_token_count: stats.cumulative_usage.output_tokens,
         cache_read_token_count: stats.cumulative_usage.cache_read_tokens,
         cache_write_token_count: stats.cumulative_usage.cache_write_tokens,
+        process_message_ids: snapshot.process_message_ids.clone(),
         target_agent_id: Some(snapshot.target_agent_id.clone()),
         source_agent_id: conversation_delegate_source_agent_id(app_state, &delegate_id),
     })
@@ -2901,7 +2921,11 @@ fn conversation_delegate_summary_from_snapshot(
     Ok(ConversationDelegateStatusSummary {
         delegate_id: snapshot.delegate_id.clone(),
         kind: snapshot.kind.clone(),
-        conversation_id: snapshot.conversation_id.clone(),
+        conversation_id: if snapshot.kind.trim() == "remote_im_reply" {
+            snapshot.root_conversation_id.clone()
+        } else {
+            snapshot.conversation_id.clone()
+        },
         root_conversation_id: snapshot.root_conversation_id.clone(),
         title: delegate_display_title_from_snapshot(snapshot),
         status,
@@ -2919,6 +2943,7 @@ fn conversation_delegate_summary_from_snapshot(
         output_token_count: snapshot.cumulative_usage.output_tokens,
         cache_read_token_count: snapshot.cumulative_usage.cache_read_tokens,
         cache_write_token_count: snapshot.cumulative_usage.cache_write_tokens,
+        process_message_ids: snapshot.process_message_ids.clone(),
         target_agent_id: Some(snapshot.target_agent_id.clone()),
         source_agent_id: conversation_delegate_source_agent_id(app_state, &snapshot.delegate_id),
     })
@@ -3368,6 +3393,46 @@ fn get_delegate_conversation_block_page_inner(
     page.messages.retain(|message| !remote_im_delegate_message_is_internal(message));
     page.messages = project_messages_for_frontend_display_only(page.messages);
     Ok(conversation_block_page_output_from_message_store_page(page))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DelegateProcessMessagesInput {
+    conversation_id: String,
+    message_ids: Vec<String>,
+}
+
+/// 按委托记录下发的消息索引，直接取回那一组消息。
+///
+/// 过程只存在联系人会话里，索引就是定位手段：不整读联系人会话，也不在别处留副本。
+#[tauri::command]
+fn read_delegate_process_messages(
+    input: DelegateProcessMessagesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    read_delegate_process_messages_inner(input, state.inner())
+}
+
+fn read_delegate_process_messages_inner(
+    input: DelegateProcessMessagesInput,
+    state: &AppState,
+) -> Result<Vec<ChatMessage>, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let mut messages = Vec::with_capacity(input.message_ids.len());
+    for message_id in &input.message_ids {
+        let message_id = message_id.trim();
+        if message_id.is_empty() {
+            continue;
+        }
+        messages.push(
+            conversation_service_v2().get_raw_message_by_id(state, conversation_id, message_id)?,
+        );
+    }
+    materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+    Ok(project_messages_for_frontend_display_only(messages))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

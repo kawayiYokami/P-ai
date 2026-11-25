@@ -171,6 +171,7 @@ function makeDelegate(index: number, status: string, active = true): Conversatio
     toolCallCount: 34,
     lastToolName: "exec",
     tokenCount: 29000,
+    processMessageIds: [],
   };
 }
 

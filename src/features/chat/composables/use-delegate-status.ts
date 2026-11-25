@@ -115,7 +115,7 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
   }
 
   async function openDelegateArchiveDetail(status: ConversationDelegateStatusSummary) {
-    const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
+    const conversationId = String(status?.delegateId || "").trim();
     if (!conversationId) return;
     try {
       if (typeof window !== "undefined") {

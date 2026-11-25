@@ -104,23 +104,24 @@ watch(detailDialogOpen, syncDetailDialog);
 watch(detailDialogRef, syncDetailDialog);
 const detailDialogTitle = ref("");
 const detailDialogConversationId = ref("");
+const detailDialogDelegateId = ref("");
 const detailDialogRefreshKey = ref("");
 // 列表那行的状态汇总：重启后 Run 的耗时倒推不出来，用它兜住起止时间与步数。
-// 跟着列表刷新走，面板开着跑完也能拿到写回消息 id。
+// 跟着列表刷新走，面板开着跑完也能拿到过程消息索引。
 const detailStatusSnapshot = computed<ConversationDelegateStatusSummary | null>(
   () =>
     props.statuses.find(
-      (status) =>
-        String(status?.conversationId || status?.delegateId || "").trim() ===
-        detailDialogConversationId.value,
+      (status) => String(status?.delegateId || "").trim() === detailDialogDelegateId.value,
     ) || null,
 );
 
 function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
   const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
+  const delegateId = String(status?.delegateId || "").trim();
   if (!conversationId) return;
   detailDialogTitle.value = String(status?.title || status?.delegateId || "委托详情");
   detailDialogConversationId.value = conversationId;
+  detailDialogDelegateId.value = delegateId;
   detailDialogRefreshKey.value = `${status.status}:${status.updatedAt}`;
   detailDialogOpen.value = true;
 }

@@ -225,6 +225,7 @@ const demoRunningDelegate: ConversationDelegateStatusSummary = {
   toolCallCount: 24,
   lastToolName: "apply_patch",
   tokenCount: 24600,
+  processMessageIds: [],
 };
 
 // 监控计数：监控开关关掉时全部归零，真实组件据此自行决定显不显示

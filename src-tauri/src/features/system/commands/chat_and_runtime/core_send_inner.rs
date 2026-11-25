@@ -2899,7 +2899,7 @@ async fn send_chat_message_inner(
                 // 最终落账时把完整一组（工具行们 + 正文行）一次性补进历史会话，
                 // 使下次应答委托读历史能拿到上次工具结果，不必从 0 开始。
                 // 中间正文已中途外发不落账；此处只补工具事件对，正文行由 append_final_text 写入。
-                if let Some(delegate_id) = runtime_context
+                if let Some(_delegate_id) = runtime_context
                     .remote_im_reply_delegate_id
                     .as_deref()
                     .map(str::trim)
@@ -2925,34 +2925,7 @@ async fn send_chat_message_inner(
                             ));
                         }
                     }
-                    // 过程落在委托会话快照里，面板只读这一份。
-                    if !tool_history_events.is_empty() {
-                        let tool_rows = ChatMessage {
-                            id: format!(
-                                "remote-im-tool-history-{delegate_id}-{assistant_message_id}"
-                            ),
-                            role: "assistant".to_string(),
-                            created_at: now_iso(),
-                            speaker_agent_id: Some(current_agent.id.clone()),
-                            parts: Vec::new(),
-                            extra_text_blocks: Vec::new(),
-                            provider_meta: None,
-                            tool_call: Some(tool_history_events.clone()),
-                            mcp_call: None,
-                            meme_annotations: None,
-                        };
-                        if let Err(err) = remote_im_reply_delegate_mirror_message(
-                            &state,
-                            delegate_id,
-                            tool_rows,
-                            None,
-                        ) {
-                            runtime_log_warn(format!(
-                                "[委托] 失败 任务=过程写入委托会话 委托={} 错误={}",
-                                delegate_id, err
-                            ));
-                        }
-                    }
+                    // 过程由下面那条最终消息整体镜像进委托会话，这里不再另存一份工具行。
                 }
                 let append_final_result = conversation_service_v2().append_final_text_to_assistant_message(
                     &state,
@@ -2977,17 +2950,6 @@ async fn send_chat_message_inner(
                     runtime_context.remote_im_reply_delegate_id.as_deref(),
                     persisted_assistant_message.as_ref(),
                 ) {
-                    if let Err(err) = remote_im_reply_delegate_mirror_message(
-                        &state,
-                        delegate_id,
-                        message.clone(),
-                        None,
-                    ) {
-                        runtime_log_warn(format!(
-                            "[委托] 失败 任务=镜像最终正文 错误={}",
-                            err
-                        ));
-                    }
                     // 远程应答不向普通聊天 Channel 推送 delta，最终正文须显式广播。
                     emit_conversation_message_appended_event(&state, &conversation_id, message);
                     // 统计覆盖必须排在所有委托会话写入之后：每次写会话都会按消息重算快照，
@@ -3023,6 +2985,7 @@ async fn send_chat_message_inner(
                         round_tool_calls,
                         &round_last_tool_name,
                         round_output_tokens,
+                        &[assistant_message_id.clone()],
                     ) {
                         runtime_log_warn(format!(
                             "[委托] 失败 任务=覆盖本轮统计 委托={} 错误={}",

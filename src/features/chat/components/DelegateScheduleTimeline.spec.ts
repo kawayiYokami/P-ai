@@ -66,6 +66,7 @@ describe("DelegateScheduleTimeline", () => {
       toolCallCount: 1,
       lastToolName: "deeprecall_search",
       tokenCount: 0,
+      processMessageIds: [],
     };
 
     const app = createSSRApp({

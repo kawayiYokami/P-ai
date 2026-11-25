@@ -353,13 +353,16 @@ if (props.initialRuns || props.initialBlockPage) {
   applyData(props.initialRuns || [], props.initialBlockPage || null);
 }
 
-/// 通讯层的本地消息副本：首次拉全部，之后只补新增。加工层始终拿这份完整列表，
-/// 所以投影结果与整块读完全一致。
+/// 应答委托的过程是写回联系人会话的那组消息，索引由委托记录下发，照 id 直接取；
+/// 普通委托的过程在委托会话里，按游标增量取。
 let allMessages: ChatMessage[] = [];
 let lastMessageId = "";
 
 async function fetchData(silent = false) {
   const conversationId = props.conversationId.trim();
+  const messageIds = (props.statusSnapshot?.processMessageIds || [])
+    .map((id) => String(id || "").trim())
+    .filter((id) => id.length > 0);
   const token = ++fetchToken;
   if (!conversationId) {
     runs.value = [];
@@ -372,7 +375,6 @@ async function fetchData(silent = false) {
 
   if (!silent) {
     loading.value = true;
-    // 重新打开或切换会话：本地消息清空，第一次拉的就是全部。
     allMessages = [];
     lastMessageId = "";
   }
@@ -384,30 +386,50 @@ async function fetchData(silent = false) {
         console.warn("[DelegateScheduleTimeline] list_schedule_runs 失败:", err);
         return [] as ScheduleRun[];
       }),
-      invokeTauri<ChatMessage[]>(
-        "delegate.messagesAfter",
-        { input: { conversationId, afterMessageId: lastMessageId } },
-        10000,
-      ).catch((err) => {
-        console.warn("[DelegateScheduleTimeline] delegate.messagesAfter 失败:", err);
-        return null as ChatMessage[] | null;
-      }),
+      messageIds.length > 0
+        ? invokeTauri<ChatMessage[]>(
+            "delegate.processMessages",
+            { input: { conversationId, messageIds } },
+            10000,
+          ).catch((err) => {
+            console.warn("[DelegateScheduleTimeline] delegate.processMessages 失败:", err);
+            return [] as ChatMessage[];
+          })
+        : invokeTauri<ChatMessage[]>(
+            "delegate.messagesAfter",
+            { input: { conversationId, afterMessageId: lastMessageId } },
+            10000,
+          ).catch((err) => {
+            console.warn("[DelegateScheduleTimeline] delegate.messagesAfter 失败:", err);
+            return null as ChatMessage[] | null;
+          }),
     ]);
 
     if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
 
-    if (freshMessages === null) {
-      // 游标已经不在存储里（会话被压缩重写）：清空重来，下一次从第 0 条拉。
-      allMessages = [];
-      lastMessageId = "";
-      return;
-    }
-    if (freshMessages.length > 0) {
-      allMessages = [...allMessages, ...freshMessages];
-      lastMessageId = String(freshMessages[freshMessages.length - 1]?.id || "").trim();
+    let messages: ChatMessage[] = [];
+    let scopedRuns = runsResult;
+    if (messageIds.length > 0) {
+      messages = freshMessages || [];
+      // 联系人会话下可能挂着多条应答委托的 run：只认本委托那条。
+      const delegateId = String(props.statusSnapshot?.delegateId || "").trim();
+      scopedRuns = delegateId
+        ? runsResult.filter((run) => String(run.delegateId || "").trim() === delegateId)
+        : runsResult;
+    } else {
+      if (freshMessages === null) {
+        allMessages = [];
+        lastMessageId = "";
+        return;
+      }
+      if (freshMessages.length > 0) {
+        allMessages = [...allMessages, ...freshMessages];
+        lastMessageId = String(freshMessages[freshMessages.length - 1]?.id || "").trim();
+      }
+      messages = allMessages;
     }
 
-    applyData(runsResult, { messages: allMessages });
+    applyData(scopedRuns, { messages });
   } catch (err) {
     if (token !== fetchToken || conversationId !== props.conversationId.trim()) return;
     if (!silent) errorText.value = String(err);

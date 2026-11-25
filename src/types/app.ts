@@ -1261,6 +1261,8 @@ export type ConversationDelegateStatusSummary = {
   outputTokenCount?: number;
   cacheReadTokenCount?: number;
   cacheWriteTokenCount?: number;
+  /** 本次委托在联系人会话里落下的那组消息 id：详情面板照它定位过程 */
+  processMessageIds: string[];
   targetAgentId?: string;
   /** 发起委托的人格：磁贴卡片用它显示「谁派的」小头像 */
   sourceAgentId?: string;

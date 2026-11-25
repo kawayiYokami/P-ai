@@ -155,17 +155,6 @@ fn remote_im_reply_delegate_register(
         group_reply_max_chars: dispatch_policy.map(|policy| policy.max_chars),
     };
     lock_remote_im_reply_delegate_runtimes(state)?.insert(delegate_id.clone(), runtime);
-    if let Err(err) = remote_im_reply_delegate_mirror_internal_messages(
-        state,
-        &delegate_id,
-        "frozen_snapshot",
-        &remote_im_reply_delegate_prompt_messages(state, &delegate_id)?,
-    ) {
-        runtime_log_warn(format!(
-            "[远程IM] 镜像冻结快照失败，已降级继续 原因={}",
-            err
-        ));
-    }
     Ok(delegate_id)
 }
 
@@ -385,17 +374,6 @@ fn remote_im_reply_delegate_enqueue_guidance(
         }
         runtime.guidance_messages.push_back(message.clone());
     }
-    if let Err(err) = remote_im_reply_delegate_mirror_internal_messages(
-        state,
-        delegate_id,
-        "guidance",
-        &[message],
-    ) {
-        runtime_log_warn(format!(
-            "[远程IM] 失败 任务=镜像秘书引导 原因={}",
-            err
-        ));
-    }
     Ok(())
 }
 
@@ -522,31 +500,6 @@ fn remote_im_reply_delegate_finalize(
     reason: &str,
 ) -> Result<(), String> {
     let archived_at = now_iso();
-    if let Err(err) = remote_im_reply_delegate_mirror_message(
-        state,
-        &runtime.delegate_id,
-        ChatMessage {
-            id: Uuid::new_v4().to_string(),
-            role: "system".to_string(),
-            created_at: archived_at.clone(),
-            speaker_agent_id: Some(runtime.session_agent_id.clone()),
-            parts: Vec::new(),
-            extra_text_blocks: Vec::new(),
-            provider_meta: Some(serde_json::json!({
-                "remote_im_work_ledger_terminal_reason": reason,
-                "remote_im_work_ledger_terminal_status": status,
-            })),
-            tool_call: None,
-            mcp_call: None,
-            meme_annotations: None,
-        },
-        Some("remote_im_work_ledger_terminal"),
-    ) {
-        runtime_log_warn(format!(
-            "[远程IM] 降级 任务=记录应答终态 原因={}",
-            err
-        ));
-    }
     if let Err(err) = delegate_runtime_thread_archive(state, &runtime.delegate_id, &archived_at) {
         runtime_log_warn(format!(
             "[远程IM] 线程归档降级 原因={}",

@@ -52,6 +52,7 @@ function makeDelegate(index: number, status: string): ConversationDelegateStatus
     toolCallCount: 9 + index * 25,
     lastToolName: tools[index % tools.length],
     tokenCount: 12800 + index * 16200,
+    processMessageIds: [],
   };
 }
 

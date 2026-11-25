@@ -90,6 +90,7 @@ function createDemoDelegateStatus(
     toolCallCount: requestCount,
     lastToolName,
     tokenCount,
+    processMessageIds: [],
     targetAgentId: "demo-agent",
   };
 }

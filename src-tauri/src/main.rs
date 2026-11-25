@@ -1507,6 +1507,7 @@ fn main() {
             get_tool_result_content,
             list_delegate_conversations,
             read_delegate_messages_after,
+            read_delegate_process_messages,
             list_conversation_delegate_statuses,
             list_conversation_background_shell_tasks,
             terminate_conversation_background_shell_task,

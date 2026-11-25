@@ -1953,6 +1953,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "remoteIm.conversation.clear": "remote_im_clear_contact_conversation",
   "delegate.conversations.list": "list_delegate_conversations",
   "delegate.messagesAfter": "read_delegate_messages_after",
+  "delegate.processMessages": "read_delegate_process_messages",
   "prompt.preview": "get_prompt_preview",
   "prompt.systemPreview": "get_system_prompt_preview",
   "goal.current": "goal_get_current",

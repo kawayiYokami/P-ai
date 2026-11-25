@@ -30,6 +30,9 @@ struct DelegateConversationSnapshot {
     tool_call_count: usize,
     last_tool_name: String,
     cumulative_usage: ConversationCumulativeUsage,
+    /// 本次委托在联系人会话里落下的那组消息 id：面板照它定位过程，不再另存副本。
+    #[serde(default)]
+    process_message_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -390,6 +393,12 @@ fn delegate_store_migrate_snapshot_columns(conn: &Connection) -> Result<(), Stri
                 .to_string(),
         );
     }
+    if !columns.contains("snapshot_process_message_ids_json") {
+        sql.push(
+            "ALTER TABLE delegate_record ADD COLUMN snapshot_process_message_ids_json TEXT NOT NULL DEFAULT ''"
+                .to_string(),
+        );
+    }
     sql.push(
         "CREATE INDEX IF NOT EXISTS idx_delegate_record_snapshot_updated_at ON delegate_record(snapshot_updated_at DESC)"
             .to_string(),
@@ -494,6 +503,18 @@ fn delegate_snapshot_row_to_entry(
             )
         })?
     };
+    let process_message_ids_json = row.get::<_, String>("process_message_ids_json")?;
+    let process_message_ids = if process_message_ids_json.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str::<Vec<String>>(&process_message_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                process_message_ids_json.len(),
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            )
+        })?
+    };
     Ok(DelegateConversationSnapshot {
         delegate_id: row.get("delegate_id")?,
         kind: row.get("kind")?,
@@ -515,6 +536,7 @@ fn delegate_snapshot_row_to_entry(
         tool_call_count: row.get::<_, i64>("tool_call_count")? as usize,
         last_tool_name: row.get("last_tool_name")?,
         cumulative_usage,
+        process_message_ids,
     })
 }
 
@@ -585,6 +607,7 @@ fn delegate_snapshot_apply_round_stats(
     tool_call_count: usize,
     last_tool_name: &str,
     output_tokens: u64,
+    process_message_ids: &[String],
 ) -> Result<(), String> {
     let Some(mut snapshot) = delegate_snapshot_store_read(data_path, delegate_id)? else {
         return Ok(());
@@ -595,6 +618,7 @@ fn delegate_snapshot_apply_round_stats(
     if output_tokens > 0 {
         snapshot.cumulative_usage.output_tokens = output_tokens;
     }
+    snapshot.process_message_ids = process_message_ids.to_vec();
     delegate_snapshot_cache_write(data_path, snapshot)
 }
 
@@ -661,13 +685,29 @@ fn delegate_snapshot_token_count(messages: &[ChatMessage]) -> u64 {
 fn delegate_snapshot_from_entry_and_conversation(
     entry: &DelegateEntry,
     conversation: &Conversation,
+    existing: Option<&DelegateConversationSnapshot>,
 ) -> DelegateConversationSnapshot {
     let delegate_id = conversation
         .delegate_id
         .clone()
         .unwrap_or_else(|| conversation.id.clone());
+    // 应答委托的过程与统计只在写回联系人会话那一刻定稿，这里只同步会话元信息；
+    // 其他委托照旧按委托会话推算。
     let (step_count, tool_call_count, last_tool_name, cumulative_usage) =
-        delegate_snapshot_stats_from_conversation(conversation);
+        if entry.kind.trim() == "remote_im_reply" {
+            existing
+                .map(|value| {
+                    (
+                        value.step_count,
+                        value.tool_call_count,
+                        value.last_tool_name.clone(),
+                        value.cumulative_usage.clone(),
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            delegate_snapshot_stats_from_conversation(conversation)
+        };
     DelegateConversationSnapshot {
         delegate_id: delegate_id.clone(),
         kind: entry.kind.clone(),
@@ -700,6 +740,9 @@ fn delegate_snapshot_from_entry_and_conversation(
         tool_call_count,
         last_tool_name,
         cumulative_usage,
+        process_message_ids: existing
+            .map(|value| value.process_message_ids.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -734,6 +777,9 @@ fn delegate_snapshot_from_entry(
         cumulative_usage: existing
             .map(|value| value.cumulative_usage.clone())
             .unwrap_or_default(),
+        process_message_ids: existing
+            .map(|value| value.process_message_ids.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -767,7 +813,8 @@ fn delegate_snapshot_store_read(
             snapshot_output_token_count AS output_token_count,
             snapshot_cache_read_token_count AS cache_read_token_count,
             snapshot_cache_write_token_count AS cache_write_token_count,
-            snapshot_cumulative_usage_json AS cumulative_usage_json
+            snapshot_cumulative_usage_json AS cumulative_usage_json,
+            snapshot_process_message_ids_json AS process_message_ids_json
         FROM delegate_record
         WHERE delegate_id=?1 AND snapshot_conversation_id!=''",
         params![delegate_id.trim()],
@@ -807,7 +854,8 @@ fn delegate_snapshot_store_list_from_db(
                 snapshot_output_token_count AS output_token_count,
                 snapshot_cache_read_token_count AS cache_read_token_count,
                 snapshot_cache_write_token_count AS cache_write_token_count,
-                snapshot_cumulative_usage_json AS cumulative_usage_json
+                snapshot_cumulative_usage_json AS cumulative_usage_json,
+                snapshot_process_message_ids_json AS process_message_ids_json
             FROM delegate_record
             WHERE snapshot_conversation_id!=''
             ORDER BY COALESCE(snapshot_archived_at, snapshot_last_message_at, snapshot_updated_at) DESC,
@@ -841,6 +889,8 @@ fn delegate_snapshot_store_upsert_db(
     let conn = delegate_store_open(data_path)?;
     let cumulative_usage_json = serde_json::to_string(&snapshot.cumulative_usage)
         .map_err(|err| format!("序列化委托快照累计用量失败，delegate_id={}，error={err}", snapshot.delegate_id))?;
+    let process_message_ids_json = serde_json::to_string(&snapshot.process_message_ids)
+        .map_err(|err| format!("序列化委托过程消息索引失败，delegate_id={}，error={err}", snapshot.delegate_id))?;
     let affected = conn.execute(
         "UPDATE delegate_record SET
             snapshot_conversation_id=?2,
@@ -855,7 +905,8 @@ fn delegate_snapshot_store_upsert_db(
             snapshot_output_token_count=?11,
             snapshot_cache_read_token_count=?12,
             snapshot_cache_write_token_count=?13,
-            snapshot_cumulative_usage_json=?14
+            snapshot_cumulative_usage_json=?14,
+            snapshot_process_message_ids_json=?15
         WHERE delegate_id=?1",
         params![
             snapshot.delegate_id,
@@ -872,6 +923,7 @@ fn delegate_snapshot_store_upsert_db(
             snapshot.cumulative_usage.cache_read_tokens as i64,
             snapshot.cumulative_usage.cache_write_tokens as i64,
             cumulative_usage_json,
+            process_message_ids_json,
         ],
     )
     .map_err(|err| format!("写入委托快照失败，delegate_id={}，error={err}", snapshot.delegate_id))?;
@@ -903,7 +955,8 @@ fn delegate_snapshot_store_delete_db(
             snapshot_output_token_count=0,
             snapshot_cache_read_token_count=0,
             snapshot_cache_write_token_count=0,
-            snapshot_cumulative_usage_json=''
+            snapshot_cumulative_usage_json='',
+            snapshot_process_message_ids_json=''
         WHERE delegate_id=?1 AND snapshot_conversation_id!=''",
         params![delegate_id.trim()],
     )
@@ -1035,7 +1088,8 @@ fn delegate_snapshot_store_rebuild_from_truth_if_empty(data_path: &PathBuf) -> R
             .clone()
             .unwrap_or_else(|| conversation.id.clone());
         let entry = delegate_store_get_delegate(data_path, &delegate_id)?;
-        let snapshot = delegate_snapshot_from_entry_and_conversation(&entry, &conversation);
+        let snapshot =
+            delegate_snapshot_from_entry_and_conversation(&entry, &conversation, None);
         delegate_snapshot_store_upsert_db(data_path, &snapshot)?;
     }
     runtime_log_debug(format!(
@@ -1054,7 +1108,9 @@ fn delegate_snapshot_store_sync_from_conversation(
         .clone()
         .unwrap_or_else(|| conversation.id.clone());
     let entry = delegate_store_get_delegate(data_path, &delegate_id)?;
-    let snapshot = delegate_snapshot_from_entry_and_conversation(&entry, conversation);
+    let existing = delegate_snapshot_store_read(data_path, &delegate_id)?;
+    let snapshot =
+        delegate_snapshot_from_entry_and_conversation(&entry, conversation, existing.as_ref());
     delegate_snapshot_cache_write(data_path, snapshot)
 }
 
