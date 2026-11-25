@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-25T03:51:30.718Z",
-  "latestVersion": "v0.98.9",
+  "generatedAt": "2026-11-25T11:40:00.933Z",
+  "latestVersion": "v0.98.10",
   "releases": [
+    {
+      "version": "v0.98.10",
+      "path": "docs/changelog/releases/v0.98.10.md",
+      "summary": "修复点击停止后会话仍继续重试、要等几十秒才真正停下，并且最后弹出「所有候选模型均失败」的问题"
+    },
     {
       "version": "v0.98.9",
       "path": "docs/changelog/releases/v0.98.9.md",
