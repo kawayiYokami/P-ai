@@ -1903,6 +1903,7 @@
       "openChangesTitle": "Open all changes",
       "switchBranchTitle": "Switch branch (currently {name})",
       "shellLabel": "Terminal",
+      "automationLabel": "Automation",
       "shellInterrupt": "Interrupt",
       "delegateLabel": "Delegate",
       "timerLabel": "Timers",

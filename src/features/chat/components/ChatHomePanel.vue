@@ -115,6 +115,10 @@
           :now-ms="nowMs"
           @open="emit('openMonitorTab', 'timers')"
         />
+        <HomeAutomationCard
+          v-if="automations.length > 0"
+          :tasks="automations"
+        />
         <HomeFileCard
           v-for="file in openFiles"
           :key="`open-file-${file.path}`"
@@ -172,6 +176,7 @@ import HomeToolCard from "./chat-home/HomeToolCard.vue";
 import HomeShellCard from "./chat-home/HomeShellCard.vue";
 import HomeDelegateCard from "./chat-home/HomeDelegateCard.vue";
 import HomeTimerCard from "./chat-home/HomeTimerCard.vue";
+import HomeAutomationCard from "./chat-home/HomeAutomationCard.vue";
 import HomePlanCard, { type LatestPlanSummary } from "./chat-home/HomePlanCard.vue";
 
 const props = withDefaults(defineProps<{
@@ -214,6 +219,8 @@ const props = withDefaults(defineProps<{
   delegates?: ConversationDelegateStatusSummary[];
   runningTimers?: TimerEntry[];
   shells?: BackgroundShellTaskSummary[];
+  /** 当前会话的自动化任务：每个任务一张磁贴，只作提示，不可关闭 */
+  automations?: Array<{ id: string; description: string }>;
   /** 工具评审批次；只传有工具调用的批次（由 ChatHomePanel 过滤） */
   toolBatches?: ToolReviewBatchSummary[];
   /** 议题看板磁贴是否可见；只有本地主会话才有看板 */
@@ -245,6 +252,7 @@ const props = withDefaults(defineProps<{
   delegates: () => [],
   runningTimers: () => [],
   shells: () => [],
+  automations: () => [],
   toolBatches: () => [],
   kanbanVisible: false,
   kanbanIssues: () => [],
@@ -362,6 +370,7 @@ const hasAnyCard = computed(
     || runningShells.value.length > 0
     || runningDelegates.value.length > 0
     || props.runningTimers.length > 0
+    || props.automations.length > 0
     || activeToolBatches.value.length > 0,
 );
 

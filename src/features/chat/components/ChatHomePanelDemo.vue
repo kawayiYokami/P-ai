@@ -30,6 +30,7 @@
         :kanban-visible="true"
         :kanban-issues="visibleKanbanIssues"
         :open-files="demoOpenFiles"
+        :automations="demoAutomations"
         @open-side-chat-panel="noop('openSideChatPanel')"
         @open-team-member="(id: string) => noop(`openTeamMember:${id}`)"
         @open-team-management="noop('openTeamManagement')"
@@ -37,7 +38,7 @@
       />
     </div>
     <p class="text-xs text-base-content/60">
-      demo：首页磁贴区只喂「追问入口 + 队员状态表」，队员数据是 mock，点击原地丢弃。
+      demo：首页磁贴区只喂「追问入口 + 队员状态表 + 自动化任务」，数据都是 mock，点击原地丢弃。
     </p>
     <p class="demo-measure text-xs text-base-content/50">{{ measureText }}</p>
   </div>
@@ -48,6 +49,12 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ChatHomePanel from "./ChatHomePanel.vue";
 import type { KanbanIssue } from "../composables/use-kanban-board";
 import type { TeamMemberTileItem } from "./team-member-tile";
+
+/** 自动化磁贴的 mock：一个任务一张卡，卡面只放描述。 */
+const demoAutomations = [
+  { id: "scan-issues", description: "每 15 分钟扫一遍 issues，有新条目就投递到本会话" },
+  { id: "watch-build", description: "盯着构建目录，产物更新后汇总一次差异" },
+];
 
 /**
  * 议题看板磁贴的 mock：分类数与「最长分类条数」都超过上限，用来验证磁贴高度封顶在 2 行、

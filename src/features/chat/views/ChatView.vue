@@ -865,6 +865,7 @@
           :delegates="delegateStatuses"
           :running-timers="homePanelRunningTimers"
           :shells="backgroundShells"
+          :automations="homeAutomationTasks"
           :tool-batches="toolReviewBatches"
           :kanban-visible="kanbanVisible"
           :kanban-issues="kanbanIssues"
@@ -1049,6 +1050,7 @@ import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
+import { useHomeAutomation } from "../composables/use-home-automation";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatVirtualStartMargin } from "../composables/use-chat-virtual-start-margin";
@@ -3884,6 +3886,9 @@ watch(
     }
   },
 );
+
+/** 当前会话的自动化任务：磁贴是谁渲染的不归它管，这里只提供清单。 */
+const { homeAutomationTasks } = useHomeAutomation(() => props.activeConversationId);
 
 let unlistenTimerChanged: (() => void) | null = null;
 let unlistenTimerRecovered: (() => void) | null = null;
