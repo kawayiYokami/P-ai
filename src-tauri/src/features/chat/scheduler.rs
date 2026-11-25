@@ -587,29 +587,11 @@ fn claim_queued_conversation_batches(
     let mut claimed_batches = Vec::<(String, Vec<ChatPendingEvent>)>::new();
     for (conversation_id, _) in eligible.into_iter().take(available_slots) {
         let slot = conversation_slot_mut(&mut slots, &conversation_id);
-        // 截止时间只在这里用。worker 还没起来的活没有信号可读，只能按时间拒绝：
-        // 不晚于截止时间的事件，是被打断那一刻之前就排着的活，一律丢弃。
-        // 用户停完立刻发的新消息时间晚于截止时间，照常放行。
-        let cutoff = slot.interrupt_cutoff_ms;
-        let mut kept_event = None;
-        while let Some(event) = slot.pending_queue.pop_front() {
-            if round_blocked_by_interrupt_cutoff(cutoff, event.created_at_ms) {
-                runtime_log_info(format!(
-                    "[聊天调度] 丢弃被打断之前的排队事件 会话={} 事件时间={} 截止时间={}",
-                    conversation_id,
-                    event.created_at_ms,
-                    cutoff.unwrap_or_default()
-                ));
-                continue;
-            }
-            kept_event = Some(event);
-            break;
-        }
-        slot.last_activity_at = now_iso();
-        let Some(event) = kept_event else {
-            // 整个队列都是打断之前的活：不认领、不 spawn，worker 不出现。
+        // 出队发生在打断之后：这条消息是用户在停止之后仍然要发的，照常认领。
+        let Some(event) = slot.pending_queue.pop_front() else {
             continue;
         };
+        slot.last_activity_at = now_iso();
         claims.insert(conversation_id.clone());
         claimed_batches.push((conversation_id, vec![event]));
     }

@@ -284,10 +284,10 @@
         });
     }
 
-    /// 停止只做两件事：立截止时间（给 worker 还没起来的活用）＋ 翻转本会话的结束信号（给
-    /// 已经起来的 worker 用）。**不中止任何协程**——worker 必须活着走完自己的收尾。
+    /// 停止只做一件事：翻转本会话的结束信号，交给已经起来的 worker 自己收尾。
+    /// **不中止任何协程、不作废队列**——worker 必须活着走完自己的收尾。
     #[test]
-    fn stop_chat_message_without_identity_should_set_cutoff_and_signal_worker() {
+    fn stop_chat_message_without_identity_should_signal_worker() {
         let runtime = test_runtime();
         runtime.block_on(async {
             let state = test_chat_runtime_state();
@@ -316,7 +316,6 @@
                 slot.stream_cache.persisted_assistant_message_id = "assistant-running".to_string();
             }
 
-            let before = now_unix_ms();
             let input = StopChatRequest {
                 session: SessionSelector {
                     api_config_id: None,
@@ -336,46 +335,11 @@
                 inflight_has_running(&state, &chat_key),
                 "不许把在跑的轮次登记摘掉：worker 要活着走完自己的收尾"
             );
-            let cutoff = lock_conversation_runtime_slots(&state)
-                .expect("lock runtime slots")
-                .get(conversation_id)
-                .and_then(|slot| slot.interrupt_cutoff_ms)
-                .expect("无身份的停止也必须立下截止时间");
-            assert!(
-                cutoff >= before,
-                "截止时间必须由后端 now_unix_ms() 立下，实测 {cutoff} < {before}"
-            );
             assert!(
                 test_round_requested(&state, conversation_id),
                 "必须把这一轮的调度号记进待停列表，让已经起来的 worker 自己停"
             );
         });
-    }
-
-    /// 截止时间只用来在出队处拒掉「worker 还没起来」的旧批次：区间闭、按事件时间比。
-    #[test]
-    fn interrupt_cutoff_should_reject_batches_older_or_equal_to_cutoff() {
-        let cutoff = 1_700_000_000_000u64;
-        assert!(
-            round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff - 1),
-            "更早的事件必须丢"
-        );
-        assert!(
-            round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff),
-            "同一毫秒也算旧，区间是闭的"
-        );
-        assert!(
-            !round_blocked_by_interrupt_cutoff(Some(cutoff), cutoff + 1),
-            "晚于截止时间的新事件必须放行"
-        );
-        assert!(
-            !round_blocked_by_interrupt_cutoff(None, cutoff),
-            "没有截止时间时不拦"
-        );
-        assert!(
-            !round_blocked_by_interrupt_cutoff(Some(cutoff), 0),
-            "事件没带时间（旧数据缺字段）时不拦"
-        );
     }
 
     /// 确权之后、登记之前被打断：表里没有这条记录，也不许停止方替它收尾。
@@ -412,29 +376,17 @@
 
             assert!(result.aborted, "表里没有登记时也必须把这次停止算成立");
             // 这一轮还没登记、停止也没带任何身份号：没有可点名的对象，
-            // 停止只留下作废水位，不在会话上造任何「已停止」状态。
-            assert!(
-                lock_conversation_runtime_slots(&state)
-                    .expect("lock runtime slots")
-                    .get(conversation_id)
-                    .and_then(|slot| slot.interrupt_cutoff_ms)
-                    .is_some(),
-                "没有身份也没有在跑轮次时，停止至少要立下作废水位"
-            );
+            // 停止不在会话上造任何「已停止」状态，所有权仍归 worker。
             let slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.get(conversation_id).expect("slot");
             assert_eq!(
                 slot.round_owner, "owner-before-handle",
                 "所有权必须留在 worker 手上，由它自己收尾"
             );
-            assert!(
-                slot.interrupt_cutoff_ms.is_some(),
-                "停止必须立下会话截止时间，拒掉还没起来的旧批次"
-            );
         });
     }
 
-    /// worker 起来之后只认待停列表里的调度号：不看截止时间、不看所有权令牌。
+    /// worker 起来之后只认待停列表里的调度号：不看所有权令牌。
     #[test]
     fn round_stop_requested_reads_only_the_stop_list() {
         let state = test_chat_runtime_state();
@@ -1145,41 +1097,35 @@
 
     // ==================== 打断：各阶段的毫秒级验收 ====================
 
-    /// 阶段一（worker 还没起来）：截止时间之前的排队事件在出队处就被丢掉。
+    /// 阶段一（worker 还没起来）：打断不会作废队列里已经排着的消息。
     ///
-    /// 这一阶段没有 worker、没有信号可读，唯一的判据是时间：被丢掉的事件不 claim、
-    /// 不 spawn，队列清空，占位名额一个不占。
+    /// 出队发生在打断之后，说明用户仍然要这条消息跑；出队处只认队列，不按发送时间判死。
     #[test]
-    fn stop_before_worker_starts_never_spawns() {
+    fn stop_before_worker_starts_should_still_claim_queued_events() {
         let state = test_chat_runtime_state();
         let conversation_id = "conversation-stop-before-spawn";
         let mut event = test_pending_event(conversation_id);
+        // 事件的产生时间早于打断时刻：按旧规则会被丢掉。
         event.created_at_ms = 1_000;
+        let event_id = event.id.clone();
         {
             let mut slots = lock_conversation_runtime_slots(&state).expect("lock runtime slots");
             let slot = slots.entry(conversation_id.to_string()).or_default();
             slot.pending_queue.push_back(event);
         }
-        // 截止时间晚于事件：这条活是「被打断那一刻之前就排着的」。
-        mark_conversation_interrupt_cutoff(&state, conversation_id, 2_000).expect("mark cutoff");
 
         let started = std::time::Instant::now();
         let batches = claim_queued_conversation_batches(&state).expect("claim batches");
         let elapsed = started.elapsed();
 
+        assert_eq!(batches.len(), 1, "排队的事件必须照常出队");
         assert!(
-            batches.is_empty(),
-            "旧事件必须在出队处丢掉，不许 claim 成批次（否则 worker 会被建出来）"
+            batches[0].1.iter().any(|claimed| claimed.id == event_id),
+            "出队的就是刚才排进去的那条消息"
         );
         assert!(
             elapsed < std::time::Duration::from_millis(50),
-            "出队过滤只读内存，必须远快于 50ms，实测 {elapsed:?}"
-        );
-        assert!(
-            lock_conversation_processing_claims(&state)
-                .expect("lock claims")
-                .is_empty(),
-            "全丢之后不许占会话名额（否则该会话哑掉、名额不还）"
+            "出队只读内存，必须远快于 50ms，实测 {elapsed:?}"
         );
         assert!(
             lock_conversation_runtime_slots(&state)
@@ -1187,7 +1133,7 @@
                 .get(conversation_id)
                 .map(|slot| slot.pending_queue.is_empty())
                 .unwrap_or(true),
-            "被丢掉的事件不许留在队列里反复重试"
+            "认领过的事件不许留在队列里反复重试"
         );
     }
 

@@ -941,9 +941,6 @@ fn clear_conversation_stream_runtime_cache(
 // 换掉令牌，旧协程退出去时认不上号，就不会把新一轮当成自己的收尾对象。
 
 /// 开启一轮：把会话槽的所有权换成新令牌，返回给收尾环节认领。
-///
-/// 新轮次走到这里说明它已经越过打断门卫（产生时间晚于会话截止时间），
-/// 上一轮的打断截止时间随之作废：它的使命只到「拦住被打断那一刻之前的活」为止。
 fn begin_conversation_round_owner(
     state: &AppState,
     conversation_id: &str,
@@ -952,39 +949,7 @@ fn begin_conversation_round_owner(
     let mut slots = lock_conversation_runtime_slots(state)?;
     let slot = conversation_slot_mut(&mut slots, conversation_id);
     slot.round_owner = owner.clone();
-    slot.interrupt_cutoff_ms = None;
     Ok(owner)
-}
-
-/// 立下打断截止时间：此刻之前产生的队列事件一律作废。
-///
-/// 只写这一个字段。它的作用范围是 **worker 启动之前**——worker 还没起来的那批活没有信号可读，
-/// 只能靠时间在出队处拒绝。worker 起来之后一律不看它，只认结束信号。
-fn mark_conversation_interrupt_cutoff(
-    state: &AppState,
-    conversation_id: &str,
-    cutoff_ms: u64,
-) -> Result<(), String> {
-    let conversation_id = conversation_id.trim();
-    if conversation_id.is_empty() {
-        return Err("conversationId 不能为空".to_string());
-    }
-    let mut slots = lock_conversation_runtime_slots(state)?;
-    let slot = conversation_slot_mut(&mut slots, conversation_id);
-    slot.interrupt_cutoff_ms = Some(cutoff_ms);
-    Ok(())
-}
-
-/// 这一轮的产生时间是否已被会话截止时间判为作废。
-///
-/// 区间是闭的：与截止时间同一毫秒也算旧——截止时间取的是打断那一刻的后端时间，
-/// 同一毫秒内产生的轮次不可能晚于这次打断。
-/// `round_created_at_ms == 0` 表示事件没带时间（旧数据缺字段），不拦，绝不凭空判死。
-fn round_blocked_by_interrupt_cutoff(cutoff_ms: Option<u64>, round_created_at_ms: u64) -> bool {
-    match cutoff_ms {
-        Some(cutoff) => round_created_at_ms > 0 && round_created_at_ms <= cutoff,
-        None => false,
-    }
 }
 
 /// 收尾：只有会话仍属于这一轮令牌时，才置 Idle、清流式缓存、交还所有权。
