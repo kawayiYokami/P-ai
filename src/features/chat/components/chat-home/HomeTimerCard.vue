@@ -3,8 +3,8 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="success"
-    icon="list-todo"
-    :label="t('chat.homePanel.taskLabel')"
+    icon="clock"
+    :label="t('chat.homePanel.timerLabel')"
     interactive
     pulsing
     pulse-tone="warning"
@@ -23,10 +23,10 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import CardShell from "./CardShell.vue";
+import type { TimerEntry } from "../../utils/timer-entry";
 
 const props = withDefaults(defineProps<{
-  goal?: string;
-  nextRunAt?: string;
+  timer: TimerEntry;
   /** 由容器统一驱动的时钟，避免每张卡片各起一个定时器 */
   nowMs?: number;
   /** 占几列：宿主 ChatHomePanel 算好下发 */
@@ -34,8 +34,6 @@ const props = withDefaults(defineProps<{
   /** 占几行：宿主 ChatHomePanel 算好下发 */
   rowSpan?: number;
 }>(), {
-  goal: "",
-  nextRunAt: "",
   nowMs: 0,
   colSpan: 1,
   rowSpan: 1,
@@ -47,10 +45,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const heading = computed(() => String(props.goal || "").trim() || t("config.task.noTodo"));
+const heading = computed(() => String(props.timer.message || "").trim() || t("chat.timerSidebar.empty"));
 
 const nextRunText = computed(() => {
-  const targetMs = Date.parse(String(props.nextRunAt || "").trim());
+  const targetMs = Date.parse(String(props.timer.nextRunAt || "").trim());
   const nowMs = Number(props.nowMs || 0);
   if (!Number.isFinite(targetMs) || targetMs <= 0 || !nowMs) return "";
   const minutes = Math.max(1, Math.floor((targetMs - nowMs) / 60000));

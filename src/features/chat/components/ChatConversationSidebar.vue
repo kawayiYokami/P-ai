@@ -16,11 +16,11 @@
     >
       <Transition :name="conversationTabTransitionName" mode="out-in" @after-enter="handleConversationTabTransitionSettled">
         <div :key="activeConversationTab" class="conversation-tab-panel">
-          <ChatTaskSidebarPanel
-            v-if="activeConversationTab === 'task'"
+          <ChatTimerSidebarPanel
+            v-if="activeConversationTab === 'timer'"
             :conversation-items="items"
             :search-query="conversationSearchQuery"
-            @edit-task="requestTaskEdit"
+            @edit-timer="requestTimerEdit"
             @layout-change="scheduleConversationListScrollbarUpdate"
           />
           <template v-else-if="activeConversationTab === 'contact'">
@@ -654,7 +654,7 @@ import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { stripPreviewMarkdown, stripToolcallMarkers } from "../../../utils/chat-message-semantics";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../utils/timer-entry";
 import { invokeTauri } from "../../../services/tauri-api";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { useAppTheme } from "../../shell/composables/use-app-theme";
@@ -678,15 +678,15 @@ import {
   type ConversationSection,
   type ConversationSectionGrouping,
   type ConversationSectionOrderState,
+  type ConversationSidebarTab,
 } from "../utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import { simpleConversationItemLevel } from "../utils/conversation-item-display";
 import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
-import ChatTaskSidebarPanel from "./ChatTaskSidebarPanel.vue";
+import ChatTimerSidebarPanel from "./ChatTimerSidebarPanel.vue";
 import SegmentedControl, { type SegmentedControlOption } from "../../config/components/SegmentedControl.vue";
 import EcallDropdown from "../../shared/components/EcallDropdown.vue";
 
-type ConversationSidebarTab = "local" | "contact" | "task";
 type DisplayConversationSection = ConversationSection & {
   visibleItems: ChatConversationOverviewItem[];
   /** full 会话 id → 聚合其后的简单条目（同人格旧会话，按更新时间倒序） */
@@ -743,7 +743,7 @@ const emit = defineEmits<{
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
   (e: "update:activeTab", value: ConversationSidebarTab): void;
-  (e: "editTask", task: TaskEntry): void;
+  (e: "editTimer", timer: TimerEntry): void;
   (e: "batchArchiveCompleted", payload: { archivedConversationIds: string[]; activeConversationId?: string }): void;
   (e: "openSettings"): void;
   (e: "openConversationSearch"): void;
@@ -924,7 +924,7 @@ const conversationSectionResetTimers = new Map<ConversationSidebarTab, ReturnTyp
 const conversationTabTransitionName = ref("conversation-tab-slide-left");
 const activeConversationTab = computed({
   get: (): ConversationSidebarTab => {
-    if (props.activeTab === "contact" || props.activeTab === "task") return props.activeTab;
+    if (props.activeTab === "contact" || props.activeTab === "timer") return props.activeTab;
     return "local";
   },
   set: (value: ConversationSidebarTab) => emit("update:activeTab", value),
@@ -932,7 +932,7 @@ const activeConversationTab = computed({
 const conversationTabOptions = computed<Array<SegmentedControlOption<ConversationSidebarTab>>>(() => [
   { value: "local", label: t("chat.localConversationTab") },
   { value: "contact", label: t("chat.contactConversationTab") },
-  { value: "task", label: t("chat.taskConversationTab") },
+  { value: "timer", label: t("chat.timerConversationTab") },
 ]);
 const { conversationStatusById, markConversationRead } = usePipelineStatus({
   activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
@@ -1076,8 +1076,8 @@ const normalizedConversationSearchQuery = computed(() =>
 );
 
 const searchPlaceholder = computed(() =>
-  activeConversationTab.value === "task"
-    ? t("chat.taskSidebar.searchPlaceholder")
+  activeConversationTab.value === "timer"
+    ? t("chat.timerSidebar.searchPlaceholder")
     : t("chat.conversationSearchPlaceholder"),
 );
 
@@ -1252,7 +1252,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearConversationSectionResetTimer("local");
   clearConversationSectionResetTimer("contact");
-  clearConversationSectionResetTimer("task");
+  clearConversationSectionResetTimer("timer");
 });
 
 async function loadConversationSectionOrders() {
@@ -1493,7 +1493,7 @@ function clearConversationSectionResetTimer(tab: ConversationSidebarTab) {
 }
 
 function resetConversationSectionLoadMore(tab: ConversationSidebarTab) {
-  if (tab === "task") return;
+  if (tab === "timer") return;
   const prefix = `${tab}:`;
   conversationSectionLoadMoreCounts.value = Object.fromEntries(
     Object.entries(conversationSectionLoadMoreCounts.value)
@@ -1503,7 +1503,7 @@ function resetConversationSectionLoadMore(tab: ConversationSidebarTab) {
 }
 
 function scheduleConversationSectionReset(tab: ConversationSidebarTab) {
-  if (tab === "task") return;
+  if (tab === "timer") return;
   clearConversationSectionResetTimer(tab);
   conversationSectionResetTimers.set(tab, setTimeout(() => {
     conversationSectionResetTimers.delete(tab);
@@ -1610,13 +1610,13 @@ function collapseAllConversationSections() {
 }
 
 function conversationTabOrder(value: ConversationSidebarTab): number {
-  if (value === "task") return 2;
+  if (value === "timer") return 2;
   if (value === "contact") return 1;
   return 0;
 }
 
-function requestTaskEdit(task: TaskEntry) {
-  emit("editTask", task);
+function requestTimerEdit(timer: TimerEntry) {
+  emit("editTimer", timer);
 }
 
 function scheduleConversationListScrollbarUpdate() {

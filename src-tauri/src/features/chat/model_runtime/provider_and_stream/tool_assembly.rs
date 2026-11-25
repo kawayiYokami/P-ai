@@ -408,11 +408,9 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinTaskTool {
+        BuiltinTimerTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
-            api_config_id: String::new(),
-            executor_agent_id: preview_agent_id.clone(),
         }
         .provider_tool_definition(),
         BuiltinDeepRecallTool {
@@ -1356,11 +1354,9 @@ fn build_builtin_runtime_tool_executor(
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),
-        "task" => Box::new(BuiltinTaskTool {
+        "timer" => Box::new(BuiltinTimerTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
-            api_config_id: selected_api.id.clone(),
-            executor_agent_id: agent.id.trim().to_string(),
         }),
         "delegate" => Box::new(BuiltinDelegateTool {
             app_state: state.clone(),
@@ -2721,7 +2717,7 @@ mod tool_assembly_permission_tests {
         let agent = whitelist_agent(&[]);
         let config = AppConfig::default();
         let tools = vec![
-            CachedRuntimeToolSchema::builtin(test_definition("task")),
+            CachedRuntimeToolSchema::builtin(test_definition("timer")),
             CachedRuntimeToolSchema::builtin(test_definition("plan")),
             CachedRuntimeToolSchema::builtin(test_definition("todo")),
         ];

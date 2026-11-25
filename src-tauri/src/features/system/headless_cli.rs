@@ -469,7 +469,7 @@ mod headless_cli_tests {
                 "工具 {tool} 不应被最小档拒绝"
             );
         }
-        for tool in ["delegate", "websearch", "fetch", "operate", "windows", "remember", "task"] {
+        for tool in ["delegate", "websearch", "fetch", "operate", "windows", "remember", "timer"] {
             assert!(
                 headless_cli_tool_denied_reason_for(preset, tool).is_some(),
                 "工具 {tool} 应被最小档拒绝"

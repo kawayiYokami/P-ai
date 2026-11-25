@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { normalizeChatMonitorPanelMode, normalizeChatRightPanelMode } from "./chat-ui-layout-storage";
+import {
+  normalizeChatLeftPanelMode,
+  normalizeChatMonitorPanelMode,
+  normalizeChatRightPanelMode,
+} from "./chat-ui-layout-storage";
+
+describe("normalizeChatLeftPanelMode", () => {
+  it("keeps left panel modes and converts the retired task tab", () => {
+    expect(normalizeChatLeftPanelMode("local")).toBe("local");
+    expect(normalizeChatLeftPanelMode("contact")).toBe("contact");
+    expect(normalizeChatLeftPanelMode("timer")).toBe("timer");
+    expect(normalizeChatLeftPanelMode("task")).toBe("timer");
+    expect(normalizeChatLeftPanelMode("unknown")).toBe("local");
+  });
+});
 
 describe("normalizeChatRightPanelMode", () => {
   it("preserves top-level panel modes", () => {
@@ -16,7 +30,7 @@ describe("normalizeChatRightPanelMode", () => {
 
 describe("normalizeChatMonitorPanelMode", () => {
   it("keeps monitor tabs independent from the top-level panel", () => {
-    expect(normalizeChatMonitorPanelMode("tasks")).toBe("tasks");
+    expect(normalizeChatMonitorPanelMode("timers")).toBe("timers");
     expect(normalizeChatMonitorPanelMode("review")).toBe("tools");
   });
 

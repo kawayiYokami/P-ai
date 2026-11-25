@@ -34,10 +34,10 @@
         type="button"
         class="btn btn-sm gap-2"
         :disabled="frozen || busy"
-        @click="emit('openTaskCreate')"
+        @click="emit('openTimerCreate')"
       >
-        <AppIcon name="calendar-plus" class="h-3.5 w-3.5" />
-        {{ t("chat.newTask") }}
+        <AppIcon name="clock" class="h-3.5 w-3.5" />
+        {{ t("chat.newTimer") }}
       </button>
       <button
         type="button"
@@ -71,10 +71,10 @@
         type="button"
         class="btn btn-sm gap-2"
         :disabled="frozen || busy"
-        @click="emit('openTaskCreate')"
+        @click="emit('openTimerCreate')"
       >
-        <AppIcon name="calendar-plus" class="h-3.5 w-3.5" />
-        {{ t("chat.newTask") }}
+        <AppIcon name="clock" class="h-3.5 w-3.5" />
+        {{ t("chat.newTimer") }}
       </button>
     </div>
     <template v-else>
@@ -763,7 +763,7 @@ const emit = defineEmits<{
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "openDelegateSelection"): void;
-  (e: "openTaskCreate"): void;
+  (e: "openTimerCreate"): void;
   /** 模式面板里直接填目标内容启动，不走完整的目标弹窗 */
   (e: "startGoalTask", objective: string): void;
   (e: "stopGoalTask"): void;

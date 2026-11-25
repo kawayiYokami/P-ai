@@ -97,7 +97,6 @@ impl ConversationServiceV2 {
             },
         )?;
 
-        mark_tasks_as_session_lost(&state.data_path, normalized_conversation_id);
         if preparation.should_create_system_notification {
             let system_notification = build_system_notification_conversation_record();
             state_schedule_conversation_persist(state, &system_notification)?;

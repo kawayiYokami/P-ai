@@ -7,7 +7,7 @@
     <div
       class="todo-shell bg-base-100/70 shadow backdrop-blur-md group pointer-events-auto"
       :class="{ 'todo-shell-expanded': expanded }"
-      :aria-label="t('config.task.fields.todo')"
+      :aria-label="t('common.todo')"
       @click.stop
       @mousedown.stop
       @mouseleave="expanded = false"
@@ -40,7 +40,7 @@
         </button>
         <div class="todo-body-inner">
           <div class="flex items-center justify-between gap-3 text-xs text-base-content/60">
-            <span class="font-medium">{{ t("config.task.fields.todo") }}</span>
+            <span class="font-medium">{{ t("common.todo") }}</span>
             <span class="tabular-nums">{{ t("chat.todoProgress", { done: completedCount, total: todos.length }) }}</span>
           </div>
           <progress

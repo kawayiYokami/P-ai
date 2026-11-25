@@ -349,8 +349,8 @@
             @sync-lock-change="onMemorySyncLockChange"
           />
 
-          <TaskTab
-            v-else-if="props.configTab === 'task'"
+          <TimerTab
+            v-else-if="props.configTab === 'timer'"
             :config="config"
             :personas="personas"
             :persona-avatar-url-map="props.personaAvatarUrlMap"
@@ -482,7 +482,7 @@ import NetworkAccessTab from "./config-tabs/NetworkAccessTab.vue";
 import RemoteImTab from "./config-tabs/RemoteImTab.vue";
 import UsageTab from "./config-tabs/UsageTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
-import TaskTab from "./config-tabs/TaskTab.vue";
+import TimerTab from "./config-tabs/TimerTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import StorageTab from "./config-tabs/StorageTab.vue";
@@ -497,7 +497,7 @@ import SettingsBreadcrumb from "../components/SettingsBreadcrumb.vue";
 import type { SettingsBreadcrumbItem } from "../components/settings-breadcrumb-types";
 import { provideSettingsBreadcrumb } from "../composables/use-settings-breadcrumb";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "timer" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
 type ConfigNavItem = {
   tab: ConfigTab;
@@ -556,7 +556,7 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     defaultCollapsed: true,
     items: [
       { tab: "memory", icon: "database", labelKey: "config.tabs.memory" },
-      { tab: "task", icon: "clipboard-list", labelKey: "config.tabs.task" },
+      { tab: "timer", icon: "clock", labelKey: "config.tabs.timer" },
       { tab: "usage", icon: "scroll-text", labelKey: "config.tabs.usage" },
     ],
   },

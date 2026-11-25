@@ -1243,33 +1243,23 @@ async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Val
         .map_err(|err| format!("Serialize delegate submit result failed: {err}"))
 }
 
-fn ide_chat_task_create(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TaskCreateInput>(params)?;
-    ide_chat_serialize(task_create_task_inner(input, state)?)
+fn ide_chat_timer_list(state: &AppState) -> Result<Value, String> {
+    ide_chat_serialize(timer_list_timers_inner(state)?)
 }
 
-fn ide_chat_task_update(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TaskUpdateInput>(params)?;
-    ide_chat_serialize(task_update_task_inner(input, state)?)
+fn ide_chat_timer_create(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TimerCreateInput>(params)?;
+    ide_chat_serialize(timer_create_timer_inner(input, state)?)
 }
 
-fn ide_chat_task_delete(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TaskDeleteInput>(params)?;
-    ide_chat_serialize(task_delete_task_inner(input, state)?)
+fn ide_chat_timer_update(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TimerUpdateInput>(params)?;
+    ide_chat_serialize(timer_update_timer_inner(input, state)?)
 }
 
-fn ide_chat_task_list(state: &AppState) -> Result<Value, String> {
-    ide_chat_serialize(task_list_tasks_inner(state)?)
-}
-
-async fn ide_chat_task_optimize_draft(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TaskOptimizeDraftInput>(params)?;
-    ide_chat_serialize(task_optimize_draft_internal(input, state).await?)
-}
-
-async fn ide_chat_task_dispatch_now(state: &AppState, params: Value) -> Result<Value, String> {
-    let input = ide_chat_parse_params::<TaskDispatchNowInput>(params)?;
-    ide_chat_serialize(task_dispatch_task_now_inner(input, state).await?)
+fn ide_chat_timer_delete(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TimerDeleteInput>(params)?;
+    ide_chat_serialize(timer_delete_timer_inner(input, state)?)
 }
 
 fn ide_chat_goal_current(state: &AppState, params: Value) -> Result<Value, String> {

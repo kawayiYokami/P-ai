@@ -21,7 +21,7 @@ enum BuiltinToolRuntimeScope {
     /// 因此这一档在这里一律放行，真正的严判在 `RuntimeToolPolicy::tool_unavailable_reason`。
     LocalMainChatOnly,
     DeepRecallDelegate,
-    ResolvedTaskConversation,
+    ResolvedTimerConversation,
     BoundContactWithFileSending,
     NotRemoteGroup,
     NeverAttach,
@@ -236,10 +236,10 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
-        id: "task",
+        id: "timer",
         permission_class: BuiltinToolPermissionClass::SystemExempt,
-        runtime_scope: BuiltinToolRuntimeScope::ResolvedTaskConversation,
-        prompt_rule_id: Some("task"),
+        runtime_scope: BuiltinToolRuntimeScope::ResolvedTimerConversation,
+        prompt_rule_id: Some("timer"),
         visible_in_permission_lists: false,
     },
     BuiltinToolPolicy {
@@ -433,15 +433,15 @@ fn builtin_tool_runtime_unavailable_reason(
         BuiltinToolRuntimeScope::DeepRecallDelegate => {
             Some("深度回忆检索工具仅在深度回忆委托会话中可用".to_string())
         }
-        BuiltinToolRuntimeScope::ResolvedTaskConversation if !conversation_resolved => {
-            Some("无法确认当前会话类型，任务工具已安全跳过".to_string())
+        BuiltinToolRuntimeScope::ResolvedTimerConversation if !conversation_resolved => {
+            Some("无法确认当前会话类型，定时器工具已安全跳过".to_string())
         }
-        BuiltinToolRuntimeScope::ResolvedTaskConversation
+        BuiltinToolRuntimeScope::ResolvedTimerConversation
             if delegate_conversation && !remote_reply_delegate =>
         {
-            Some("委托会话禁止再次创建任务".to_string())
+            Some("委托会话禁止增删定时器".to_string())
         }
-        BuiltinToolRuntimeScope::ResolvedTaskConversation => None,
+        BuiltinToolRuntimeScope::ResolvedTimerConversation => None,
         BuiltinToolRuntimeScope::BoundContactWithFileSending if contact_send_files_allowed => None,
         BuiltinToolRuntimeScope::BoundContactWithFileSending => {
             Some("本轮没有可发送文件的有效联系人绑定".to_string())
@@ -526,7 +526,7 @@ mod builtin_tool_policy_tests {
 
     #[test]
     fn fixed_tools_should_not_participate_in_permission_lists() {
-        assert!(!builtin_tool_is_permission_controlled_from_policy("task"));
+        assert!(!builtin_tool_is_permission_controlled_from_policy("timer"));
         assert!(!builtin_tool_is_permission_controlled_from_policy("contact_send_files"));
         assert!(!builtin_tool_is_permission_controlled_from_policy("create_goal"));
         assert!(builtin_tool_is_permission_controlled_from_policy("delegate"));

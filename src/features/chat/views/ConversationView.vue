@@ -214,7 +214,7 @@ const messageBlocks = useChatMessageBlocks({
   currentConversationId: conversationId,
   perfDebug: false,
   perfNow: () => performance.now(),
-  taskTriggerLabels: { goal: t("config.task.fields.goal"), todo: t("config.task.fields.todo") },
+  taskTriggerLabels: { goal: t("common.goal"), todo: t("common.todo") },
 });
 const conversationItems = computed(() => conversationId.value ? [{
   conversationId: conversationId.value,

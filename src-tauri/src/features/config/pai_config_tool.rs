@@ -390,7 +390,7 @@ const LAYOUT: &[LayoutEntry] = &[
     },
     LayoutEntry {
         path: "state/state.sqlite",
-        desc: "全局状态总库：窗口布局、缓存、远程 IM 联系人等。",
+        desc: "全局状态总库：窗口布局、缓存、远程 IM 联系人、定时器（timers 表）。",
     },
     LayoutEntry {
         path: "chat/chat_metadata.sqlite",
@@ -407,10 +407,6 @@ const LAYOUT: &[LayoutEntry] = &[
     LayoutEntry {
         path: "memory/memory_store.db",
         desc: "记忆库。",
-    },
-    LayoutEntry {
-        path: "task/task_store.db",
-        desc: "定时任务库。",
     },
     LayoutEntry {
         path: "delegate/delegate_store.db",

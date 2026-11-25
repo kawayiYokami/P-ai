@@ -705,17 +705,17 @@ impl ConversationPromptService {
         prompt_rule_blocks.push(build_memory_rag_rule_block());
         let mut tool_lines = Vec::<String>::new();
         let mut deferred_tool_lines = Vec::<String>::new();
-        let mut task_lines = Vec::<String>::new();
+        let mut timer_lines = Vec::<String>::new();
         for (rule_id, text) in agent_snapshot.agent_tool_rule_blocks.iter().cloned() {
-            if rule_id == "task" {
-                // task 还要按会话运行态再筛一次，先单独收着；它可能有多条陈列。
-                task_lines.push(text);
+            if rule_id == "timer" {
+                // timer 还要按会话运行态再筛一次，先单独收着；它可能有多条陈列。
+                timer_lines.push(text);
             } else {
                 deferred_tool_lines.push(text);
             }
         }
         if builtin_tool_prompt_rule_allowed_in_runtime(
-            "task",
+            "timer",
             prompt_runtime_policy.origin_scope,
             prompt_runtime_policy.conversation_resolved,
             prompt_runtime_policy.local_conversation,
@@ -724,7 +724,7 @@ impl ConversationPromptService {
             prompt_runtime_policy.contact_send_files_allowed,
             prompt_runtime_policy.deep_recall_delegate,
         ) {
-            tool_lines.extend(task_lines);
+            tool_lines.extend(timer_lines);
         }
         if builtin_tool_prompt_rule_allowed_in_runtime(
             "deeprecall",

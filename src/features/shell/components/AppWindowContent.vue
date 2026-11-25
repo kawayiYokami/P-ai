@@ -260,8 +260,7 @@
         @close-goal-task="closeGoalTaskDialog"
         @save-goal-task="saveGoalTask"
         @stop-goal-task="stopGoalTask"
-        @task-created="setStatus(props.t('config.task.created'))"
-        @task-updated="setStatus(props.t('config.task.updated'))"
+        @timer-saved="setStatus(props.t('config.timer.saved'))"
         @refresh-tool-review-message="onRefreshToolReviewMessage"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
@@ -648,12 +647,12 @@ const props = defineProps<{
   viewMode: "chat" | "archives" | "config";
   sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
-  conversationListTab: "local" | "contact" | "task";
-  chatLeftPanelMode: "local" | "contact" | "task";
+  conversationListTab: "local" | "contact" | "timer";
+  chatLeftPanelMode: "local" | "contact" | "timer";
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
-  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "timer" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -849,7 +848,7 @@ const props = defineProps<{
   setPromptPreviewDialogRef: (el: Element | null) => void;
   promptPreviewDialogOpen: boolean;
   markPromptPreviewDialogClosed: () => void;
-  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "catalog" | "persona" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "timer" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedResponseStyleId: (value: string) => void;
@@ -906,8 +905,8 @@ const props = defineProps<{
   setToolReviewPanelOpen: (value: boolean) => void;
   openChatReaderPanel: () => Promise<void>;
   setChatSidePanelWidths: (value: { leftWidth: number; rightWidth: number }, options?: { syncWindow?: boolean; commit?: boolean }) => void;
-  updateConversationListTab: (value: "local" | "contact" | "task") => void;
-  updateChatLeftPanelMode: (value: "local" | "contact" | "task") => void;
+  updateConversationListTab: (value: "local" | "contact" | "timer") => void;
+  updateChatLeftPanelMode: (value: "local" | "contact" | "timer") => void;
   updateChatRightPanelMode: (value: ChatRightPanelMode) => void;
   updateChatMonitorPanelMode: (value: ChatMonitorPanelMode) => void;
   removeClipboardImage: (index: number) => void;

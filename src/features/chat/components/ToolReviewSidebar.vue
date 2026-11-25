@@ -94,39 +94,24 @@
         </CollapsibleGroup>
       </template>
 
-      <template v-else-if="activeTab === 'tasks'">
-        <div v-if="taskErrorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-          {{ taskErrorText }}
+      <template v-else-if="activeTab === 'timers'">
+        <div v-if="timerErrorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+          {{ timerErrorText }}
         </div>
-        <div v-else-if="taskLoading && taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8">
+        <div v-else-if="timerLoading && sortedTimers.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8">
           <AppLoading size="sm" class="text-base-content/45" />
         </div>
-        <div v-else-if="taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
-          {{ t("chat.toolReview.taskEmpty") }}
+        <div v-else-if="sortedTimers.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
+          {{ t("chat.toolReview.timerEmpty") }}
         </div>
-        <CollapsibleGroup
-          v-for="section in taskSections"
-          :key="section.key"
-          :title="section.title"
-          :count="section.items.length"
-          :model-value="isTaskSectionCollapsed(section.key)"
-          @update:model-value="toggleTaskSection(section.key)"
-          @collapse-all="collapseAllTaskSections"
-        >
-          <div v-if="!isTaskSectionCollapsed(section.key)">
-            <TaskListItem
-              v-for="task in section.items"
-              :key="task.taskId"
-              :label="taskListTitle(task)"
-              :description="taskListTodo(task)"
-              :title="taskListTitle(task)"
-              :time-date-label="taskListTime(task).dateLabel"
-              :time-minute-label="taskListTime(task).timeLabel"
-              :disabled="!canEditTaskInSidebar"
-              @click="openTaskEditor(task)"
-            />
-          </div>
-        </CollapsibleGroup>
+        <div v-else>
+          <TimerListItem
+            v-for="timer in sortedTimers"
+            :key="timer.id"
+            :timer="timer"
+            @click="openTimerEditor(timer)"
+          />
+        </div>
       </template>
 
       <FastRequestTurnsPanel
@@ -188,14 +173,14 @@
     </form>
   </dialog>
 
-  <TaskCreateCard
-    :open="taskEditorOpen"
+  <TimerCreateCard
+    :open="timerEditorOpen"
     mode="edit"
-    :conversation-id="activeConversationId"
-    :task="taskEditorTask"
-    @close="closeTaskEditor"
-    @created="handleTaskMutated"
-    @updated="handleTaskMutated"
+    :timer="timerEditorTimer"
+    @close="closeTimerEditor"
+    @saved="handleTimerSaved"
+    @enabled-change="handleTimerEnabledChange"
+    @deleted="handleTimerDeleted"
   />
 
 </template>
@@ -219,14 +204,14 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
 import { resolveShikiLanguage, extensionFromPath } from "../../file-reader/utils";
-import TaskListItem from "./TaskListItem.vue";
-import TaskCreateCard from "./dialogs/TaskCreateCard.vue";
+import TimerListItem from "./TimerListItem.vue";
+import TimerCreateCard from "./dialogs/TimerCreateCard.vue";
 import FastRequestTurnsPanel from "./FastRequestTurnsPanel.vue";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../utils/timer-entry";
 
 initKatex();
 
-type ToolReviewSidebarTab = "tools" | "delegates" | "tasks" | "fastRequests";
+type ToolReviewSidebarTab = "tools" | "delegates" | "timers" | "fastRequests";
 
 const props = defineProps<{
   activeTab: ToolReviewSidebarTab;
@@ -257,7 +242,7 @@ const emit = defineEmits<{
   (e: "openDelegateDetail", status: ConversationDelegateStatusSummary): void;
   (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
-  (e: "taskMutated", task: TaskEntry): void;
+  (e: "timerSaved"): void;
 }>();
 
 const { t, locale } = useI18n();
@@ -292,30 +277,16 @@ const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
 const delegateResultConversationId = ref("");
 const delegateResultTimelineKey = ref("");
 const delegateResultStatusSnapshot = ref<import("../../../types/app").ConversationDelegateStatusSummary | null>(null);
-const collapsedTaskSectionKeys = ref<Record<string, boolean>>({
-  active: false,
-  completed: true,
-  failed_completed: true,
-});
-const taskEntries = ref<TaskEntry[]>([]);
-const taskLoading = ref(false);
-const taskErrorText = ref("");
-const taskEditorOpen = ref(false);
-const taskEditorTask = ref<TaskEntry | null>(null);
+const timerEntries = ref<TimerEntry[]>([]);
+const timerLoading = ref(false);
+const timerErrorText = ref("");
+const timerEditorOpen = ref(false);
+const timerEditorTimer = ref<TimerEntry | null>(null);
 
 type DelegateStatusSection = {
   key: string;
   title: string;
   items: ConversationDelegateStatusSummary[];
-};
-
-type TaskSectionKey = "active" | "completed" | "failed_completed";
-
-type TaskSection = {
-  key: TaskSectionKey;
-  title: string;
-  items: TaskEntry[];
-  order: number;
 };
 
 const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
@@ -331,31 +302,15 @@ const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
   return sections.filter((section) => section.items.length > 0);
 });
 
-const canEditTaskInSidebar = computed(() => true);
-
-const currentConversationTasks = computed(() => {
-  const conversationId = String(props.activeConversationId || "").trim();
-  if (!conversationId) return [];
-  return taskEntries.value.filter((task) => String(task.conversationId || "").trim() === conversationId);
-});
-const taskSections = computed<TaskSection[]>(() => {
-  const sections: TaskSection[] = [
-    { key: "active", title: t("config.task.filters.active"), items: [], order: 0 },
-    { key: "completed", title: t("config.task.completionStates.completed"), items: [], order: 1 },
-    { key: "failed_completed", title: t("config.task.completionStates.failedCompleted"), items: [], order: 2 },
-  ];
-  for (const task of currentConversationTasks.value) {
-    const section = sections.find((item) => item.key === normalizeTaskSectionKey(task.completionState));
-    section?.items.push(task);
-  }
-  return sections
-    .map((section) => ({
-      ...section,
-      items: section.items.slice().sort(compareTaskForSidebar),
-    }))
-    .filter((section) => section.items.length > 0)
-    .sort((left, right) => left.order - right.order);
-});
+/** 监控面板按「下一次触发」排序，离得近的排前面 */
+const sortedTimers = computed(() => timerEntries.value.slice().sort((left, right) => {
+  const leftTime = Date.parse(String(left.nextRunAt || "").trim());
+  const rightTime = Date.parse(String(right.nextRunAt || "").trim());
+  const leftValue = Number.isFinite(leftTime) ? leftTime : Number.POSITIVE_INFINITY;
+  const rightValue = Number.isFinite(rightTime) ? rightTime : Number.POSITIVE_INFINITY;
+  if (leftValue !== rightValue) return leftValue - rightValue;
+  return String(left.createdAt || "").localeCompare(String(right.createdAt || ""));
+}));
 function delegateStatusSectionIndex(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
   if (status === "failed") return 3;
@@ -430,50 +385,6 @@ function collapseAllDelegateSections() {
     next[section.key] = true;
     return next;
   }, { ...collapsedDelegateSectionKeys.value } as Record<string, boolean>);
-}
-
-function normalizeTaskSectionKey(value: string): TaskSectionKey {
-  return value === "completed" || value === "failed_completed" ? value : "active";
-}
-
-function isTaskSectionCollapsed(key: TaskSectionKey) {
-  return !!collapsedTaskSectionKeys.value[key];
-}
-
-function toggleTaskSection(key: TaskSectionKey) {
-  collapsedTaskSectionKeys.value = {
-    ...collapsedTaskSectionKeys.value,
-    [key]: !collapsedTaskSectionKeys.value[key],
-  };
-}
-
-function collapseAllTaskSections() {
-  collapsedTaskSectionKeys.value = taskSections.value.reduce((next, section) => {
-    next[section.key] = true;
-    return next;
-  }, { ...collapsedTaskSectionKeys.value } as Record<string, boolean>);
-}
-
-function taskListTitle(task: TaskEntry) {
-  return String(task.goal || "").trim() || t("config.task.noTodo");
-}
-
-function taskListTodo(task: TaskEntry) {
-  return String(task.todo || "").trim() || t("config.task.noTodo");
-}
-
-function taskListTime(task: TaskEntry) {
-  const raw = String(task.completedAtLocal || task.updatedAtLocal || "").trim();
-  return raw ? formatConversationListTimeWithMinuteDetails(raw, locale.value) : { dateLabel: "", timeLabel: "" };
-}
-
-function compareTaskForSidebar(left: TaskEntry, right: TaskEntry) {
-  const leftRaw = String(left.completedAtLocal || left.updatedAtLocal || "").trim();
-  const rightRaw = String(right.completedAtLocal || right.updatedAtLocal || "").trim();
-  const leftTime = leftRaw ? new Date(leftRaw).getTime() : Number.POSITIVE_INFINITY;
-  const rightTime = rightRaw ? new Date(rightRaw).getTime() : Number.POSITIVE_INFINITY;
-  if (leftTime !== rightTime) return leftTime - rightTime;
-  return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
 }
 
 function delegateTimeLabel(delegate: ConversationDelegateStatusSummary) {
@@ -713,46 +624,55 @@ function workspaceDisplayName(workspace: ShellWorkspace, root: string, index: nu
   return inferWorkspaceName(level, root, index) || defaultWorkspaceNameFromPath(root) || root;
 }
 
-async function requestTaskList() {
-  return invokeTauri<TaskEntry[]>("task.list", {});
-}
-
-async function loadConversationTasks() {
-  taskLoading.value = true;
-  taskErrorText.value = "";
+async function loadTimers() {
+  timerLoading.value = true;
+  timerErrorText.value = "";
   try {
-    taskEntries.value = await requestTaskList();
+    timerEntries.value = await invokeTauri<TimerEntry[]>("timer.list", {});
   } catch (error) {
-    taskErrorText.value = `${t("config.task.listLoadFailed")}: ${toErrorMessage(error)}`;
+    timerErrorText.value = `${t("config.timer.listLoadFailed")}: ${toErrorMessage(error)}`;
   } finally {
-    taskLoading.value = false;
+    timerLoading.value = false;
   }
 }
 
-function openTaskEditor(task: TaskEntry) {
-  if (!canEditTaskInSidebar.value) return;
-  if (!String(task.taskId || "").trim()) return;
-  taskEditorTask.value = task;
-  taskEditorOpen.value = true;
+function openTimerEditor(timer: TimerEntry) {
+  if (!String(timer.id || "").trim()) return;
+  timerEditorTimer.value = timer;
+  timerEditorOpen.value = true;
 }
 
-function closeTaskEditor() {
-  taskEditorOpen.value = false;
-  taskEditorTask.value = null;
+function closeTimerEditor() {
+  timerEditorOpen.value = false;
+  timerEditorTimer.value = null;
 }
 
-type TaskChangedMonitorPayload = { domain?: string };
+type TimerChangedMonitorPayload = { domain?: string };
 
-function handleTaskRefreshEvent(payload: TaskChangedMonitorPayload | null | undefined) {
-  if (String(payload?.domain || "").trim() !== "task") return;
-  void loadConversationTasks();
+function handleTimerRefreshEvent(payload: TimerChangedMonitorPayload | null | undefined) {
+  if (String(payload?.domain || "").trim() !== "timer") return;
+  void loadTimers();
 }
 
-function handleTaskMutated(task: TaskEntry) {
-  taskEditorOpen.value = false;
-  taskEditorTask.value = task;
-  emit("taskMutated", task);
-  void loadConversationTasks();
+function handleTimerSaved() {
+  timerEditorOpen.value = false;
+  timerEditorTimer.value = null;
+  emit("timerSaved");
+  void loadTimers();
+}
+
+/** 只拨了启用开关：刷新这一条，弹窗继续开着 */
+function handleTimerEnabledChange(updated: TimerEntry) {
+  timerEditorTimer.value = updated;
+  emit("timerSaved");
+  void loadTimers();
+}
+
+function handleTimerDeleted() {
+  timerEditorOpen.value = false;
+  timerEditorTimer.value = null;
+  emit("timerSaved");
+  void loadTimers();
 }
 
 function isDelegateRunning(delegate: ConversationDelegateStatusSummary) {
@@ -766,32 +686,32 @@ function canShowDelegateResult(delegate: ConversationDelegateStatusSummary) {
   return !!conversationId;
 }
 
-let unlistenTaskChanged: (() => void) | null = null;
-let unlistenTaskRecovered: (() => void) | null = null;
+let unlistenTimerChanged: (() => void) | null = null;
+let unlistenTimerRecovered: (() => void) | null = null;
 
 onMounted(() => {
-  unlistenTaskChanged = onTransportNotification("monitor.changed", handleTaskRefreshEvent);
-  unlistenTaskRecovered = onTransportRecovered(() => {
-    void loadConversationTasks();
+  unlistenTimerChanged = onTransportNotification("monitor.changed", handleTimerRefreshEvent);
+  unlistenTimerRecovered = onTransportRecovered(() => {
+    void loadTimers();
   });
 });
 
-// 任务列表懒加载：切到 tasks 标签才拉取，避免监控面板挂载时白读全局任务
+// 定时器列表懒加载：切到 timers 标签才拉取，避免监控面板挂载时白读全局定时器
 watch(
   () => props.activeTab,
   (tab) => {
-    if (tab === "tasks") {
-      void loadConversationTasks();
+    if (tab === "timers") {
+      void loadTimers();
     }
   },
   { immediate: true },
 );
 
 onBeforeUnmount(() => {
-  unlistenTaskChanged?.();
-  unlistenTaskChanged = null;
-  unlistenTaskRecovered?.();
-  unlistenTaskRecovered = null;
+  unlistenTimerChanged?.();
+  unlistenTimerChanged = null;
+  unlistenTimerRecovered?.();
+  unlistenTimerRecovered = null;
 });
 </script>
 

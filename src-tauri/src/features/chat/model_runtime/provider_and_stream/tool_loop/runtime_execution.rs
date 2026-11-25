@@ -233,7 +233,7 @@ fn runtime_tool_call_requires_serial_execution(
             | "update"
             | "move"
             | "todo"
-            | "task"
+            | "timer"
             | "progress"
             | "question"
             | "remember"

@@ -1,31 +1,3 @@
-fn mark_tasks_as_session_lost(data_path: &PathBuf, conversation_id: &str) {
-    let Ok(tasks) = task_store_list_task_records(data_path) else {
-        runtime_log_error("[系统] 查询任务列表失败".to_string());
-        return;
-    };
-    for task in &tasks {
-        if task.completion_state != TASK_STATE_ACTIVE {
-            continue;
-        }
-        if task.conversation_id.as_deref() != Some(conversation_id) {
-            continue;
-        }
-        if let Err(err) = task_store_complete_task(
-            data_path,
-            &TaskCompleteInput {
-                task_id: task.task_id.clone(),
-                completion_state: TASK_STATE_FAILED_COMPLETED.to_string(),
-                completion_conclusion: "会话丢失".to_string(),
-            },
-        ) {
-            runtime_log_error(format!(
-                "[系统] 标记任务失败 任务={} 错误={}",
-                task.task_id, err
-            ));
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 struct PreparedArchiveMemoryDraft {
     input: Option<MemoryDraftInput>,

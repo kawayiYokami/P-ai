@@ -444,9 +444,9 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
-            id: "task".to_string(),
+            id: "timer".to_string(),
             command: "builtin".to_string(),
-            args: vec!["task".to_string()],
+            args: vec!["timer".to_string()],
             enabled: true,
             values: serde_json::json!({}),
         },

@@ -107,7 +107,7 @@ include!("features/mcp.rs");
 include!("features/skill.rs");
 include!("features/catalog.rs");
 include!("features/goal.rs");
-include!("features/task.rs");
+include!("features/timer.rs");
 include!("features/question.rs");
 include!("features/delegate.rs");
 include!("features/kanban.rs");
@@ -558,10 +558,8 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             }
         }
     });
-    log_step("初始化任务存储");
-    if let Err(err) = task_store_open(&app_state.data_path) {
-        runtime_log_error(format!("[系统] 启动延迟 初始化任务存储失败: {err}"));
-    }
+    // 定时器与全局状态同库（`state/state.sqlite` 的 `timers` 表），建表由 `state_db_open`
+    // 幂等保证，启动期这里不再单独初始化一个存储入口。
     log_step("初始化委托存储");
     if let Err(err) = delegate_store_open(&app_state.data_path) {
         runtime_log_error(format!("[系统] 启动延迟 初始化委托存储失败：{err}"));
@@ -598,7 +596,7 @@ async fn start_background_services_after_frontend_ready(
     app_handle: AppHandle,
     startup_state: AppState,
 ) {
-    start_task_scheduler(startup_state.clone());
+    start_timer_scheduler(startup_state.clone());
     tauri::async_runtime::spawn({
         let probe_state = startup_state.clone();
         async move {
@@ -1702,15 +1700,10 @@ fn main() {
             upsert_ide_context_snapshot,
             query_ide_context_references,
             get_web_access_info,
-            task_list_tasks,
-            task_get_task,
-            task_optimize_draft,
-            task_create_task,
-            task_dispatch_task_now,
-            task_update_task,
-            task_complete_task,
-            task_delete_task,
-            task_list_run_logs,
+            timer_list_timers,
+            timer_create_timer,
+            timer_update_timer,
+            timer_delete_timer,
             kanban::kanban_get_board,
             kanban::kanban_approve_issue,
             question_list,

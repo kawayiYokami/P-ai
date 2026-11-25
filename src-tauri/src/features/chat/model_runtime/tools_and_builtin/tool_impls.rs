@@ -1044,11 +1044,9 @@ struct BuiltinPlanTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinTaskTool {
+struct BuiltinTimerTool {
     app_state: AppState,
     session_id: String,
-    api_config_id: String,
-    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1370,30 +1368,23 @@ impl RuntimeValueTool for BuiltinPlanTool {
     }
 }
 
-impl RuntimeToolMetadata for BuiltinTaskTool {
+impl RuntimeToolMetadata for BuiltinTimerTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
-            "task",
-            "创建和管理会在未来按时间或周期自动触发委托的持久化定时任务。任务到点后会启动委托，委托完成后结果回到来源会话。调度时间、重复频率和结束时间写入 trigger；goal/why/todo 只描述触发后这一次要完成什么。",
+            "timer",
+            "创建和管理轻量定时器：到点把一句话递回某个会话（直接激活该会话跑一轮），或者在那个会话名下起一场委托。不指定会话就是全局定时器，只能在系统通知会话里起委托。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "action": { "type": "string", "enum": ["list", "get", "create", "complete"], "description": "要执行的动作。" },
-                "task_id": { "type": "string", "description": "任务 ID。get、complete 时必填。" },
-                "goal": { "type": "string", "description": "任务到点后交给委托完成的单次目标，也是列表标题；只写要做什么，调度信息写入 trigger。" },
-                "why": { "type": "string", "description": "为什么要做这件事，用来避免后续推进走偏；只写背景和原因，调度信息写入 trigger。" },
-                "todo": { "type": "string", "description": "委托启动时要关注的下一步、范围边界或交付要求；只写本次触发后的执行动作，调度信息写入 trigger。" },
-                "completion_state": { "type": "string", "enum": ["completed", "failed_completed"], "description": "complete 时必填。completed 表示完成，failed_completed 表示结束但失败。" },
-                "completion_conclusion": { "type": "string", "description": "complete 时填写最终结果、失败原因或阻塞点。" },
-                "trigger": {
-                  "type": "object",
-                  "description": "任务触发时间设置。时间、重复频率、定期/周期性语义统一写在这里。",
-                  "properties": {
-                    "run_at": { "type": "string", "description": "必填。首次触发时间。RFC3339，保留时区和秒，例如 2026-05-07T20:00:00+08:00。" },
-                    "cron_expression": { "type": "string", "description": "可选。标准 Linux/Unix 5 段 cron。留空表示只触发一次，例如 * * * * * 表示每分钟一次。" },
-                    "end_at": { "type": "string", "description": "可选。停止时间。RFC3339，保留时区和秒，例如 2026-05-08T08:00:00+08:00；必须晚于 run_at。" }
-                  }
-                }
+                "action": { "type": "string", "enum": ["list", "create", "update", "delete"], "description": "要执行的动作。" },
+                "timer_id": { "type": "string", "description": "定时器 ID。update、delete 时必填。" },
+                "message": { "type": "string", "description": "到点时要递进去的那一句话。create 时必填。" },
+                "conversation_id": { "type": "string", "description": "目标会话。省略时用当前会话；传空串表示全局定时器。" },
+                "dispatch_mode": { "type": "string", "enum": ["direct", "delegate"], "description": "direct＝直接激活目标会话；delegate＝在那个会话名下起一场委托。全局定时器只允许 delegate。" },
+                "enabled": { "type": "boolean", "description": "update 时用：暂停或恢复这个定时器。" },
+                "run_at": { "type": "string", "description": "起始时间。RFC3339，保留时区和秒，例如 2026-05-07T20:00:00+08:00；省略表示立刻排一次。" },
+                "cron": { "type": "string", "description": "可选。标准 Linux/Unix 5 段 cron；留空表示只触发一次，例如 * * * * * 表示每分钟一次。" },
+                "end_at": { "type": "string", "description": "可选。截止时间。RFC3339，保留时区和秒；过了它就不再调度。" }
               },
               "required": ["action"]
             }),
@@ -1834,31 +1825,29 @@ impl RuntimeValueTool for BuiltinTeamReportTool {
     }
 }
 
-impl RuntimeValueTool for BuiltinTaskTool {
-    const NAME: &'static str = "task";
-    type Args = TaskToolArgsWire;
+impl RuntimeValueTool for BuiltinTimerTool {
+    const NAME: &'static str = "timer";
+    type Args = TimerToolArgs;
     type Error = ToolInvokeError;
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         Box::pin(async move {
         runtime_log_debug(format!(
-            "[工具] 内置工具执行开始 工具=task 参数={}",
+            "[工具] 内置工具执行开始 工具=timer 参数={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         ));
-        let result = builtin_task(
+        let result = builtin_timer(
             &self.app_state,
             &self.session_id,
-            &self.api_config_id,
-            &self.executor_agent_id,
             args,
         )
             .await
             .map_err(ToolInvokeError::from);
         match &result {
             Ok(v) => runtime_log_debug(format!(
-                "[工具] 内置工具执行完成 工具=task 结果={}",
+                "[工具] 内置工具执行完成 工具=timer 结果={}",
                 debug_value_snippet(v, 240)
             )),
-            Err(err) => runtime_log_error(format!("[工具] 内置工具 task 执行失败 错误={err}")),
+            Err(err) => runtime_log_error(format!("[工具] 内置工具 timer 执行失败 错误={err}")),
         }
         result
         })

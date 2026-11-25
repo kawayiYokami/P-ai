@@ -1,6 +1,6 @@
-export type ChatLeftPanelMode = "local" | "contact" | "task";
+export type ChatLeftPanelMode = "local" | "contact" | "timer";
 export type ChatRightPanelMode = "home" | "reader" | "monitor" | "sideChat" | "teamMember" | "kanban";
-export type ChatMonitorPanelMode = "delegate" | "tasks" | "tools" | "fastRequests";
+export type ChatMonitorPanelMode = "delegate" | "timers" | "tools" | "fastRequests";
 export type ChatSidePanelSide = "left" | "right";
 export type ChatSidePanelWidths = { leftWidth: number; rightWidth: number };
 
@@ -30,18 +30,20 @@ const LEGACY_CHAT_SIDE_PANEL_WIDTH_STORAGE_KEYS = {
 } as const;
 
 export function normalizeChatLeftPanelMode(value: string): ChatLeftPanelMode {
-  if (value === "contact" || value === "task") return value;
+  // 旧「任务」页签在 Timer 换代后沿用同一位置，历史存储值一并接过来
+  if (value === "task") return "timer";
+  if (value === "contact" || value === "timer") return value;
   return "local";
 }
 
 export function normalizeChatRightPanelMode(value: string, fallback: ChatRightPanelMode = "home"): ChatRightPanelMode {
   if (value === "home" || value === "reader" || value === "monitor" || value === "sideChat" || value === "teamMember" || value === "kanban") return value;
-  if (value === "delegate" || value === "tools" || value === "fastRequests" || value === "tasks" || value === "review") return "monitor";
+  if (value === "delegate" || value === "tools" || value === "fastRequests" || value === "timers" || value === "review") return "monitor";
   return fallback;
 }
 
 export function normalizeChatMonitorPanelMode(value: string, fallback: ChatMonitorPanelMode = "delegate"): ChatMonitorPanelMode {
-  if (value === "delegate" || value === "tasks" || value === "tools" || value === "fastRequests") return value;
+  if (value === "delegate" || value === "timers" || value === "tools" || value === "fastRequests") return value;
   // 概览已迁移到右侧主页，旧存储的 overview 与更早的 backgroundShells 一并回落到委托
   if (value === "overview" || value === "backgroundShells") return "delegate";
   if (value === "review") return "tools";

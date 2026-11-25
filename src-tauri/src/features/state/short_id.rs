@@ -16,6 +16,8 @@ const SHORT_ID_DOMAIN_MCP: &str = "mcp";
 const SHORT_ID_DOMAIN_API_CONFIG: &str = "api_config";
 /// 远程联系人渠道域。
 const SHORT_ID_DOMAIN_REMOTE_IM_CHANNEL: &str = "remote_im_channel";
+/// 定时器域：给「几号定时器」一个可读、可复述的号。
+const SHORT_ID_DOMAIN_TIMER: &str = "timer";
 
 /// 原子取号：返回本次分配到的短 ID。
 ///

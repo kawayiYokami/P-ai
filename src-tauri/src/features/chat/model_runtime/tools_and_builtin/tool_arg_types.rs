@@ -299,38 +299,24 @@ fn debug_exec_result_summary(value: &Value) -> String {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct TaskToolArgsWire {
+struct TimerToolArgs {
     action: String,
     #[serde(default)]
-    task_id: Option<String>,
+    timer_id: Option<String>,
     #[serde(default)]
-    goal: Option<String>,
+    message: Option<String>,
     #[serde(default)]
-    todo: Option<String>,
+    conversation_id: Option<String>,
     #[serde(default)]
-    how: Option<String>,
+    dispatch_mode: Option<TimerDispatchMode>,
     #[serde(default)]
-    why: Option<String>,
+    enabled: Option<bool>,
     #[serde(default)]
-    title: Option<String>,
+    run_at: Option<String>,
     #[serde(default)]
-    cause: Option<String>,
+    cron: Option<String>,
     #[serde(default)]
-    flow: Option<String>,
-    #[serde(default)]
-    todos: Option<Vec<String>>,
-    #[serde(default)]
-    status_summary: Option<String>,
-    #[serde(default)]
-    stage_key: Option<String>,
-    #[serde(default)]
-    append_note: Option<String>,
-    #[serde(default)]
-    completion_state: Option<String>,
-    #[serde(default)]
-    completion_conclusion: Option<String>,
-    #[serde(default)]
-    trigger: Option<TaskTriggerInputLocal>,
+    end_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -116,7 +116,7 @@ fn check_tools_status_inner(
                 "wait 工具已删除；请改用 operate 脚本中的 wait 动作。".to_string(),
             ),
             "plan" => ("loaded".to_string(), "计划协议工具可用".to_string()),
-            "task" => ("loaded".to_string(), "任务工具可用".to_string()),
+            "timer" => ("loaded".to_string(), "定时器工具可用".to_string()),
             "todo" => ("loaded".to_string(), "会话内 Todo 步骤追踪工具可用".to_string()),
             "delegate" => ("loaded".to_string(), "委托工具可用".to_string()),
             "meme" => (

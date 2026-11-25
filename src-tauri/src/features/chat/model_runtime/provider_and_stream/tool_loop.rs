@@ -2671,7 +2671,7 @@ mod tool_loop_tests {
             test_tool("update", false),
             test_tool("move", false),
             test_tool("todo", false),
-            test_tool("task", false),
+            test_tool("timer", false),
             test_tool("progress", false),
             test_tool("remember", false),
             test_tool("plan", false),
@@ -2694,7 +2694,7 @@ mod tool_loop_tests {
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "update"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "move"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "todo"));
-        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "task"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "timer"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "progress"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "remember"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "plan"));
@@ -2799,32 +2799,6 @@ mod tool_loop_tests {
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "workspace_edit"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "repo_lookup"));
         assert!(!runtime_tool_call_requires_serial_execution(&tools, &definitions, "profile_lookup"));
-    }
-
-    #[test]
-    fn task_complete_should_remain_tool_result_instead_of_ending_the_round() {
-        let tool_result = provider_tool_result_from_value("task", serde_json::json!({
-                "taskId": "task-1",
-                "completionState": "completed",
-                "completionConclusion": "任务完成结论"
-            }));
-
-        let deferred = deferred_tool_loop_outcome_from_result(
-            "task",
-            r#"{"action":"complete","task_id":"task-1","completion_state":"completed","completion_conclusion":"任务完成结论"}"#,
-            &tool_result,
-        );
-        let projection = project_provider_tool_result(None, "task", &tool_result);
-
-        assert!(deferred.is_none());
-        assert!(projection.text.contains("任务完成结论"));
-        assert!(matches!(
-            &projection.metadata.control,
-            ProviderToolControl::Task {
-                completion_state: Some(state),
-                completion_conclusion: Some(conclusion),
-            } if state == "completed" && conclusion == "任务完成结论"
-        ));
     }
 
     #[test]

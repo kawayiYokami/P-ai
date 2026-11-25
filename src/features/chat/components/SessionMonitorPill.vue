@@ -42,7 +42,7 @@ import { SESSION_GHOST_PILL } from "./session-float-styles";
 
 const props = defineProps<{
   delegates: ConversationDelegateStatusSummary[];
-  runningTaskCount?: number;
+  runningTimerCount?: number;
   runningShellCount?: number;
 }>();
 
@@ -60,21 +60,21 @@ const delegateRunningCount = computed(() => runningDelegates.value.length);
 const elapsedMs = computed(() => sumBy(displayedDelegates.value, (delegate) => delegate.elapsedMs));
 const requestCount = computed(() => sumBy(displayedDelegates.value, (delegate) => delegate.requestCount));
 const elapsedText = computed(() => formatElapsedMs(elapsedMs.value));
-const taskActiveCount = computed(() => Math.max(0, Number(props.runningTaskCount ?? 0)));
+const timerActiveCount = computed(() => Math.max(0, Number(props.runningTimerCount ?? 0)));
 const shellActiveCount = computed(() => Math.max(0, Number(props.runningShellCount ?? 0)));
-const hasMonitor = computed(() => delegateRunningCount.value > 0 || taskActiveCount.value > 0 || shellActiveCount.value > 0);
-const activeKindCount = computed(() => [delegateRunningCount.value > 0, taskActiveCount.value > 0, shellActiveCount.value > 0].filter(Boolean).length);
+const hasMonitor = computed(() => delegateRunningCount.value > 0 || timerActiveCount.value > 0 || shellActiveCount.value > 0);
+const activeKindCount = computed(() => [delegateRunningCount.value > 0, timerActiveCount.value > 0, shellActiveCount.value > 0].filter(Boolean).length);
 const monitorSummaryText = computed(() => {
   const parts: string[] = [];
   if (delegateRunningCount.value > 0) parts.push(t("chat.monitorBar.delegateCount", { count: delegateRunningCount.value }));
-  if (taskActiveCount.value > 0) parts.push(t("chat.monitorBar.taskCount", { count: taskActiveCount.value }));
+  if (timerActiveCount.value > 0) parts.push(t("chat.monitorBar.timerCount", { count: timerActiveCount.value }));
   if (shellActiveCount.value > 0) parts.push(t("chat.monitorBar.shellCount", { count: shellActiveCount.value }));
   return parts.join("、");
 });
 // 单一类型在跑时出「计数 + 细节」，两种以上只出摘要
 const monitorPrimaryText = computed(() => {
   if (delegateRunningCount.value > 0) return t("chat.monitorBar.delegateCount", { count: delegateCount.value });
-  if (taskActiveCount.value > 0) return t("chat.monitorBar.taskCount", { count: taskActiveCount.value });
+  if (timerActiveCount.value > 0) return t("chat.monitorBar.timerCount", { count: timerActiveCount.value });
   return t("chat.monitorBar.shellCount", { count: shellActiveCount.value });
 });
 const delegateTitle = computed(() => t("chat.monitorBar.viewRunningTitle", { summary: monitorSummaryText.value }));

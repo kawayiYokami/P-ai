@@ -19,13 +19,13 @@
           </li>
         </ul>
       </li>
-      <li v-if="runningTasks.length > 0">
-        <a>{{ t("chat.toolReview.overviewTasks") }} {{ runningTasks.length }}</a>
+      <li v-if="runningTimers.length > 0">
+        <a>{{ t("chat.toolReview.overviewTimers") }} {{ runningTimers.length }}</a>
         <ul>
-          <li v-for="task in runningTasks" :key="task.taskId">
-            <a class="flex flex-col items-start gap-0.5" :title="taskTitle(task)" @click="emit('switchPanelTab', 'tasks')">
-              <span class="block min-w-0 truncate">{{ taskTitle(task) }}</span>
-              <span v-if="taskNextRunText(task)" class="text-xs text-base-content/65">{{ taskNextRunText(task) }}</span>
+          <li v-for="timer in runningTimers" :key="timer.id">
+            <a class="flex flex-col items-start gap-0.5" :title="timerTitle(timer)" @click="emit('switchPanelTab', 'timers')">
+              <span class="block min-w-0 truncate">{{ timerTitle(timer) }}</span>
+              <span v-if="timerNextRunText(timer)" class="text-xs text-base-content/65">{{ timerNextRunText(timer) }}</span>
             </a>
           </li>
         </ul>
@@ -62,13 +62,13 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary } from "../../../types/app";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import { formatTimerTime, type TimerEntry } from "../utils/timer-entry";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
 import DelegateProgressLine from "./DelegateProgressLine.vue";
 
 const props = defineProps<{
   delegateStatuses: ConversationDelegateStatusSummary[];
-  runningTasks: TaskEntry[];
+  runningTimers: TimerEntry[];
   backgroundShells: BackgroundShellTaskSummary[];
   latestBatches: ToolReviewBatchSummary[];
 }>();
@@ -93,7 +93,7 @@ const runningBackgroundShells = computed(() =>
 const hasAnyWork = computed(
   () =>
     runningDelegates.value.length > 0 ||
-    props.runningTasks.length > 0 ||
+    props.runningTimers.length > 0 ||
     props.latestBatches.length > 0 ||
     runningBackgroundShells.value.length > 0,
 );
@@ -109,15 +109,11 @@ function batchDiffText(batch: ToolReviewBatchSummary) {
   return parts.join(" · ");
 }
 
-// 后台终端与任务倒计时不逐秒推送，用组件内时钟驱动显示；无倒计面条目时不空转
+// 后台终端时长不逐秒推送，用组件内时钟驱动显示；无倒计面条目时不空转
 const countdownClockNowMs = ref(Date.now());
 let countdownClockTimer: ReturnType<typeof window.setInterval> | null = null;
 
-const hasCountdownWork = computed(
-  () =>
-    runningBackgroundShells.value.length > 0 ||
-    props.runningTasks.some((task) => taskNextRunText(task) !== ""),
-);
+const hasCountdownWork = computed(() => runningBackgroundShells.value.length > 0);
 
 watch(
   hasCountdownWork,
@@ -147,14 +143,8 @@ function shellElapsedText(startedAt: string) {
   return formatDurationMs(countdownClockNowMs.value - startedMs);
 }
 
-function taskNextRunText(task: TaskEntry) {
-  const targetMs = Date.parse(String(task.trigger?.next_run_at || "").trim());
-  if (!Number.isFinite(targetMs) || targetMs <= 0) return "";
-  const minutes = Math.max(1, Math.floor((targetMs - countdownClockNowMs.value) / 60000));
-  if (minutes < 60) return t("chat.toolReview.overviewNextRunMinutes", { n: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("chat.toolReview.overviewNextRunHours", { n: hours });
-  return t("chat.toolReview.overviewNextRunDays", { n: Math.floor(hours / 24) });
+function timerNextRunText(timer: TimerEntry) {
+  return formatTimerTime(timer.nextRunAt);
 }
 
 function formatDurationMs(value: number) {
@@ -168,7 +158,7 @@ function formatDurationMs(value: number) {
   return `${seconds}秒`;
 }
 
-function taskTitle(task: TaskEntry) {
-  return String(task.goal || "").trim() || t("config.task.noTodo");
+function timerTitle(timer: TimerEntry) {
+  return String(timer.message || "").trim() || t("config.timer.untitled");
 }
 </script>

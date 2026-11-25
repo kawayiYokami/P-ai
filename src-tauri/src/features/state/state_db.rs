@@ -137,7 +137,27 @@ fn state_db_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
          CREATE TABLE IF NOT EXISTS global_short_id_sequences (
            domain TEXT PRIMARY KEY,
            next_val INTEGER NOT NULL DEFAULT 0
-         );",
+         );
+
+         CREATE TABLE IF NOT EXISTS timers (
+           timer_id TEXT PRIMARY KEY,
+           conversation_id TEXT,
+           message TEXT NOT NULL,
+           dispatch_mode TEXT NOT NULL,
+           enabled INTEGER NOT NULL DEFAULT 1,
+           run_at_utc TEXT NOT NULL,
+           cron_expression TEXT,
+           end_at_utc TEXT,
+           next_run_at_utc TEXT,
+           last_triggered_at_utc TEXT,
+           created_at_utc TEXT NOT NULL
+         );
+
+         CREATE INDEX IF NOT EXISTS idx_timers_active_next_run
+         ON timers(enabled, next_run_at_utc);
+
+         CREATE INDEX IF NOT EXISTS idx_timers_conversation
+         ON timers(conversation_id);",
     )
     .map_err(|err| format!("初始化 state 数据库表结构失败，error={err}"))?;
     Ok(conn)

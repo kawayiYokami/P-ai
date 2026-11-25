@@ -6,7 +6,7 @@ const MONITOR_CHANGED_NOTIFICATION_METHOD: &str = "monitor.changed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MonitorDomain {
-    Task,
+    Timer,
     BackgroundShell,
     Delegate,
 }
@@ -14,7 +14,7 @@ enum MonitorDomain {
 impl MonitorDomain {
     fn as_str(self) -> &'static str {
         match self {
-            MonitorDomain::Task => "task",
+            MonitorDomain::Timer => "timer",
             MonitorDomain::BackgroundShell => "backgroundShell",
             MonitorDomain::Delegate => "delegate",
         }
@@ -98,7 +98,7 @@ mod monitor_events_tests {
 
     #[test]
     fn monitor_domain_labels_are_stable() {
-        assert_eq!(MonitorDomain::Task.as_str(), "task");
+        assert_eq!(MonitorDomain::Timer.as_str(), "timer");
         assert_eq!(MonitorDomain::BackgroundShell.as_str(), "backgroundShell");
         assert_eq!(MonitorDomain::Delegate.as_str(), "delegate");
     }

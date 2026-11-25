@@ -554,6 +554,11 @@ fn run_app_data_migrations_with_state(
                 DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE,
                 migrate_v8_to_v9(&context),
             ),
+            9 => (
+                "v9_to_v10",
+                DATA_MIGRATION_VERSION_V10_TASK_TO_TIMER,
+                migrate_v9_to_v10(&context),
+            ),
             // 不在表里的版本＝数据异常，直接退出，不做任何猜测。
             _ => break,
         };
@@ -1342,6 +1347,276 @@ fn migrate_v2_to_v5_inner(context: &DataMigrationContext<'_>) -> Result<bool, St
     Ok(changed)
 }
 
+// ==================== 任务迁移：旧任务账本 → 轻量定时器 ====================
+// V10：旧 Jira 式任务（`app_root/task/task_store.db` 的 `task_record`）整体退场，
+// 会话定时改由 `state/state.sqlite` 的 `timers` 表承载。
+//
+// 铁律：
+//   - 旧库不存在、打不开、没有 `task_record` 表，都只当「没有要搬的东西」，版本照常推进；
+//   - 单行缺 id 或缺正文只记一条 warn 跳过，不连累同行批次；
+//   - 旧文件留在原地：不删、不改名、不备份，版本推进后永不回头检测；
+//   - 本模块不引用任何业务结构体（`TimerRecord` 一类），只走 raw SQLite 与自带的纯字符串视图，
+//     免得业务模型演进把一条历史迁移一起拖坏；
+//   - 写 timers 用 `ON CONFLICT(timer_id) DO NOTHING` 保幂等，绝不覆盖已有行。
+
+/// 一行旧任务映射出的定时器字段：纯字符串，不引用任何业务结构体。
+struct MigrationV10TimerRow {
+    timer_id: String,
+    conversation_id: Option<String>,
+    message: String,
+    dispatch_mode: &'static str,
+    enabled: bool,
+    run_at_utc: String,
+    cron_expression: Option<String>,
+    end_at_utc: Option<String>,
+    last_triggered_at_utc: Option<String>,
+    created_at_utc: String,
+    /// 旧任务是「已启用但时间早已过去」的单次任务：搬过来时停用，不进到点集合。
+    disabled_as_stale: bool,
+}
+
+/// 旧任务的时间是否已经落在过去。时间解析不出来一律按「不过期」处理：
+/// 迁移不允许因为一行时间格式有毛病就丢掉它或擅自停用。
+fn migration_v10_time_is_past(value: &str, now_utc_text: &str) -> bool {
+    match (parse_rfc3339_time(value), parse_rfc3339_time(now_utc_text)) {
+        (Some(value), Some(now)) => value <= now,
+        _ => false,
+    }
+}
+
+/// 迁移入口：迁移不允许失败——任何数据问题都只记日志并当作「这一步没改动」，
+/// 版本照常推进，绝不让用户每次启动都撞同一堵墙。
+fn migrate_v9_to_v10(context: &DataMigrationContext<'_>) -> bool {
+    match migrate_v9_to_v10_for_data_path(&context.state.data_path) {
+        Ok(changed) => changed,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[存储] 应用数据迁移 跳过 任务=v10旧任务转定时器 原因=这一步无法完成 错误={err}"
+            ));
+            false
+        }
+    }
+}
+
+/// 按列名取文本值：列不存在、为 NULL、类型不是文本都返回空串。
+///
+/// 旧 `task_record` 的列随版本增删，不能按列序写死读取，也不能对缺列直接 panic。
+fn migration_v10_cell_text(
+    row: &rusqlite::Row<'_>,
+    column_indexes: &std::collections::HashMap<String, usize>,
+    column: &str,
+) -> String {
+    let Some(index) = column_indexes.get(column).copied() else {
+        return String::new();
+    };
+    match row.get_ref(index) {
+        Ok(rusqlite::types::ValueRef::Text(bytes)) => {
+            String::from_utf8_lossy(bytes).trim().to_string()
+        }
+        Ok(rusqlite::types::ValueRef::Integer(value)) => value.to_string(),
+        Ok(rusqlite::types::ValueRef::Real(value)) => value.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// 一行旧任务 → 一行定时器；搬不动就记 warn 返回 `None`。
+///
+/// 映射口径：正文取 `goal`，缺失回退 `title`；没有会话（或会话就是系统通知会话）＝
+/// 全局定时器，只能走委托；有会话＝直接激活该会话。旧的 `active` 才算启用，
+/// 但「已启用且时间早已过去」的一次性任务搬过来时停用——升级第一拍不该把陈年任务全翻出来。
+fn migration_v10_map_row(
+    row: &rusqlite::Row<'_>,
+    column_indexes: &std::collections::HashMap<String, usize>,
+    now_utc_text: &str,
+) -> Option<MigrationV10TimerRow> {
+    let timer_id = migration_v10_cell_text(row, column_indexes, "task_id");
+    if timer_id.is_empty() {
+        runtime_log_warn(
+            "[存储] 应用数据迁移 跳过 任务=v10旧任务转定时器，旧行缺 task_id".to_string(),
+        );
+        return None;
+    }
+    let raw_message = migration_v10_cell_text(row, column_indexes, "goal");
+    let message = if raw_message.is_empty() {
+        migration_v10_cell_text(row, column_indexes, "title")
+    } else {
+        raw_message
+    };
+    if message.is_empty() {
+        runtime_log_warn(format!(
+            "[存储] 应用数据迁移 跳过 任务=v10旧任务转定时器，旧任务既无 goal 也无 title，taskId={timer_id}"
+        ));
+        return None;
+    }
+    let raw_conversation_id = migration_v10_cell_text(row, column_indexes, "conversation_id");
+    // 空串与系统通知会话都表示「没有具体会话」：这类定时器只能在系统通知会话里起委托。
+    let conversation_id = if raw_conversation_id.is_empty()
+        || raw_conversation_id == SYSTEM_NOTIFICATION_CONVERSATION_ID
+    {
+        None
+    } else {
+        Some(raw_conversation_id)
+    };
+    let created_at_utc = {
+        let stored = migration_v10_cell_text(row, column_indexes, "created_at_utc");
+        if stored.is_empty() {
+            now_utc_rfc3339()
+        } else {
+            stored
+        }
+    };
+    let run_at_utc = {
+        let stored = migration_v10_cell_text(row, column_indexes, "run_at_utc");
+        if !stored.is_empty() {
+            stored
+        } else {
+            // 旧任务允许无起始时间（手动触发的账本行）：定时器必须有起点，退到创建时间，
+            // 否则这一行搬过去也永远算不出下次到点。
+            created_at_utc.clone()
+        }
+    };
+    // 迁移来的行都不算下次到点：`next_run_at_utc` 一律写 NULL，
+    // 交给调度器发现它为空时补算并落库（补算按「从现在往后」，不会把历史行一起判到点）。
+    let empty_to_none = |value: String| if value.is_empty() { None } else { Some(value) };
+    let cron_expression = empty_to_none(migration_v10_cell_text(
+        row,
+        column_indexes,
+        "cron_expression",
+    ));
+    let completed_active =
+        migration_v10_cell_text(row, column_indexes, "completion_state") == "active";
+    // 无 cron 的过期单次任务：启用它等于升级后立刻补发一条早该过去的事，直接停用。
+    let stale_single_shot = completed_active
+        && cron_expression.is_none()
+        && migration_v10_time_is_past(&run_at_utc, now_utc_text);
+    Some(MigrationV10TimerRow {
+        timer_id,
+        dispatch_mode: if conversation_id.is_some() {
+            "direct"
+        } else {
+            "delegate"
+        },
+        conversation_id,
+        message,
+        enabled: completed_active && !stale_single_shot,
+        run_at_utc,
+        cron_expression,
+        end_at_utc: empty_to_none(migration_v10_cell_text(row, column_indexes, "end_at_utc")),
+        last_triggered_at_utc: empty_to_none(migration_v10_cell_text(
+            row,
+            column_indexes,
+            "last_triggered_at_utc",
+        )),
+        created_at_utc,
+        disabled_as_stale: stale_single_shot,
+    })
+}
+
+fn migrate_v9_to_v10_for_data_path(data_path: &PathBuf) -> Result<bool, String> {
+    let legacy_path = app_root_from_data_path(data_path)
+        .join("task")
+        .join("task_store.db");
+    if !legacy_path.exists() {
+        // 从来没有旧任务库：没有要搬的东西，这一步直接算完成。
+        return Ok(false);
+    }
+    let legacy = rusqlite::Connection::open_with_flags(
+        &legacy_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|err| format!("打开旧任务库失败（{}）：{err}", legacy_path.display()))?;
+    // 表都没有：旧库是空壳（只建过连接没写过行），同样没有要搬的东西。
+    let has_table = legacy
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_record'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .is_ok();
+    if !has_table {
+        return Ok(false);
+    }
+    let rows = {
+        let mut statement = legacy
+            .prepare("SELECT * FROM task_record")
+            .map_err(|err| format!("准备旧任务查询失败：{err}"))?;
+        let column_indexes = statement
+            .column_names()
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| (name.to_string(), index))
+            .collect::<std::collections::HashMap<String, usize>>();
+        let mut cursor = statement
+            .query([])
+            .map_err(|err| format!("查询旧任务失败：{err}"))?;
+        let mut collected = Vec::new();
+        let now_utc_text = now_utc_rfc3339();
+        while let Some(row) = cursor
+            .next()
+            .map_err(|err| format!("读取旧任务行失败：{err}"))?
+        {
+            if let Some(mapped) = migration_v10_map_row(row, &column_indexes, &now_utc_text) {
+                collected.push(mapped);
+            }
+        }
+        collected
+    };
+    if rows.is_empty() {
+        return Ok(false);
+    }
+    let conn = state_db_open(data_path)?;
+    let mut written = 0usize;
+    let mut skipped = 0usize;
+    let mut disabled_stale = 0usize;
+    for row in &rows {
+        if row.disabled_as_stale {
+            disabled_stale += 1;
+            runtime_log_info(format!(
+                "[存储] 应用数据迁移 停用 任务=v10旧任务转定时器，历史过期单次任务 timerId={} 起始时间={}",
+                row.timer_id, row.run_at_utc
+            ));
+        }
+        let result = conn.execute(
+            "INSERT INTO timers(timer_id, conversation_id, message, dispatch_mode, enabled,
+                                run_at_utc, cron_expression, end_at_utc, next_run_at_utc,
+                                last_triggered_at_utc, created_at_utc)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10)
+             ON CONFLICT(timer_id) DO NOTHING",
+            rusqlite::params![
+                row.timer_id,
+                row.conversation_id,
+                row.message,
+                row.dispatch_mode,
+                if row.enabled { 1 } else { 0 },
+                row.run_at_utc,
+                row.cron_expression,
+                row.end_at_utc,
+                row.last_triggered_at_utc,
+                row.created_at_utc,
+            ],
+        );
+        match result {
+            Ok(affected) => written += affected,
+            Err(err) => {
+                // 单行写不进去（脏值、约束冲突）只跳过它，不让整步迁移失败。
+                runtime_log_warn(format!(
+                    "[存储] 应用数据迁移 跳过 任务=v10旧任务转定时器，写入定时器失败 taskId={} 错误={err}",
+                    row.timer_id
+                ));
+                skipped += 1;
+            }
+        }
+    }
+    runtime_log_info(format!(
+        "[存储] 应用数据迁移 任务转定时器完成 任务=v10旧任务转定时器 旧任务数={} 写入定时器={} 停用过期单次={} 跳过={}",
+        rows.len(),
+        written,
+        disabled_stale,
+        skipped
+    ));
+    Ok(written > 0)
+}
+
 #[cfg(test)]
 mod agent_org_migration_tests {
     use super::*;
@@ -1742,5 +2017,392 @@ mod agent_org_migration_tests {
 
         assert!(!carry_legacy_expert_model_key(&path, "model-x").expect("幂等搬迁"));
         let _ = fs::remove_file(&path);
+    }
+}
+
+// ==================== V10：旧任务 → 定时器 ====================
+#[cfg(test)]
+mod task_to_timer_migration_tests {
+    use super::*;
+
+    /// 沙盒数据根：`data_path` 的父目录名必须是 config，`app_root_from_data_path`
+    /// 才会抬到沙盒根，旧任务库与 state 库都落在同一棵临时目录下。
+    fn sandbox_data_path(tag: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!(
+            "pai-task-to-timer-{tag}-{}-{unique}",
+            std::process::id()
+        ));
+        let config_dir = root.join("config");
+        fs::create_dir_all(&config_dir).expect("创建沙盒 config 目录");
+        config_dir.join("app_config.toml")
+    }
+
+    fn sandbox_root(data_path: &PathBuf) -> PathBuf {
+        app_root_from_data_path(data_path)
+    }
+
+    /// 建一个旧任务库；`table_sql` 允许各用例声明不同列集合（验证缺列容错）。
+    fn create_legacy_task_db(data_path: &PathBuf, table_sql: &str) -> rusqlite::Connection {
+        let legacy_dir = sandbox_root(data_path).join("task");
+        fs::create_dir_all(&legacy_dir).expect("创建旧任务目录");
+        let conn = rusqlite::Connection::open(legacy_dir.join("task_store.db"))
+            .expect("打开旧任务库");
+        conn.execute_batch(table_sql).expect("建旧任务表");
+        conn
+    }
+
+    const LEGACY_TABLE_SQL: &str = "CREATE TABLE task_record (
+        task_id TEXT PRIMARY KEY,
+        conversation_id TEXT,
+        agent_id TEXT,
+        target_scope TEXT NOT NULL DEFAULT 'desktop',
+        order_index INTEGER NOT NULL DEFAULT 0,
+        title TEXT NOT NULL,
+        cause TEXT NOT NULL DEFAULT '',
+        goal TEXT NOT NULL DEFAULT '',
+        flow TEXT NOT NULL DEFAULT '',
+        todos_json TEXT NOT NULL DEFAULT '[]',
+        status_summary TEXT NOT NULL DEFAULT '',
+        completion_state TEXT NOT NULL,
+        completion_conclusion TEXT NOT NULL DEFAULT '',
+        progress_notes_json TEXT NOT NULL DEFAULT '[]',
+        stage_key TEXT NOT NULL DEFAULT '',
+        stage_updated_at_utc TEXT,
+        trigger_kind TEXT NOT NULL DEFAULT 'cron',
+        run_at_utc TEXT,
+        cron_expression TEXT,
+        every_minutes INTEGER,
+        end_at_utc TEXT,
+        created_at_utc TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL,
+        last_triggered_at_utc TEXT,
+        completed_at_utc TEXT
+    );";
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_legacy_task(
+        conn: &rusqlite::Connection,
+        task_id: &str,
+        conversation_id: Option<&str>,
+        title: &str,
+        goal: &str,
+        completion_state: &str,
+        run_at_utc: Option<&str>,
+        cron_expression: Option<&str>,
+        created_at_utc: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO task_record(task_id, conversation_id, title, goal, completion_state,
+                                     run_at_utc, cron_expression, created_at_utc, updated_at_utc)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            rusqlite::params![
+                task_id,
+                conversation_id,
+                title,
+                goal,
+                completion_state,
+                run_at_utc,
+                cron_expression,
+                created_at_utc,
+            ],
+        )
+        .expect("写入旧任务行");
+    }
+
+    fn timer_rows(data_path: &PathBuf) -> Vec<(String, Option<String>, String, String, i64, String, Option<String>)> {
+        let conn = state_db_open(data_path).expect("打开 state 库");
+        let mut statement = conn
+            .prepare(
+                "SELECT timer_id, conversation_id, message, dispatch_mode, enabled, run_at_utc,
+                        cron_expression
+                   FROM timers ORDER BY timer_id ASC",
+            )
+            .expect("准备定时器查询");
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })
+            .expect("查询定时器")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("解析定时器行");
+        rows
+    }
+
+    #[test]
+    fn v10_should_map_legacy_task_fields_without_schema_dependency() {
+        // 时间一律取远未来：「过期单次任务停用」那条规则单独有用例，这里只验字段映射。
+        let data_path = sandbox_data_path("map");
+        let legacy = create_legacy_task_db(&data_path, LEGACY_TABLE_SQL);
+        // 有会话 → 直接激活该会话；正文取 goal。
+        insert_legacy_task(
+            &legacy,
+            "task-a",
+            Some("conversation-1"),
+            "标题A",
+            "写周报",
+            "active",
+            Some("2036-03-01T01:00:00+00:00"),
+            Some("0 9 * * *"),
+            "2026-02-28T00:00:00+00:00",
+        );
+        // 全局（没有会话）→ 只能委托；没有 run_at 退到创建时间。
+        insert_legacy_task(
+            &legacy,
+            "task-b",
+            None,
+            "标题B",
+            "全局巡检",
+            "active",
+            None,
+            None,
+            "2036-03-02T00:00:00+00:00",
+        );
+        // 系统通知会话等同全局；没有 goal 才回退 title；已完成即停用。
+        insert_legacy_task(
+            &legacy,
+            "task-c",
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID),
+            "只靠标题",
+            "",
+            "completed",
+            Some("2036-03-03T00:00:00+00:00"),
+            None,
+            "2036-03-02T00:00:00+00:00",
+        );
+        // 坏行一：正文全空。
+        insert_legacy_task(
+            &legacy,
+            "task-d",
+            Some("conversation-1"),
+            "",
+            "",
+            "active",
+            Some("2026-03-04T00:00:00+00:00"),
+            None,
+            "2036-03-02T00:00:00+00:00",
+        );
+        // 坏行二：没有 id。
+        insert_legacy_task(
+            &legacy,
+            "",
+            Some("conversation-1"),
+            "标题E",
+            "无 id 的行",
+            "active",
+            Some("2026-03-05T00:00:00+00:00"),
+            None,
+            "2036-03-02T00:00:00+00:00",
+        );
+        drop(legacy);
+
+        assert!(migrate_v9_to_v10_for_data_path(&data_path).expect("迁移应成功"));
+
+        let rows = timer_rows(&data_path);
+        assert_eq!(rows.len(), 3, "坏行应被跳过，只搬三行");
+        assert_eq!(
+            rows[0],
+            (
+                "task-a".to_string(),
+                Some("conversation-1".to_string()),
+                "写周报".to_string(),
+                "direct".to_string(),
+                1,
+                "2036-03-01T01:00:00+00:00".to_string(),
+                Some("0 9 * * *".to_string()),
+            )
+        );
+        assert_eq!(
+            rows[1],
+            (
+                "task-b".to_string(),
+                None,
+                "全局巡检".to_string(),
+                "delegate".to_string(),
+                1,
+                "2036-03-02T00:00:00+00:00".to_string(),
+                None,
+            ),
+            "没有会话的旧任务必须变成委托型全局定时器，且 run_at 退到创建时间"
+        );
+        assert_eq!(
+            rows[2],
+            (
+                "task-c".to_string(),
+                None,
+                "只靠标题".to_string(),
+                "delegate".to_string(),
+                0,
+                "2036-03-03T00:00:00+00:00".to_string(),
+                None,
+            )
+        );
+        // 迁移不写 next_run_at：交给调度器补算。
+        let conn = state_db_open(&data_path).expect("打开 state 库");
+        let missing_next_run: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM timers WHERE next_run_at_utc IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("统计 next_run 为空的行");
+        assert_eq!(missing_next_run, 3);
+        drop(conn);
+
+        let _ = fs::remove_dir_all(sandbox_root(&data_path));
+    }
+
+    #[test]
+    fn v10_should_not_replay_expired_single_shot_tasks() {
+        // 升级第一拍不许把历史任务全翻出来：无 cron 的过期单次任务搬过来即停用，
+        // 带 cron 的过期行保留启用（补算下一次时会以当前时刻为基准取未来周期）。
+        let data_path = sandbox_data_path("stale");
+        let legacy = create_legacy_task_db(&data_path, LEGACY_TABLE_SQL);
+        insert_legacy_task(
+            &legacy,
+            "task-expired-once",
+            Some("conversation-1"),
+            "过期单次",
+            "早就该过去的提醒",
+            "active",
+            Some("2026-03-01T01:00:00+00:00"),
+            None,
+            "2026-02-28T00:00:00+00:00",
+        );
+        insert_legacy_task(
+            &legacy,
+            "task-expired-cron",
+            Some("conversation-1"),
+            "过期循环",
+            "每天巡检",
+            "active",
+            Some("2026-03-01T01:00:00+00:00"),
+            Some("0 9 * * *"),
+            "2026-02-28T00:00:00+00:00",
+        );
+        insert_legacy_task(
+            &legacy,
+            "task-future-once",
+            Some("conversation-1"),
+            "未来单次",
+            "明天提醒我",
+            "active",
+            Some("2036-03-01T01:00:00+00:00"),
+            None,
+            "2026-02-28T00:00:00+00:00",
+        );
+        drop(legacy);
+
+        assert!(migrate_v9_to_v10_for_data_path(&data_path).expect("迁移应成功"));
+
+        let rows = timer_rows(&data_path);
+        let by_id = |id: &str| {
+            rows.iter()
+                .find(|row| row.0 == id)
+                .unwrap_or_else(|| panic!("缺少定时器 {id}"))
+        };
+        assert_eq!(by_id("task-expired-once").4, 0, "过期单次任务必须停用");
+        assert_eq!(by_id("task-expired-cron").4, 1, "过期 cron 任务保留启用");
+        assert_eq!(by_id("task-future-once").4, 1, "未来单次任务照常启用");
+        // 三条都不写 next_run_at：交给调度器按「从现在往后」补算。
+        let conn = state_db_open(&data_path).expect("打开 state 库");
+        let missing_next_run: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM timers WHERE next_run_at_utc IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("统计 next_run 为空的行");
+        assert_eq!(missing_next_run, 3);
+        drop(conn);
+
+        let _ = fs::remove_dir_all(sandbox_root(&data_path));
+    }
+
+    #[test]
+    fn v10_should_tolerate_missing_legacy_columns() {
+        // 老版本旧库没有 cron_expression / last_triggered_at_utc 等列：按列名读不到就取默认值，
+        // 不能因为缺列把整步迁移赔进去。
+        let data_path = sandbox_data_path("narrow");
+        let legacy = create_legacy_task_db(
+            &data_path,
+            "CREATE TABLE task_record (
+                task_id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                goal TEXT NOT NULL,
+                completion_state TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL
+            );",
+        );
+        legacy
+            .execute(
+                "INSERT INTO task_record(task_id, conversation_id, goal, completion_state, created_at_utc)
+                 VALUES('task-narrow', NULL, '缺列也要能搬', 'active', '2026-03-06T00:00:00+00:00')",
+                [],
+            )
+            .expect("写入窄表旧任务");
+        drop(legacy);
+
+        assert!(migrate_v9_to_v10_for_data_path(&data_path).expect("迁移应成功"));
+        let rows = timer_rows(&data_path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "task-narrow");
+        assert_eq!(rows[0].2, "缺列也要能搬");
+        assert_eq!(rows[0].3, "delegate");
+        assert_eq!(rows[0].5, "2026-03-06T00:00:00+00:00");
+        assert_eq!(rows[0].6, None, "缺列的 cron 必须落到 NULL");
+
+        let _ = fs::remove_dir_all(sandbox_root(&data_path));
+    }
+
+    #[test]
+    fn v10_should_skip_when_legacy_db_absent_and_be_idempotent() {
+        // 从没有旧任务库：没有要搬的东西，版本照常推进。
+        let data_path = sandbox_data_path("absent");
+        assert!(!migrate_v9_to_v10_for_data_path(&data_path).expect("无旧库应直接完成"));
+        assert!(timer_rows(&data_path).is_empty());
+
+        // 有旧库：第一次搬完，第二次一行都不该再写（不覆盖已有定时器）。
+        let legacy = create_legacy_task_db(&data_path, LEGACY_TABLE_SQL);
+        insert_legacy_task(
+            &legacy,
+            "task-keep",
+            Some("conversation-1"),
+            "标题",
+            "原始正文",
+            "active",
+            Some("2026-03-07T00:00:00+00:00"),
+            None,
+            "2026-03-06T00:00:00+00:00",
+        );
+        drop(legacy);
+        assert!(migrate_v9_to_v10_for_data_path(&data_path).expect("首次迁移"));
+
+        // 手动改掉正文，模拟用户在迁移之后编辑过这条定时器。
+        let conn = state_db_open(&data_path).expect("打开 state 库");
+        conn.execute(
+            "UPDATE timers SET message='迁移后改过的正文' WHERE timer_id='task-keep'",
+            [],
+        )
+        .expect("改写正文");
+        drop(conn);
+
+        assert!(!migrate_v9_to_v10_for_data_path(&data_path).expect("重跑不应有改动"));
+        let rows = timer_rows(&data_path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].2, "迁移后改过的正文", "重跑绝不能覆盖已有定时器");
+
+        let _ = fs::remove_dir_all(sandbox_root(&data_path));
     }
 }

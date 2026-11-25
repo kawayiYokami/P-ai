@@ -108,13 +108,12 @@
           :starter-name="starterName(latestFinishedDelegate.sourceAgentId)"
           @open="emit('openMonitorTab', 'delegate')"
         />
-        <HomeTaskCard
-          v-for="task in runningTasks"
-          :key="`task-${task.taskId}`"
-          :goal="task.goal"
-          :next-run-at="task.trigger?.next_run_at"
+        <HomeTimerCard
+          v-for="timer in runningTimers"
+          :key="`timer-${timer.id}`"
+          :timer="timer"
           :now-ms="nowMs"
-          @open="emit('openMonitorTab', 'tasks')"
+          @open="emit('openMonitorTab', 'timers')"
         />
         <HomeFileCard
           v-for="file in openFiles"
@@ -157,7 +156,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary, ShellWorkMode } from "../../../types/app";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../utils/timer-entry";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode } from "../composables/chat-ui-layout-storage";
 import { KANBAN_STAGE_ORDER, kanbanIssuesByStatus, type KanbanIssue } from "../composables/use-kanban-board";
@@ -172,7 +171,7 @@ import HomeTeamMemberBlock from "./chat-home/HomeTeamMemberBlock.vue";
 import HomeToolCard from "./chat-home/HomeToolCard.vue";
 import HomeShellCard from "./chat-home/HomeShellCard.vue";
 import HomeDelegateCard from "./chat-home/HomeDelegateCard.vue";
-import HomeTaskCard from "./chat-home/HomeTaskCard.vue";
+import HomeTimerCard from "./chat-home/HomeTimerCard.vue";
 import HomePlanCard, { type LatestPlanSummary } from "./chat-home/HomePlanCard.vue";
 
 const props = withDefaults(defineProps<{
@@ -213,7 +212,7 @@ const props = withDefaults(defineProps<{
   personaNameMap?: Record<string, string>;
   personaAvatarUrlMap?: Record<string, string>;
   delegates?: ConversationDelegateStatusSummary[];
-  runningTasks?: TaskEntry[];
+  runningTimers?: TimerEntry[];
   shells?: BackgroundShellTaskSummary[];
   /** 工具评审批次；只传有工具调用的批次（由 ChatHomePanel 过滤） */
   toolBatches?: ToolReviewBatchSummary[];
@@ -244,7 +243,7 @@ const props = withDefaults(defineProps<{
   personaNameMap: () => ({}),
   personaAvatarUrlMap: () => ({}),
   delegates: () => [],
-  runningTasks: () => [],
+  runningTimers: () => [],
   shells: () => [],
   toolBatches: () => [],
   kanbanVisible: false,
@@ -362,7 +361,7 @@ const hasAnyCard = computed(
     || props.openFiles.length > 0
     || runningShells.value.length > 0
     || runningDelegates.value.length > 0
-    || props.runningTasks.length > 0
+    || props.runningTimers.length > 0
     || activeToolBatches.value.length > 0,
 );
 
@@ -371,7 +370,7 @@ const nowMs = ref(Date.now());
 let clockTimer: ReturnType<typeof window.setInterval> | null = null;
 
 const needsClock = computed(
-  () => runningShells.value.length > 0 || props.runningTasks.some((task) => Boolean(String(task.trigger?.next_run_at || "").trim())),
+  () => runningShells.value.length > 0 || props.runningTimers.some((timer) => Boolean(String(timer.nextRunAt || "").trim())),
 );
 
 watch(

@@ -644,7 +644,6 @@ async fn run_archive_pipeline_inner(
         archive_reason
     ));
     clear_screenshot_artifact_cache();
-    mark_tasks_as_session_lost(&state.data_path, &source.id);
     let active_conversation_id = prepared_active_conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())

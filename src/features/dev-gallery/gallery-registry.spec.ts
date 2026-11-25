@@ -48,6 +48,9 @@ const BASELINE_KEYS = [
   "file-reader-preview",
   "file-reader-wrap",
   "image-preview-dialog",
+  "cron-picker",
+  "timer-create-card",
+  "timer-list-item",
 ];
 
 /**

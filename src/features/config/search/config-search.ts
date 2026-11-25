@@ -13,7 +13,7 @@ export type ConfigSearchTab =
   | "remoteIm"
   | "usage"
   | "memory"
-  | "task"
+  | "timer"
   | "logs"
   | "appearance"
   | "migration"
@@ -51,7 +51,7 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "remoteIm", titleKey: "config.tabs.remoteIm", titleFallback: "Contacts", prefixes: ["config.remoteIm"] },
   { tab: "usage", titleKey: "config.tabs.usage", titleFallback: "Usage", prefixes: ["usage", "token", "config.usage"] },
   { tab: "memory", titleKey: "config.tabs.memory", titleFallback: "Memory", prefixes: ["config.memory", "memory"] },
-  { tab: "task", titleKey: "config.tabs.task", titleFallback: "Task", prefixes: ["config.task"] },
+  { tab: "timer", titleKey: "config.tabs.timer", titleFallback: "Timer", prefixes: ["config.timer"] },
   { tab: "logs", titleKey: "config.tabs.logs", titleFallback: "Logs", prefixes: ["config.logs"] },
   { tab: "appearance", titleKey: "config.tabs.appearance", titleFallback: "Appearance", prefixes: ["appearance"] },
   { tab: "migration", titleKey: "config.tabs.migration", titleFallback: "Storage", prefixes: ["config.storage", "config.migration"] },

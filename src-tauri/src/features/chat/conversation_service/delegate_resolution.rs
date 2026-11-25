@@ -91,7 +91,7 @@ impl ConversationServiceV2 {
         let normalized_root_conversation_id = root_conversation_id.trim();
         let mut conversation_to_persist = None::<Conversation>;
         let target_conversation_id =
-            if task_conversation_id_is_system_notification(normalized_root_conversation_id) {
+            if timer_conversation_id_is_system_notification(normalized_root_conversation_id) {
                 if let Some(conversation_meta) = self
                     .get_conversation_meta(state, SYSTEM_NOTIFICATION_CONVERSATION_ID)
                     .ok()

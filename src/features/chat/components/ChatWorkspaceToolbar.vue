@@ -31,10 +31,10 @@
           class="dropdown-content menu z-50 w-72 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 text-sm shadow-xl"
           :class="menuPlacement === 'top' ? 'mb-3' : 'mt-3'"
         >
-          <li v-if="showTaskCreateMenuItem">
-            <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openTaskCreate')">
-              <AppIcon name="list-todo" class="h-4 w-4 shrink-0" />
-              <span class="leading-5">{{ t("chat.newTask") }}</span>
+          <li v-if="showTimerCreateMenuItem">
+            <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openTimerCreate')">
+              <AppIcon name="clock" class="h-4 w-4 shrink-0" />
+              <span class="leading-5">{{ t("chat.newTimer") }}</span>
             </button>
           </li>
           <li v-if="showShareMenuItem">
@@ -215,7 +215,7 @@
       <div class="ml-auto flex min-w-0 items-center">
         <SessionMonitorPill
           :delegates="delegateStatuses || []"
-          :running-task-count="runningTaskCount"
+          :running-timer-count="runningTimerCount"
           :running-shell-count="runningShellCount"
           @open-run-summary="emit('openRunSummary')"
         />
@@ -268,7 +268,7 @@ const props = withDefaults(defineProps<{
   workspaceWorkMode?: ShellWorkMode;
   hideMenuButton?: boolean;
   hideWorkspaceButton?: boolean;
-  showTaskCreateMenuItem?: boolean;
+  showTimerCreateMenuItem?: boolean;
   showDelegateMenuItem?: boolean;
   showBranchMenuItem?: boolean;
   showForwardMenuItem?: boolean;
@@ -278,13 +278,13 @@ const props = withDefaults(defineProps<{
   openInBrowserDisabled?: boolean;
   sideChatEnabled?: boolean;
   delegateStatuses?: ConversationDelegateStatusSummary[];
-  runningTaskCount?: number;
+  runningTimerCount?: number;
   runningShellCount?: number;
   mentionEntries?: ChatMentionEntry[];
   selectedMentions?: ChatMentionTarget[];
   showTimelineSlot?: boolean;
 }>(), {
-  showTaskCreateMenuItem: true,
+  showTimerCreateMenuItem: true,
   showDelegateMenuItem: true,
   showBranchMenuItem: true,
   showForwardMenuItem: true,
@@ -296,7 +296,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: "lockWorkspace"): void;
   (e: "openBranchSelection"): void;
-  (e: "openTaskCreate"): void;
+  (e: "openTimerCreate"): void;
   (e: "openDelegateSelection"): void;
   (e: "openRunSummary"): void;
   (e: "openForwardSelection"): void;
@@ -339,7 +339,7 @@ const {
   fileReaderLineWrapEnabled,
   setFileReaderLineWrapEnabled,
 } = useFileReaderAppearance();
-const showTaskCreateMenuItem = computed(() => props.showTaskCreateMenuItem);
+const showTimerCreateMenuItem = computed(() => props.showTimerCreateMenuItem);
 const showDelegateMenuItem = computed(() => props.showDelegateMenuItem);
 const showBranchMenuItem = computed(() => props.showBranchMenuItem);
 const showForwardMenuItem = computed(() => props.showForwardMenuItem);

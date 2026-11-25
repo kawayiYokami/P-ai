@@ -17,7 +17,7 @@ export type ConversationSectionOrderState = {
   contact: string[];
 };
 
-export type ConversationSidebarTab = "local" | "contact" | "task";
+export type ConversationSidebarTab = "local" | "contact" | "timer";
 
 /** 侧边栏第三个父节点的分组依据：人格 / 工作目录 / 混合（= 工作目录 + 富卡片渲染） */
 export type ConversationSectionGrouping = "persona" | "workspace" | "mixed";

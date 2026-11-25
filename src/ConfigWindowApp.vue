@@ -397,7 +397,7 @@ type ConfigTab =
   | "remoteIm"
   | "usage"
   | "memory"
-  | "task"
+  | "timer"
   | "logs"
   | "appearance"
   | "migration"

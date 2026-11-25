@@ -496,6 +496,31 @@ fn chat_metadata_store_contains_conversation_inner(
     })
 }
 
+/// 读会话在库里的状态（`active` / `archived` 等）；会话不存在返回 `None`。
+///
+/// 只取一列，不碰消息。定时器列表要靠它判断目标会话还能不能投递。
+pub(super) fn chat_metadata_store_conversation_status(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<Option<String>, String> {
+    use rusqlite::OptionalExtension as _;
+    chat_metadata_store_with_library_read(data_path, || {
+        let conn = chat_metadata_store_open(data_path)?;
+        conn.query_row(
+            "SELECT status FROM conversation_metadata WHERE conversation_id=?1",
+            [conversation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|err| {
+            format!(
+                "读取 SQLite 会话状态失败，conversation_id={}，error={err}",
+                conversation_id
+            )
+        })
+    })
+}
+
 fn chat_metadata_store_read_messages_for_locators(
     paths: &MessageStorePaths,
     locators: &[ChatMetadataLocator],

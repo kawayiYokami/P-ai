@@ -244,8 +244,8 @@ async fn ide_chat_web_access_info_for_web_settings(
 
 include!("memory_methods.rs");
 
-fn ide_chat_task_list_tasks_for_web_settings(state: &AppState) -> Result<Value, String> {
-    ide_chat_serialize(task_list_tasks_inner(state)?)
+fn ide_chat_timer_list_timers_for_web_settings(state: &AppState) -> Result<Value, String> {
+    ide_chat_serialize(timer_list_timers_inner(state)?)
 }
 
 fn ide_chat_kanban_get_board_for_web_settings(
@@ -264,52 +264,28 @@ fn ide_chat_kanban_approve_issue_for_web_settings(
     ide_chat_serialize(kanban::kanban_approve_issue_inner(input, state)?)
 }
 
-fn ide_chat_task_get_task_for_web_settings(
+fn ide_chat_timer_create_timer_for_web_settings(
     state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskGetInput>(params, "input")?;
-    ide_chat_serialize(task_get_task_inner(input, state)?)
+    let input = ide_chat_parse_param_field::<TimerCreateInput>(params, "input")?;
+    ide_chat_serialize(timer_create_timer_inner(input, state)?)
 }
 
-fn ide_chat_task_create_task_for_web_settings(
+fn ide_chat_timer_update_timer_for_web_settings(
     state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskCreateInput>(params, "input")?;
-    ide_chat_serialize(task_create_task_inner(input, state)?)
+    let input = ide_chat_parse_param_field::<TimerUpdateInput>(params, "input")?;
+    ide_chat_serialize(timer_update_timer_inner(input, state)?)
 }
 
-fn ide_chat_task_update_task_for_web_settings(
+fn ide_chat_timer_delete_timer_for_web_settings(
     state: &AppState,
     params: Value,
 ) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskUpdateInput>(params, "input")?;
-    ide_chat_serialize(task_update_task_inner(input, state)?)
-}
-
-fn ide_chat_task_complete_task_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskCompleteInput>(params, "input")?;
-    ide_chat_serialize(task_complete_task_inner(input, state)?)
-}
-
-fn ide_chat_task_delete_task_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskDeleteInput>(params, "input")?;
-    ide_chat_serialize(task_delete_task_inner(input, state)?)
-}
-
-fn ide_chat_task_list_run_logs_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskRunLogListInput>(params, "input")?;
-    ide_chat_serialize(task_list_run_logs_inner(Some(input), state)?)
+    let input = ide_chat_parse_param_field::<TimerDeleteInput>(params, "input")?;
+    ide_chat_serialize(timer_delete_timer_inner(input, state)?)
 }
 
 /// 会话问题列表：Web/IDE 与桌面端走同一个后端读取。
@@ -347,13 +323,6 @@ fn ide_chat_question_reject_for_web_settings(
         &input.conversation_id,
         input.number,
     )?)
-}
-
-async fn ide_chat_task_optimize_draft_for_web_settings(    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<TaskOptimizeDraftInput>(params, "input")?;
-    ide_chat_serialize(task_optimize_draft_internal(input, state).await?)
 }
 
 include!("mcp_methods.rs");

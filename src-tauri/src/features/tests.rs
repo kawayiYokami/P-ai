@@ -88,7 +88,7 @@
 
     include!("config/tests.rs");
     include!("chat/tests.rs");
-    include!("task/tests.rs");
+    include!("timer/tests.rs");
     include!("question/tests.rs");
     include!("remote_im/tests.rs");
     include!("system/tests.rs");

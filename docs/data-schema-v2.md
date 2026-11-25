@@ -26,16 +26,17 @@
 |---|---|---|
 | `config/app_config.toml`（Windows 标准 / 便携）或 `app_config.toml`（Linux / macOS 标准，位于业务根直下） | TOML | 顶层配置（热键、供应商、工具开关等）。实际路径始终是 `config_dir/app_config.toml` |
 | `config/agents/` | 目录 | 人格定义，一人格一文件（`<id>.json`） |
-| `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点） |
+| `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点；定时器在 `timers` 表） |
 | `chat/chat_metadata.sqlite` | SQLite | 聊天元数据、消息定位索引、用量统计 |
 | `chat/conversations/<id>/` | 分片目录 | 会话正文（见下文） |
 | `backups/` | 目录 | 迁移/导出备份，按 `backups/<时间戳>/` 组织 |
 | `memory/memory_store.db` | SQLite | 记忆库 |
-| `task/task_store.db` | SQLite | 任务库 |
 | `delegate/delegate_store.db` | SQLite | 委托库 |
 | `config/llm-workspace/` | 目录 | 未配置系统工作区时的默认工作区根。配了 `shellWorkspaces` 里 `level = "system"` 那项就整体改用该项路径，skills / MCP / tool-output 都跟着走（`AppState.llm_workspace_path` 默认绑在 `config_dir`） |
 
 上表是 `help` 无参数时的目录地图来源（`pai_config_tool.rs` 的 `LAYOUT`），只列「改配置要看/要改」的条目，测试 `directory_map_matches_docs_layout_table` 钉住两边一致。
+
+旧任务库 `task/task_store.db` 自 V10 起只作为历史文件留在原地（业务不再读写，见下文第 7 节），因此不再进这张地图。
 
 ### 运行时目录（不进 help 地图）
 
@@ -160,13 +161,17 @@ PRAGMA：WAL、synchronous=NORMAL、foreign_keys=ON、temp_store=MEMORY（`db.rs
 
 索引：`idx_memory_updated_at`、`idx_memory_scope_active`、`idx_memory_useful_score`、`idx_memory_tag_tag_id`、`idx_profile_memory_updated_at`、`idx_note_updated_at`、`idx_note_file_id`、`idx_note_tag_tag_id`。
 
-## 7. task/task_store.db
+## 7. task/task_store.db（历史文件，只读）
 
-`task_record`（`store.rs`）：
+V10 起旧 Jira 式任务体系整体退场，业务代码不再打开这个库；文件本身留在原地，不删、不改名、不再检测。
 
-`task_id` PK、`conversation_id`、`department_id`（历史列，已不再读写）、`agent_id`、`target_scope` DEFAULT 'desktop'、`order_index`、`title`、`cause`、`goal`、`flow`、`todos_json`、`status_summary`、`completion_state`、`completion_conclusion`、`progress_notes_json`、`stage_key`、`stage_updated_at_utc`、`trigger_kind`、`run_at_utc`、`cron_expression`、`every_minutes`、`end_at_utc`、`created_at_utc`、`updated_at_utc`、`last_triggered_at_utc`、`completed_at_utc`。
+`task_record` 旧列（供排障查阅）：`task_id` PK、`conversation_id`、`department_id`、`agent_id`、`target_scope`、`order_index`、`title`、`cause`、`goal`、`flow`、`todos_json`、`status_summary`、`completion_state`、`completion_conclusion`、`progress_notes_json`、`stage_key`、`stage_updated_at_utc`、`trigger_kind`、`run_at_utc`、`cron_expression`、`every_minutes`、`end_at_utc`、`created_at_utc`、`updated_at_utc`、`last_triggered_at_utc`、`completed_at_utc`。
 
-辅助表：`task_runtime_state`（`state_key` PK, `state_value`, `updated_at_utc`）、`task_run_log`（`id` PK AUTOINCREMENT, `task_id`, `triggered_at_utc`, `outcome`, `note`）。
+V10 迁移（`features/config/data_migration.rs` 的 `migrate_v9_to_v10`）按无模式映射把 `task_record` 的行搬进 `state/state.sqlite` 的 `timers` 表：`goal`（缺失回退 `title`）→ `message`；没有会话或会话是系统通知会话 → 全局定时器 `dispatch_mode=delegate`，有会话 → `direct`；`completion_state = 'active'` → `enabled=1`；`next_run_at_utc` 一律留空，由调度器补算。旧 `task_id`（UUID）原样保留为 `timer_id`。
+
+## 7.1 state/state.sqlite 的 timers 表
+
+`timers`：`timer_id` PK、`conversation_id`（NULL＝全局定时器）、`message`、`dispatch_mode`（`direct` / `delegate`）、`enabled`、`run_at_utc`、`cron_expression`、`end_at_utc`、`next_run_at_utc`、`last_triggered_at_utc`、`created_at_utc`；索引 `idx_timers_active_next_run`、`idx_timers_conversation`。时间列一律 UTC 存储串，出入口转本地 RFC3339。
 
 ## 8. delegate/delegate_store.db
 

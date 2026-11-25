@@ -134,6 +134,15 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("composer", "ChatComposer", "输入面板", "chat/components/ChatComposerStructureDemo.vue", () =>
         import("../chat/components/ChatComposerStructureDemo.vue"),
       ),
+      entry("cron-picker", "CronPicker", "定时表达式", "shared/components/CronPickerDemo.vue", () =>
+        import("../shared/components/CronPickerDemo.vue"),
+      ),
+      entry("timer-create-card", "TimerCreateCard", "定时器弹窗", "chat/components/dialogs/TimerCreateCardDemo.vue", () =>
+        import("../chat/components/dialogs/TimerCreateCardDemo.vue"),
+      ),
+      entry("timer-list-item", "TimerListItem", "定时器列表项", "chat/components/TimerListItemDemo.vue", () =>
+        import("../chat/components/TimerListItemDemo.vue"),
+      ),
     ],
   },
   {

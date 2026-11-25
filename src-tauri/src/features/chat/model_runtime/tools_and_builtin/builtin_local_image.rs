@@ -806,7 +806,7 @@ mod local_image_reference_tests {
             active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
-            task_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
+            timer_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(

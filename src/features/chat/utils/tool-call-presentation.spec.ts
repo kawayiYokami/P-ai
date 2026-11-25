@@ -49,7 +49,7 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.actionRecall": "检索记忆",
     "status.toolTimeline.actionRemember": "记录记忆",
     "status.toolTimeline.actionSearch": "搜索文件",
-    "status.toolTimeline.actionTask": "定时任务",
+    "status.toolTimeline.actionTimer": "定时",
     "status.toolTimeline.actionTeamInfo": "查看队伍",
     "status.toolTimeline.actionTeamRead": "读队员消息",
     "status.toolTimeline.actionTeamRecruit": "招募队员",

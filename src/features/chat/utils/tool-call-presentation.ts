@@ -635,7 +635,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
 
     // 14. 定时任务 (task)
     if (toolName === "task") {
-      const action = toolTimelineText("actionTask");
+      const action = toolTimelineText("actionTimer");
       const act = safeStringValue(obj, "action");
       const goal = safeStringValue(obj, "goal");
       const trigger = taskTriggerSummary(obj.trigger);
@@ -1100,7 +1100,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "get_session") return toolTimelineText("actionGetSession");
     if (raw === "background") return toolTimelineText("actionBackground");
     if (raw === "inform_session") return toolTimelineText("actionInformSession");
-    if (raw === "task") return toolTimelineText("actionTask");
+    if (raw === "task") return toolTimelineText("actionTimer");
     if (raw === "deeprecall" || raw === "deeprecall_search" || raw === "deeprecall_context") return toolTimelineText("actionDeepRecall");
     if (raw === "delegate") return toolTimelineText("actionDelegate");
     if (raw === "contact_send_files") return toolTimelineText("actionContactSendFiles");

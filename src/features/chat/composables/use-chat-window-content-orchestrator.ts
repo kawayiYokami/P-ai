@@ -86,8 +86,8 @@ export function useChatWindowContentOrchestrator(bindings: ChatWindowContentOrch
     perfDebug: bindings.PERF_DEBUG,
     perfNow: bindings.perfNow,
     taskTriggerLabels: {
-      goal: bindings.tr("config.task.fields.goal"),
-      todo: bindings.tr("config.task.fields.todo"),
+      goal: bindings.tr("common.goal"),
+      todo: bindings.tr("common.todo"),
     },
   });
   const terminalApproval = useTerminalApproval({

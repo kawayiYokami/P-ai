@@ -38,11 +38,12 @@
 - legacy 位置迁移：`memory_store_open` 打开时若目标 `memory/memory_store.db` 不存在，检查旧位置 `data_path.parent()/memory_store.db`，存在则 rename（失败回退 copy+remove）到目标位置
 - 库内迁移：`memory_no` 回填、`owner_agent_id` 列补加、FTS 重建/回填、`profile_memory_link` 表初始化
 
-### 4. task：列迁移
+### 4. task → timer：应用数据迁移 V10
 
-- 模块：[task/migration.rs](../src-tauri/src/features/task/migration.rs)
-- 方式：`task_store_apply_migrations` 事务内按需 `RENAME COLUMN` / `ADD COLUMN`（`task_store_rename_column_if_needed` / `task_store_add_column_if_missing`）
-- 内容：列重命名/新增、空 `conversation_id` → system、legacy trigger → cron 归一、一次性已触发任务 → completed
+- 模块：[config/data_migration.rs](../src-tauri/src/features/config/data_migration.rs) 的 `migrate_v9_to_v10`
+- 方式：只读打开旧库 `app_root/task/task_store.db`，用 `SELECT *` + 列名索引按需取值（旧库缺列不报错），逐行映射后写入 `state/state.sqlite` 的 `timers` 表，`ON CONFLICT(timer_id) DO NOTHING` 保幂等
+- 铁律：旧库不存在／打不开／没有 `task_record` 表都只当「没有要搬的东西」，版本照常推进；单行缺 id 或缺正文记一条 warn 跳过；旧文件留在原地，不删、不改名、不备份，版本推进后永不回头检测
+- 映射：`goal`（缺失回退 `title`）→ `message`；无会话或系统通知会话 → 全局定时器 `delegate`，有会话 → `direct`；`completion_state = 'active'` → `enabled=1`；`next_run_at_utc` 留空由调度器补算
 
 ### 5. delegate：列迁移
 

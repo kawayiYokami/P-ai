@@ -333,45 +333,48 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
             }
             Some(lines.join("\n"))
         }
-        "task" => {
+        "timer" => {
+            // 删除动作只回一个 id：没有定时器实体可陈列。
+            if let Some(deleted) = value_string(value, "deleted") {
+                return Some(format!("deleted timer: {deleted}"));
+            }
             let items: Vec<Value> = match value {
                 Value::Array(items) => items.clone(),
                 Value::Object(_) => vec![value.clone()],
                 _ => Vec::new(),
             };
             if items.is_empty() {
-                return Some("no tasks".to_string());
+                return Some("no timers".to_string());
             }
-            let mut lines = vec![receipt_plural(items.len(), "task", "tasks")];
+            let mut lines = vec![receipt_plural(items.len(), "timer", "timers")];
             for item in &items {
-                // TaskEntry 按蛇形序列化；驼峰只是旧夹具的写法，兼容读一下。
-                let id = value_string(item, "task_id")
-                    .or_else(|| value_string(item, "taskId"))
+                let id = value_string(item, "id")
+                    .or_else(|| value_string(item, "timerId"))
                     .unwrap_or_else(|| "?".to_string());
-                let state = value_string(item, "completion_state")
-                    .or_else(|| value_string(item, "completionState"))
-                    .unwrap_or_default();
-                let goal = value_string(item, "goal").unwrap_or_default();
-                let conclusion = value_string(item, "completion_conclusion")
-                    .or_else(|| value_string(item, "completionConclusion"))
-                    .unwrap_or_default();
-                let next = item
-                    .get("trigger")
-                    .and_then(|trigger| {
-                        value_string(trigger, "next_run_at")
-                            .or_else(|| value_string(trigger, "nextRunAt"))
-                    })
-                    .unwrap_or_default();
-                let mut line = format!("- {id} [{state}]");
-                if !goal.is_empty() {
+                let message = value_string(item, "message").unwrap_or_default();
+                let mode = value_string(item, "dispatchMode").unwrap_or_default();
+                let cron = value_string(item, "cron").unwrap_or_default();
+                let next = value_string(item, "nextRunAt").unwrap_or_default();
+                let enabled = item
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let mut line = format!(
+                    "- {id} [{}]",
+                    if enabled { "on" } else { "paused" }
+                );
+                if !message.is_empty() {
                     line.push(' ');
-                    line.push_str(&goal);
+                    line.push_str(&message);
+                }
+                if !mode.is_empty() {
+                    line.push_str(&format!("  {mode}"));
+                }
+                if !cron.is_empty() {
+                    line.push_str(&format!("  cron:{cron}"));
                 }
                 if !next.is_empty() {
                     line.push_str(&format!("  next:{next}"));
-                }
-                if !conclusion.is_empty() {
-                    line.push_str(&format!("  ({conclusion})"));
                 }
                 lines.push(line);
             }
@@ -653,14 +656,6 @@ fn provider_tool_metadata_from_value(tool_name: &str, value: &Value) -> Provider
                     .unwrap_or(false),
             };
         }
-        "task" => {
-            metadata.control = ProviderToolControl::Task {
-                completion_state: value_string(value, "completionState")
-                    .or_else(|| value_string(value, "completion_state")),
-                completion_conclusion: value_string(value, "completionConclusion")
-                    .or_else(|| value_string(value, "completion_conclusion")),
-            };
-        }
         _ => {}
     }
     metadata
@@ -896,7 +891,6 @@ enum ProviderToolControl {
     None,
     Contact { stop: bool },
     Plan { action: String, path: String, stop: bool },
-    Task { completion_state: Option<String>, completion_conclusion: Option<String> },
 }
 
 #[allow(dead_code)]
@@ -928,23 +922,23 @@ mod runtime_tool_result_tests {
 
     #[test]
     fn structured_tool_result_is_readable_text_not_json() {
-        // TaskEntry 按蛇形序列化，夹具照真实形状来。
+        // TimerRecord 按驼峰序列化，夹具照真实形状来。
         let result = provider_tool_result_from_value(
-            "task",
+            "timer",
             serde_json::json!({
-                "task_id": "task-1",
-                "completion_state": "completed",
-                "goal": "第一项",
+                "id": "42",
+                "message": "每天早上九点提醒开会",
+                "dispatchMode": "direct",
+                "cron": "0 9 * * *",
+                "nextRunAt": "2026-03-02T09:00:00+08:00",
+                "enabled": true,
             }),
         );
-        assert!(result.output.contains("task-1"));
-        assert!(result.output.contains("completed"));
+        assert!(result.output.contains("42"));
+        assert!(result.output.contains("每天早上九点提醒开会"));
+        assert!(result.output.contains("next:2026-03-02T09:00:00+08:00"));
         assert!(!result.output.contains("{\""));
-        assert!(!result.output.contains("task_id:"));
-        assert!(matches!(
-            result.metadata.control,
-            ProviderToolControl::Task { .. }
-        ));
+        assert!(!result.output.contains("dispatchMode:"));
     }
 
     #[test]

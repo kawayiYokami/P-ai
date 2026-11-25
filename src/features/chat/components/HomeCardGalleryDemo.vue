@@ -30,7 +30,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { BackgroundShellTaskSummary, ConversationDelegateStatusSummary } from "../../../types/app";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../utils/timer-entry";
 import type { ToolReviewBatchSummary } from "../composables/use-chat-tool-review";
 import ChatHomePanel from "./ChatHomePanel.vue";
 import GalleryControls from "../../dev-gallery/GalleryControls.vue";
@@ -174,19 +174,19 @@ function makeDelegate(index: number, status: string, active = true): Conversatio
   };
 }
 
-function makeTask(index: number): TaskEntry {
+function makeTimer(index: number): TimerEntry {
   return {
-    taskId: `demo-task-${index}`,
-    orderIndex: index,
-    goal: "每周整理一次 changelog 未发布条目",
-    why: "保持发布流程可追溯",
-    todo: "检查清单并逐项归类",
-    completionState: "active",
-    completionConclusion: "",
-    progressNotes: [],
-    trigger: { next_run_at: new Date(Date.now() + 125 * 60000).toISOString() },
-    createdAtLocal: new Date().toISOString(),
-    updatedAtLocal: new Date().toISOString(),
+    id: `demo-timer-${index}`,
+    message: "每周整理一次 changelog 未发布条目",
+    conversationId: "demo",
+    dispatchMode: "direct",
+    enabled: true,
+    runAt: new Date(Date.now() - 60000).toISOString(),
+    cron: "0 9 * * 1",
+    endAt: null,
+    lastTriggeredAt: null,
+    nextRunAt: new Date(Date.now() + 125 * 60000).toISOString(),
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -214,7 +214,7 @@ const wallCards = {
   ],
   shells: MOCK_SHELLS.shells,
   delegates: [makeDelegate(0, "running"), makeDelegate(1, "delivered"), makeDelegate(2, "completed", false)],
-  runningTasks: [makeTask(0), makeTask(1)],
+  runningTimers: [makeTimer(0), makeTimer(1)],
   toolBatches: MOCK_TOOL_BATCHES.toolBatches,
 };
 

@@ -3074,7 +3074,7 @@ const TOOL_RULE_TODO_MD: &str = include_str!("../../../resources/prompts/tools/t
 const TOOL_RULE_KANBAN_MD: &str = include_str!("../../../resources/prompts/tools/kanban.md");
 const TOOL_RULE_GOAL_MD: &str = include_str!("../../../resources/prompts/tools/goal.md");
 const TOOL_RULE_DELEGATE_MD: &str = include_str!("../../../resources/prompts/tools/delegate.md");
-const TOOL_RULE_TASK_MD: &str = include_str!("../../../resources/prompts/tools/task.md");
+const TOOL_RULE_TIMER_MD: &str = include_str!("../../../resources/prompts/tools/timer.md");
 const TOOL_RULE_FILE_EDIT_MD: &str = include_str!("../../../resources/prompts/tools/file-edit.md");
 const TOOL_RULE_QUESTION_MD: &str = include_str!("../../../resources/prompts/tools/question.md");
 const TOOL_RULE_CONTACT_MD: &str = include_str!("../../../resources/prompts/tools/contact.md");
@@ -3125,7 +3125,7 @@ fn build_builtin_tool_rule_block(tool_id: &str, options: ToolRuleOptions) -> Vec
         "goal" => tool_rule_lines(TOOL_RULE_GOAL_MD),
         "get_session" | "inform_session" => tool_rule_lines(TOOL_RULE_CONTACT_MD),
         "delegate" => tool_rule_lines(TOOL_RULE_DELEGATE_MD),
-        "task" => tool_rule_lines(TOOL_RULE_TASK_MD),
+        "timer" => tool_rule_lines(TOOL_RULE_TIMER_MD),
         "write" | "delete" | "update" | "move" | "file_edit" => {
             tool_rule_lines(TOOL_RULE_FILE_EDIT_MD)
         }
@@ -3162,7 +3162,7 @@ fn build_system_tools_rule_blocks(
     let current_agent = agent_by_id(agents, current_agent_id);
     let options = ToolRuleOptions { rg_installed };
     let mut blocks = Vec::<(String, String)>::new();
-    for rule_id in ["delegate", "task", "exec", "file_edit"] {
+    for rule_id in ["delegate", "timer", "exec", "file_edit"] {
         let rule_enabled = builtin_tool_ids_for_prompt_rule(rule_id)
             .into_iter()
             .any(|tool_id| agent_builtin_tool_enabled(current_agent, tool_id));

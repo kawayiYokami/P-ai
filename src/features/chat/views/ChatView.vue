@@ -30,7 +30,7 @@
           :tool-review-api-config-id="toolReviewApiConfigId"
           :current-workspace-root-path="currentProjectWorkspaceRoot"
           @update:active-tab="$emit('update:conversation-list-tab', $event)"
-          @edit-task="openTaskEditDialog"
+          @edit-timer="openTimerEditDialog"
           @select="handleConversationListSelect"
           @rename="handleConversationRename"
           @toggle-pin-conversation="handleConversationPinToggle"
@@ -247,7 +247,7 @@
                   :auto-push-active="!!String(activeConversationSummary?.autoPushRemoteContactId || '').trim()"
                   :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
                   :hide-workspace-button="hideWorkspaceButton || activeConversationSummary?.kind === 'remote_im_contact'"
-              :show-task-create-menu-item="showConversationActions && !activeConversationIsRemoteContact && !activeConversationIsSystemNotification"
+              :show-timer-create-menu-item="showConversationActions && !activeConversationIsRemoteContact && !activeConversationIsSystemNotification"
               :show-forward-menu-item="showConversationActions"
               :show-auto-push-menu-item="showConversationActions && !activeConversationIsRemoteContact && !activeConversationIsSystemNotification"
               :show-share-menu-item="showConversationActions"
@@ -255,13 +255,13 @@
               :open-in-browser-disabled="!activeConversationId || activeConversationIsSystemNotification"
               :side-chat-enabled="sideChatPanelEnabled"
               :delegate-statuses="delegateStatuses"
-              :running-task-count="runningTaskCount"
+              :running-timer-count="runningTimerCount"
               :running-shell-count="runningShellCount"
               :mention-entries="mentionEntries"
               :selected-mentions="selectedMentions"
               :show-timeline-slot="canShowTimeline"
               @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
-              @open-task-create="openTaskCreateDialog"
+              @open-timer-create="openTimerCreateDialog"
               @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
               @open-auto-push="openAutoPushCard"
               @open-share-selection="openShareSelectionMenu"
@@ -644,7 +644,7 @@
             @remove-kanban-issue-reference="removeKanbanIssueReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
             @open-delegate-selection="openDelegateSelectionMenu"
-            @open-task-create="openTaskCreateDialog"
+            @open-timer-create="openTimerCreateDialog"
             @open-goal-task="$emit('openGoalTask')"
             @start-goal-task="$emit('startGoalTask', $event)"
             @exit-selection-mode="handleExitMessageSelectionMode"
@@ -711,15 +711,16 @@
           @review-code="handleSubmitCodeReview"
           @delegate="handleLaunchDelegate"
         />
-        <TaskCreateCard
+        <TimerCreateCard
           v-if="showConversationActions"
-          :open="taskDialogOpen"
-          :mode="taskDialogMode"
-          :conversation-id="activeConversationId"
-          :task="taskDialogTask"
-          @close="closeTaskDialog"
-          @created="handleTaskCreated"
-          @updated="handleTaskUpdated"
+          :open="timerDialogOpen"
+          :mode="timerDialogMode"
+          :timer="timerDialogTimer"
+          :default-conversation-id="props.activeConversationId"
+          @close="closeTimerDialog"
+          @saved="handleTimerSaved"
+          @enabled-change="handleTimerEnabledChange"
+          @deleted="handleTimerSaved"
         />
       </div>
 
@@ -797,7 +798,7 @@
           :persona-name-map="props.personaNameMap"
           :persona-avatar-url-map="props.personaAvatarUrlMap"
           :delegates="delegateStatuses"
-          :running-tasks="homePanelRunningTasks"
+          :running-timers="homePanelRunningTimers"
           :shells="backgroundShells"
           :tool-batches="toolReviewBatches"
           :kanban-visible="kanbanVisible"
@@ -906,7 +907,7 @@
             @open-delegate-detail="openDelegateArchiveDetail"
             @abort-delegate="abortDelegate"
             @assistant-link-click="handleAssistantLinkClick"
-            @task-mutated="refreshRunningTaskCount"
+            @timer-saved="refreshRunningTimerCount"
           />
         </div>
         </div>
@@ -982,7 +983,7 @@ import { normalizePath } from "../../file-reader/utils";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatGoalTaskDialog from "../components/dialogs/ChatGoalTaskDialog.vue";
-import TaskCreateCard from "../components/dialogs/TaskCreateCard.vue";
+import TimerCreateCard from "../components/dialogs/TimerCreateCard.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";
@@ -1027,7 +1028,7 @@ import { useChatToolReviewHandlers } from "../composables/use-chat-tool-review-h
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../composables/use-chat-tool-review";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../composables/chat-ui-layout-storage";
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../utils/timer-entry";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import type { AppIconName } from "../../shared/icons/icon-map";
 import { clearNativeTextSelection } from "../../../utils/native-selection";
@@ -1082,8 +1083,8 @@ const props = defineProps<{
   remoteImContactConversations: RemoteImContactConversationOption[];
   conversationItems?: ChatConversationOverviewItem[]; sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
-  conversationListTab: "local" | "contact" | "task";
-  chatLeftPanelMode: "local" | "contact" | "task";
+  conversationListTab: "local" | "contact" | "timer";
+  chatLeftPanelMode: "local" | "contact" | "timer";
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   sideChatPanelEnabled?: boolean;
@@ -1135,8 +1136,8 @@ const emit = defineEmits<{
   (e: "openTeamManagement"): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
-  (e: "update:conversation-list-tab", value: "local" | "contact" | "task"): void;
-  (e: "update:chatLeftPanelMode", value: "local" | "contact" | "task"): void;
+  (e: "update:conversation-list-tab", value: "local" | "contact" | "timer"): void;
+  (e: "update:chatLeftPanelMode", value: "local" | "contact" | "timer"): void;
   (e: "update:chatRightPanelMode", value: ChatRightPanelMode): void;
   (e: "update:chatMonitorPanelMode", value: ChatMonitorPanelMode): void;
   (e: "removeClipboardImage", index: number): void;
@@ -1160,8 +1161,7 @@ const emit = defineEmits<{
   (e: "closeGoalTask"): void;
   (e: "saveGoalTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "stopGoalTask"): void;
-  (e: "taskCreated", task: TaskEntry): void;
-  (e: "taskUpdated", task: TaskEntry): void;
+  (e: "timerSaved"): void;
   (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact" | "acp_session"; remoteContactId?: string }): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
@@ -1195,9 +1195,9 @@ const linkOpenErrorText = ref("");
 const conversationSummaryCard = ref<{ visible: boolean; text: string }>({ visible: false, text: "" });
 const compactionSummaryContextMenu = ref<{ x: number; y: number; block: ChatMessageBlock } | null>(null);
 const composerPanelRef = ref<{ focusInput: (opts?: FocusOptions) => void } | null>(null);
-const taskDialogOpen = ref(false);
-const taskDialogMode = ref<"create" | "edit">("create");
-const taskDialogTask = ref<TaskEntry | null>(null);
+const timerDialogOpen = ref(false);
+const timerDialogMode = ref<"create" | "edit">("create");
+const timerDialogTimer = ref<TimerEntry | null>(null);
 const autoPushCardOpen = ref(false);
 const autoPushSaving = ref(false);
 const autoPushEnabled = ref(false);
@@ -1244,18 +1244,18 @@ const commitTotal = ref(0);
 const commitPage = ref(1);
 const commitPageSize = ref(5);
 
-type ToolReviewSidebarTab = "tools" | "delegates" | "tasks" | "fastRequests";
+type ToolReviewSidebarTab = "tools" | "delegates" | "timers" | "fastRequests";
 
 const monitorPanelTabs = computed<Array<{ key: ChatMonitorPanelMode; label: string; icon: AppIconName; closeable: false }>>(() => [
   { key: "delegate", label: t("chat.toolReview.delegatesTab"), icon: "network", closeable: false },
-  { key: "tasks", label: t("chat.toolReview.tasksTab"), icon: "list-todo", closeable: false },
+  { key: "timers", label: t("chat.toolReview.timersTab"), icon: "clock", closeable: false },
   { key: "tools", label: t("chat.toolReview.toolsTab"), icon: "wrench", closeable: false },
   { key: "fastRequests", label: t("chat.toolReview.overviewOthers"), icon: "inbox", closeable: false },
 ]);
 
 const toolReviewSidebarActiveTab = computed<ToolReviewSidebarTab>(() => {
   if (props.chatMonitorPanelMode === "tools") return "tools";
-  if (props.chatMonitorPanelMode === "tasks") return "tasks";
+  if (props.chatMonitorPanelMode === "timers") return "timers";
   if (props.chatMonitorPanelMode === "fastRequests") return "fastRequests";
   return "delegates";
 });
@@ -1930,32 +1930,34 @@ function openBranchFromCurrentMessage() {
   emit("branchConversationFromCurrent");
 }
 
-function openTaskCreateDialog() {
-  taskDialogMode.value = "create";
-  taskDialogTask.value = null;
-  taskDialogOpen.value = true;
+function openTimerCreateDialog() {
+  timerDialogMode.value = "create";
+  timerDialogTimer.value = null;
+  timerDialogOpen.value = true;
 }
 
-function openTaskEditDialog(task: TaskEntry) {
-  taskDialogMode.value = "edit";
-  taskDialogTask.value = task;
-  taskDialogOpen.value = true;
+function openTimerEditDialog(timer: TimerEntry) {
+  timerDialogMode.value = "edit";
+  timerDialogTimer.value = timer;
+  timerDialogOpen.value = true;
 }
 
-function closeTaskDialog() {
-  taskDialogOpen.value = false;
+function closeTimerDialog() {
+  timerDialogOpen.value = false;
 }
 
-function handleTaskCreated(task: TaskEntry) {
-  taskDialogOpen.value = false;
-  void refreshRunningTaskCount();
-  emit("taskCreated", task);
+function handleTimerSaved() {
+  timerDialogOpen.value = false;
+  timerDialogTimer.value = null;
+  void refreshRunningTimerCount();
+  emit("timerSaved");
 }
 
-function handleTaskUpdated(task: TaskEntry) {
-  taskDialogOpen.value = false;
-  void refreshRunningTaskCount();
-  emit("taskUpdated", task);
+/** 编辑弹窗里只拨了启用开关：刷新这一条，弹窗继续开着让人接着改 */
+function handleTimerEnabledChange(updated: TimerEntry) {
+  timerDialogTimer.value = updated;
+  void refreshRunningTimerCount();
+  emit("timerSaved");
 }
 
 function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {
@@ -3389,7 +3391,7 @@ watch(
 );
 
 function selectMonitorPanelTab(key: string) {
-  if (key !== "delegate" && key !== "tasks" && key !== "tools" && key !== "fastRequests") return;
+  if (key !== "delegate" && key !== "timers" && key !== "tools" && key !== "fastRequests") return;
   emit("update:chatMonitorPanelMode", key);
 }
 
@@ -3706,57 +3708,56 @@ const runningShellCount = computed(() =>
   backgroundShells.value.filter((task) => String(task.status || "").trim() === "running").length,
 );
 
-// ==================== running task count for monitor bar ====================
+// ==================== running timer count for monitor bar ====================
 
-const runningTaskCount = ref(0);
-/** 主页监控卡片预览用的运行中任务条目，与计数复用同一次 task.list 请求 */
-const homePanelRunningTasks = ref<TaskEntry[]>([]);
-let runningTaskRequestSeq = 0;
-let runningTaskRequestConversationId = "";
+const runningTimerCount = ref(0);
+/** 主页监控卡片预览用的启用中定时器条目，与计数复用同一次 timer.list 请求 */
+const homePanelRunningTimers = ref<TimerEntry[]>([]);
+let runningTimerRequestSeq = 0;
+let runningTimerRequestConversationId = "";
 
-function isTaskActive(task: TaskEntry | null | undefined): boolean {
-  const state = String(task?.completionState || "").trim().toLowerCase();
-  return Boolean(state) && state !== "completed" && state !== "failed_completed";
+function isTimerActive(timer: TimerEntry | null | undefined): boolean {
+  return Boolean(timer?.enabled);
 }
 
-async function refreshRunningTaskCount() {
+async function refreshRunningTimerCount() {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId) {
-    runningTaskRequestSeq += 1;
-    runningTaskRequestConversationId = "";
-    runningTaskCount.value = 0;
-    homePanelRunningTasks.value = [];
+    runningTimerRequestSeq += 1;
+    runningTimerRequestConversationId = "";
+    runningTimerCount.value = 0;
+    homePanelRunningTimers.value = [];
     return;
   }
-  const seq = ++runningTaskRequestSeq;
-  runningTaskRequestConversationId = conversationId;
+  const seq = ++runningTimerRequestSeq;
+  runningTimerRequestConversationId = conversationId;
   try {
-    const tasks = await invokeTauri<TaskEntry[]>("task.list", {});
-    if (seq !== runningTaskRequestSeq || runningTaskRequestConversationId !== String(props.activeConversationId || "").trim()) return;
-    const activeTasks = (Array.isArray(tasks) ? tasks : []).filter((task) =>
-      isTaskActive(task)
-      && String(task?.conversationId || "").trim() === conversationId,
+    const timers = await invokeTauri<TimerEntry[]>("timer.list", {});
+    if (seq !== runningTimerRequestSeq || runningTimerRequestConversationId !== String(props.activeConversationId || "").trim()) return;
+    const activeTimers = (Array.isArray(timers) ? timers : []).filter((timer) =>
+      isTimerActive(timer)
+      && String(timer?.conversationId || "").trim() === conversationId,
     );
-    runningTaskCount.value = activeTasks.length;
-    homePanelRunningTasks.value = activeTasks;
+    runningTimerCount.value = activeTimers.length;
+    homePanelRunningTimers.value = activeTimers;
   } catch {
-    if (seq !== runningTaskRequestSeq || runningTaskRequestConversationId !== String(props.activeConversationId || "").trim()) return;
-    runningTaskCount.value = 0;
-    homePanelRunningTasks.value = [];
+    if (seq !== runningTimerRequestSeq || runningTimerRequestConversationId !== String(props.activeConversationId || "").trim()) return;
+    runningTimerCount.value = 0;
+    homePanelRunningTimers.value = [];
   }
 }
 
-type TaskChangedMonitorPayload = { domain?: string };
+type TimerChangedMonitorPayload = { domain?: string };
 
-function handleRunningTaskRefreshEvent(payload: TaskChangedMonitorPayload | null | undefined) {
-  if (String(payload?.domain || "").trim() !== "task") return;
-  void refreshRunningTaskCount();
+function handleRunningTimerRefreshEvent(payload: TimerChangedMonitorPayload | null | undefined) {
+  if (String(payload?.domain || "").trim() !== "timer") return;
+  void refreshRunningTimerCount();
 }
 
 watch(
   () => String(props.activeConversationId || "").trim(),
   () => {
-    void refreshRunningTaskCount();
+    void refreshRunningTimerCount();
   },
   { immediate: true },
 );
@@ -3765,50 +3766,50 @@ watch(
   () => props.chatRightPanelMode,
   (mode) => {
     if (mode === "home") {
-      void refreshRunningTaskCount();
+      void refreshRunningTimerCount();
     }
   },
 );
 
-let unlistenTaskChanged: (() => void) | null = null;
-let unlistenTaskRecovered: (() => void) | null = null;
+let unlistenTimerChanged: (() => void) | null = null;
+let unlistenTimerRecovered: (() => void) | null = null;
 let unlistenRoundFinished: (() => void) | null = null;
-let taskPollTimer: ReturnType<typeof window.setInterval> | null = null;
+let timerPollTimer: ReturnType<typeof window.setInterval> | null = null;
 
-function syncTaskPollTimer() {
-  const hasActive = runningTaskCount.value > 0 || homePanelRunningTasks.value.length > 0;
-  if (hasActive && taskPollTimer == null && typeof window !== "undefined") {
-    taskPollTimer = window.setInterval(() => {
-      void refreshRunningTaskCount();
+function syncTimerPollTimer() {
+  const hasActive = runningTimerCount.value > 0 || homePanelRunningTimers.value.length > 0;
+  if (hasActive && timerPollTimer == null && typeof window !== "undefined") {
+    timerPollTimer = window.setInterval(() => {
+      void refreshRunningTimerCount();
     }, 15000);
-  } else if (!hasActive && taskPollTimer != null) {
-    window.clearInterval(taskPollTimer);
-    taskPollTimer = null;
+  } else if (!hasActive && timerPollTimer != null) {
+    window.clearInterval(timerPollTimer);
+    timerPollTimer = null;
   }
 }
 
-watch(runningTaskCount, () => syncTaskPollTimer());
+watch(runningTimerCount, () => syncTimerPollTimer());
 
 onMounted(() => {
-  unlistenTaskChanged = onTransportNotification("monitor.changed", handleRunningTaskRefreshEvent);
+  unlistenTimerChanged = onTransportNotification("monitor.changed", handleRunningTimerRefreshEvent);
   unlistenRoundFinished = onTransportNotification("chat.roundFinished", () => {
-    void refreshRunningTaskCount();
+    void refreshRunningTimerCount();
   });
-  unlistenTaskRecovered = onTransportRecovered(() => {
-    void refreshRunningTaskCount();
+  unlistenTimerRecovered = onTransportRecovered(() => {
+    void refreshRunningTimerCount();
   });
 });
 
 onBeforeUnmount(() => {
-  unlistenTaskChanged?.();
-  unlistenTaskChanged = null;
+  unlistenTimerChanged?.();
+  unlistenTimerChanged = null;
   unlistenRoundFinished?.();
   unlistenRoundFinished = null;
-  unlistenTaskRecovered?.();
-  unlistenTaskRecovered = null;
-  if (taskPollTimer != null) {
-    window.clearInterval(taskPollTimer);
-    taskPollTimer = null;
+  unlistenTimerRecovered?.();
+  unlistenTimerRecovered = null;
+  if (timerPollTimer != null) {
+    window.clearInterval(timerPollTimer);
+    timerPollTimer = null;
   }
 });
 
@@ -4362,15 +4363,15 @@ function openRunSummaryPanel() {
     const status = String(delegate.status || "").trim();
     return delegate.active && (status === "running" || status === "delivered");
   }).length;
-  const taskRunning = Number(runningTaskCount.value) > 0;
+  const timerRunning = Number(runningTimerCount.value) > 0;
   const shellRunning = Number(runningShellCount.value) > 0;
-  const kindCount = [delegateRunningCount > 0, taskRunning, shellRunning].filter(Boolean).length;
+  const kindCount = [delegateRunningCount > 0, timerRunning, shellRunning].filter(Boolean).length;
   if (kindCount === 1 && delegateRunningCount > 0) {
     openMonitorTabFromHome("delegate");
     return;
   }
-  if (kindCount === 1 && taskRunning) {
-    openMonitorTabFromHome("tasks");
+  if (kindCount === 1 && timerRunning) {
+    openMonitorTabFromHome("timers");
     return;
   }
   selectChatRightPanelMode("home");

@@ -3464,7 +3464,7 @@
             active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
-            task_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
+            timer_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(
@@ -9566,676 +9566,6 @@
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_prefer_task_bound_conversation() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-a".to_string(),
-            conversation_id: Some("conversation-sub".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "t".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-
-        assert_eq!(session.conversation_id, "conversation-sub");
-        assert_eq!(session.target_scope, TASK_TARGET_SCOPE_DESKTOP);
-    }
-
-    #[test]
-    fn task_resolve_dispatch_session_should_use_conversation_owner_when_task_owner_missing() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-missing-owner".to_string(),
-            conversation_id: Some("conversation-sub".to_string()),
-            agent_id: None,
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "t".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-
-        assert_eq!(session.conversation_id, "conversation-sub");
-        assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
-    }
-
-    #[test]
-    fn task_resolve_dispatch_session_should_return_none_when_bound_conversation_missing() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-b".to_string(),
-            conversation_id: Some("conversation-missing".to_string()),
-            agent_id: None,
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "t".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session");
-        let sub_conversation =
-            state_read_conversation_cached(&state, "conversation-sub").expect("read sub conversation");
-
-        assert!(session.is_none());
-        assert_eq!(sub_conversation.status, "active");
-    }
-
-    #[test]
-    fn task_resolve_dispatch_session_should_treat_system_conversation_as_system_task() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-system".to_string(),
-            conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
-            agent_id: None,
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "系统任务".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-
-        assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
-        assert!(session.system_task);
-    }
-
-    #[test]
-    fn task_resolve_dispatch_session_should_not_resolve_missing_contact_conversation() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-
-        let data = test_user_switched_to_sub_conversation_data();
-        let contact = RemoteImContact {
-            id: "contact-a".to_string(),
-            channel_id: "channel-a".to_string(),
-            platform: RemoteImPlatform::OnebotV11,
-            remote_contact_type: "group".to_string(),
-            remote_contact_id: "remote-a".to_string(),
-            remote_contact_name: "测试群".to_string(),
-            avatar_url: String::new(),
-            remark_name: String::new(),
-            allow_send: true,
-            allow_send_files: false,
-            allow_receive: true,
-            activation_mode: "never".to_string(),
-            activation_keywords: Vec::new(),
-            mute_keywords: default_remote_im_contact_mute_keywords(),
-            unmute_keywords: default_remote_im_contact_unmute_keywords(),
-            patience_seconds: default_remote_im_contact_patience_seconds(),
-            mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
-            activation_cooldown_seconds: 0,
-            route_mode: "dedicated_contact_conversation".to_string(),
-            bound_agent_id: None,
-            bound_conversation_id: Some("conversation-contact-missing".to_string()),
-            processing_mode: "continuous".to_string(),
-            response_strategy: default_remote_im_contact_response_strategy(),
-            response_guidance: default_remote_im_contact_response_guidance(),
-            blocked_message_prefixes: default_remote_im_contact_blocked_message_prefixes(),
-            group_reply_pacing: RemoteImGroupReplyPacing::default(),
-            last_activated_at: None,
-            last_message_at: None,
-            dingtalk_session_webhook: None,
-            dingtalk_session_webhook_expired_time: None,
-            onebot_group_members: Vec::new(),
-            shell_workspaces: Vec::new(),
-            group_id: None,
-        };
-        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-contact".to_string(),
-            conversation_id: Some("conversation-contact-missing".to_string()),
-            agent_id: None,
-            target_scope: TASK_TARGET_SCOPE_CONTACT.to_string(),
-            order_index: 1,
-            title: "t".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task).expect("resolve task session");
-
-        assert!(session.is_none());
-    }
-
-    #[test]
-    fn task_resolve_dispatch_session_should_use_bound_agent() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        state_write_agents_cached(
-            &state,
-            &[{
-                let mut agent = default_agent();
-                agent.id = "private-agent".to_string();
-                agent.name = "私域任务助理".to_string();
-                agent
-            }, default_user_persona()],
-        )
-        .expect("write agents");
-        let task = TaskRecordStored {
-            task_id: "task-private-agent".to_string(),
-            conversation_id: None,
-            agent_id: Some("private-agent".to_string()),
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "t".to_string(),
-            cause: String::new(),
-            goal: String::new(),
-            flow: String::new(),
-            todos: Vec::new(),
-            status_summary: String::new(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-        let conversation =
-            state_read_conversation_cached(&state, &session.conversation_id).expect("read conversation");
-
-        assert_eq!(session.agent_id, "private-agent");
-        assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert!(session.system_task);
-        assert!(conversation_is_system_notification(&conversation));
-    }
-
-    #[test]
-    fn task_build_dispatch_candidates_should_allow_empty_input() {
-        let state = test_chat_runtime_state();
-        let candidates = task_build_dispatch_candidates(&state, Vec::new(), now_utc())
-            .expect("build dispatch candidates");
-
-        assert!(candidates.is_empty());
-    }
-
-    #[test]
-    fn task_build_dispatch_candidates_should_limit_non_system_tasks_to_one_per_conversation_per_round() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-
-        let create_task = |goal: &str, conversation_id: &str| {
-            task_store_create_task(&state.data_path, &TaskCreateInput {
-                goal: goal.to_string(),
-                conversation_id: Some(conversation_id.to_string()),
-                agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-                why: String::new(),
-                todo: String::new(),
-                trigger: TaskTriggerInputLocal {
-                    run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                    cron_expression: Some("0,30 * * * *".to_string()),
-                    end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                    legacy_every_minutes: None,
-                },
-            })
-            .expect("create task")
-        };
-        let task_1 = create_task("t1", "conversation-main");
-        let task_2 = create_task("t2", "conversation-main");
-        let task_3 = create_task("t3", "conversation-sub");
-        let tasks = vec![
-            task_store_get_task_record(&state.data_path, &task_1.task_id).expect("get task 1"),
-            task_store_get_task_record(&state.data_path, &task_2.task_id).expect("get task 2"),
-            task_store_get_task_record(&state.data_path, &task_3.task_id).expect("get task 3"),
-        ];
-
-        let candidates =
-            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].task.task_id, task_1.task_id);
-        assert_eq!(candidates[0].session.conversation_id, "conversation-main");
-        assert_eq!(candidates[1].task.task_id, task_3.task_id);
-        assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
-    }
-
-    #[test]
-    fn task_build_dispatch_candidates_should_use_conversation_owner_for_legacy_task() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-
-        let missing_owner = task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "missing owner".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: None,
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                cron_expression: Some("0,30 * * * *".to_string()),
-                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create missing owner task");
-        let valid = task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "valid".to_string(),
-            conversation_id: Some("conversation-sub".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                cron_expression: Some("0,30 * * * *".to_string()),
-                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create valid task");
-        let tasks = vec![
-            task_store_get_task_record(&state.data_path, &missing_owner.task_id)
-                .expect("get missing owner task"),
-            task_store_get_task_record(&state.data_path, &valid.task_id)
-                .expect("get valid task"),
-        ];
-
-        let candidates =
-            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].task.task_id, missing_owner.task_id);
-        assert_eq!(candidates[0].session.agent_id, DEFAULT_AGENT_ID);
-        assert_eq!(candidates[1].task.task_id, valid.task_id);
-        let legacy_task = task_store_get_task_record(&state.data_path, &missing_owner.task_id)
-            .expect("get legacy task");
-        assert_eq!(legacy_task.completion_state, TASK_STATE_ACTIVE);
-    }
-
-    #[test]
-    fn task_build_dispatch_candidates_should_allow_multiple_due_system_tasks() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-
-        let create_system_task = |goal: &str| {
-            task_store_create_task(&state.data_path, &TaskCreateInput {
-                goal: goal.to_string(),
-                conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
-                agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-                why: String::new(),
-                todo: String::new(),
-                trigger: TaskTriggerInputLocal {
-                    run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                    cron_expression: Some("0,30 * * * *".to_string()),
-                    end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                    legacy_every_minutes: None,
-                },
-            })
-            .expect("create system task")
-        };
-        let task_1 = create_system_task("system task 1");
-        let task_2 = create_system_task("system task 2");
-        let tasks = vec![
-            task_store_get_task_record(&state.data_path, &task_1.task_id)
-                .expect("get system task 1"),
-            task_store_get_task_record(&state.data_path, &task_2.task_id)
-                .expect("get system task 2"),
-        ];
-
-        let candidates =
-            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].task.task_id, task_1.task_id);
-        assert_eq!(candidates[1].task.task_id, task_2.task_id);
-        assert!(candidates.iter().all(|item| item.session.system_task));
-        assert!(candidates
-            .iter()
-            .all(|item| item.session.conversation_id == SYSTEM_NOTIFICATION_CONVERSATION_ID));
-    }
-
-    #[test]
-    fn task_build_dispatch_candidates_should_skip_busy_conversation_and_wait_for_followup_check() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        set_conversation_runtime_state(&state, "conversation-main", MainSessionState::OrganizingContext)
-            .expect("set busy");
-
-        let created = task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "busy".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                cron_expression: Some("0,30 * * * *".to_string()),
-                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create busy task");
-        let tasks = vec![task_store_get_task_record(&state.data_path, &created.task_id)
-            .expect("get busy task record")];
-
-        let candidates =
-            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
-
-        assert!(candidates.is_empty());
-        let stored = task_store_get_task_record(&state.data_path, &created.task_id)
-            .expect("read busy task after skip");
-        assert_eq!(stored.completion_state, TASK_STATE_ACTIVE);
-        assert!(stored.last_triggered_at_utc.is_none());
-    }
-
-    #[test]
-    fn task_trigger_system_message_should_feed_model_as_user() {
-        let task = TaskRecordStored {
-            task_id: "task-trigger-shape".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "提醒跟进".to_string(),
-            cause: String::new(),
-            goal: "提醒跟进".to_string(),
-            flow: String::new(),
-            todos: vec!["检查结果".to_string()],
-            status_summary: "检查结果".to_string(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-
-        let message = build_task_trigger_message(&task);
-
-        assert_eq!(message.role, "system");
-        assert_eq!(message.speaker_agent_id.as_deref(), Some(SYSTEM_PERSONA_ID));
-        assert_eq!(
-            prompt_role_for_message(&message, DEFAULT_AGENT_ID).as_deref(),
-            Some("user")
-        );
-        let meta = message.provider_meta.as_ref().expect("task provider meta");
-        assert_eq!(meta.get("messageKind").and_then(Value::as_str), Some("task_trigger"));
-    }
-
-    #[test]
-    fn maybe_enqueue_overdue_task_after_idle_should_dispatch_bound_conversation_task() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-
-        let created = task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "idle overdue".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                cron_expression: Some("0,30 * * * *".to_string()),
-                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create overdue task");
-
-        let triggered =
-            maybe_enqueue_overdue_task_after_idle(&state, "conversation-main").expect("enqueue overdue task");
-        assert!(triggered);
-
-        for _ in 0..10 {
-            let stored = task_store_get_task_record(&state.data_path, &created.task_id)
-                .expect("read overdue task");
-            if stored.last_triggered_at_utc.is_some() {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-
-        let stored = task_store_get_task_record(&state.data_path, &created.task_id)
-            .expect("read overdue task after wait");
-        assert!(stored.last_triggered_at_utc.is_some());
-    }
-
-    #[test]
-    fn task_scheduler_next_wake_delay_should_pick_earliest_active_due_time() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let late_utc = (now_utc() + time::Duration::minutes(10))
-            .format(&time::format_description::well_known::Rfc3339)
-            .expect("format late");
-        let soon_utc = (now_utc() + time::Duration::minutes(2))
-            .format(&time::format_description::well_known::Rfc3339)
-            .expect("format soon");
-
-        task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "late".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some(format_utc_storage_time_to_local_rfc3339(&late_utc)),
-                cron_expression: None,
-                end_at: None,
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create late task");
-        task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "soon".to_string(),
-            conversation_id: Some("conversation-sub".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some(format_utc_storage_time_to_local_rfc3339(&soon_utc)),
-                cron_expression: None,
-                end_at: None,
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create soon task");
-
-        let delay = task_scheduler_next_wake_delay(&state)
-            .expect("next wake delay")
-            .expect("delay present");
-
-        assert!(delay <= std::time::Duration::from_secs(2 * 60 + 2));
-    }
-
-    #[test]
-    fn task_scheduler_next_wake_delay_should_not_spin_for_busy_overdue_conversation_task() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        set_conversation_runtime_state(&state, "conversation-main", MainSessionState::OrganizingContext)
-            .expect("set busy");
-
-        task_store_create_task(&state.data_path, &TaskCreateInput {
-            goal: "busy overdue".to_string(),
-            conversation_id: Some("conversation-main".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
-            why: String::new(),
-            todo: String::new(),
-            trigger: TaskTriggerInputLocal {
-                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
-                cron_expression: Some("0,30 * * * *".to_string()),
-                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
-                legacy_every_minutes: None,
-            },
-        })
-        .expect("create busy overdue task");
-
-        let delay = task_scheduler_next_wake_delay(&state).expect("next wake delay");
-
-        assert_eq!(delay, None);
-    }
-
-    #[test]
     fn delegate_parse_session_parts_should_preserve_conversation_in_two_segment_session() {
         let (api_config_id, agent_id, conversation_id) =
             delegate_parse_session_parts("default-agent::conversation-sub");
@@ -11013,8 +10343,8 @@
         assert!(!has_attached_schema(&remote_group_contact_assembly, "update_goal"));
         assert!(!has_executor(&remote_group_contact_assembly, "update_goal"));
         assert!(!has_definition(&remote_group_contact_assembly, "update_goal"));
-        assert!(has_attached_schema(&remote_group_contact_assembly, "task"));
-        assert!(has_executor(&remote_group_contact_assembly, "task"));
+        assert!(has_attached_schema(&remote_group_contact_assembly, "timer"));
+        assert!(has_executor(&remote_group_contact_assembly, "timer"));
         assert!(!has_attached_schema(&remote_group_contact_assembly, "contact_reply"));
         assert!(!has_executor(&remote_group_contact_assembly, "contact_reply"));
         assert!(has_attached_schema(&remote_group_contact_assembly, "contact_send_files"));
@@ -11039,50 +10369,39 @@
         assert!(!has_executor(&remote_group_delegate_assembly, "create_goal"));
         assert!(!has_attached_schema(&remote_group_delegate_assembly, "update_goal"));
         assert!(!has_executor(&remote_group_delegate_assembly, "update_goal"));
-        assert!(has_attached_schema(&remote_group_delegate_assembly, "task"));
-        assert!(has_executor(&remote_group_delegate_assembly, "task"));
-        let created_contact_task = test_runtime()
-            .block_on(builtin_task(
+        assert!(has_attached_schema(&remote_group_delegate_assembly, "timer"));
+        assert!(has_executor(&remote_group_delegate_assembly, "timer"));
+        // 应答委托里可以建定时器；空 conversationId＝全局定时器，只能走委托。
+        let created_timer = test_runtime()
+            .block_on(builtin_timer(
                 &state,
                 &remote_group_delegate_session,
-                &selected_api.id,
-                &agent.id,
-                TaskToolArgsWire {
+                TimerToolArgs {
                     action: "create".to_string(),
-                    task_id: None,
-                    goal: Some("跟进群聊事项".to_string()),
-                    todo: Some("等待下一次联系人会话调度".to_string()),
-                    how: None,
-                    why: Some("远程应答委托创建".to_string()),
-                    title: None,
-                    cause: None,
-                    flow: None,
-                    todos: None,
-                    status_summary: None,
-                    stage_key: None,
-                    append_note: None,
-                    completion_state: None,
-                    completion_conclusion: None,
-                    trigger: Some(TaskTriggerInputLocal {
-                        run_at: Some(now_iso()),
-                        cron_expression: None,
-                        end_at: None,
-                        legacy_every_minutes: None,
-                    }),
+                    timer_id: None,
+                    message: Some("跟进群聊事项".to_string()),
+                    conversation_id: Some(String::new()),
+                    dispatch_mode: None,
+                    enabled: None,
+                    run_at: Some(now_iso()),
+                    cron: None,
+                    end_at: None,
                 },
             ))
-            .expect("remote reply delegate should create a contact task");
-        let task_id = created_contact_task
-            .get("taskId")
+            .expect("remote reply delegate should create a timer");
+        let created_timer_id = created_timer
+            .get("id")
             .and_then(Value::as_str)
-            .expect("created contact task id");
-        let stored_contact_task = task_store_get_task_record(&state.data_path, task_id)
-            .expect("read created contact task");
+            .expect("created timer id")
+            .to_string();
+        let stored_created_timer =
+            timer_store_get_record(&state.data_path, &created_timer_id)
+                .expect("read created timer");
+        assert_eq!(stored_created_timer.conversation_id, None);
         assert_eq!(
-            stored_contact_task.conversation_id.as_deref(),
-            Some(remote_group_contact.id.as_str())
+            stored_created_timer.dispatch_mode,
+            TimerDispatchMode::Delegate
         );
-        assert_eq!(stored_contact_task.target_scope, TASK_TARGET_SCOPE_CONTACT);
         assert_eq!(
             runtime_builtin_tool_authorization_error(
                 &state,
@@ -11123,9 +10442,9 @@
         assert_attached_sets_equal(&disabled_channel_assembly);
 
         let delegate_assembly = assemble_for(&delegate_conversation.id);
-        assert!(!has_attached_schema(&delegate_assembly, "task"));
-        assert!(!has_executor(&delegate_assembly, "task"));
-        assert!(!has_definition(&delegate_assembly, "task"));
+        assert!(!has_attached_schema(&delegate_assembly, "timer"));
+        assert!(!has_executor(&delegate_assembly, "timer"));
+        assert!(!has_definition(&delegate_assembly, "timer"));
         assert!(!has_attached_schema(&delegate_assembly, "plan"));
         assert!(!has_executor(&delegate_assembly, "plan"));
         assert!(!has_definition(&delegate_assembly, "plan"));
@@ -11139,7 +10458,7 @@
     }
 
     #[test]
-    fn builtin_task_should_reject_delegate_conversation() {
+    fn builtin_timer_should_reject_delegate_conversation() {
         let state = test_chat_runtime_state();
         let mut agent = default_agent();
         agent.id = "delegate-agent".to_string();
@@ -11159,38 +10478,24 @@
 
         let session_id = format!("{}::{}", agent.id, delegate_conversation.id);
         let err = test_runtime()
-            .block_on(builtin_task(
+            .block_on(builtin_timer(
                 &state,
                 &session_id,
-                "api-a",
-                &agent.id,
-                TaskToolArgsWire {
+                TimerToolArgs {
                     action: "create".to_string(),
-                    task_id: None,
-                    goal: Some("递归任务".to_string()),
-                    todo: Some("不应创建".to_string()),
-                    how: None,
-                    why: Some("委托线程回归测试".to_string()),
-                    title: None,
-                    cause: None,
-                    flow: None,
-                    todos: None,
-                    status_summary: None,
-                    stage_key: None,
-                    append_note: None,
-                    completion_state: None,
-                    completion_conclusion: None,
-                    trigger: Some(TaskTriggerInputLocal {
-                        run_at: Some(now),
-                        cron_expression: None,
-                        end_at: None,
-                        legacy_every_minutes: None,
-                    }),
+                    timer_id: None,
+                    message: Some("递归定时器".to_string()),
+                    conversation_id: Some(String::new()),
+                    dispatch_mode: None,
+                    enabled: None,
+                    run_at: Some(now),
+                    cron: None,
+                    end_at: None,
                 },
             ))
-            .expect_err("delegate conversation should reject task tool");
+            .expect_err("delegate conversation should reject timer tool");
 
-        assert!(err.contains("委托线程中禁止使用 task 工具"));
+        assert!(err.contains("委托线程中禁止增删定时器"));
     }
 
     #[test]
@@ -11603,64 +10908,6 @@
             plan.target_api_config_ids,
             vec![api_endpoint_id("api-a", "api-a-model-default")]
         );
-    }
-
-    /// 系统任务委托：正文必须是完整指令，不能只剩回填出来的标题。
-    #[tokio::test]
-    async fn system_task_delegate_should_put_full_instruction_into_prompt() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
-        state_write_app_data_cached(&state, &data).expect("write app data");
-        let task = TaskRecordStored {
-            task_id: "task-delegate-prompt".to_string(),
-            conversation_id: Some("conversation-sub".to_string()),
-            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: "每日部署检查".to_string(),
-            cause: String::new(),
-            goal: "把今天的部署结果汇总成一段结论".to_string(),
-            flow: String::new(),
-            todos: vec!["先查部署日志".to_string()],
-            status_summary: "先查部署日志".to_string(),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: None,
-                cron_expression: None,
-                legacy_every_minutes: None,
-                end_at_utc: None,
-                next_run_at_utc: None,
-            },
-            created_at_utc: now_utc_rfc3339(),
-            updated_at_utc: now_utc_rfc3339(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        };
-        let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-
-        let delegate_id = task_dispatch_system_delegate(&state, &task, &session)
-            .expect("dispatch system task delegate");
-        let stored = delegate_store_get_delegate(&state.data_path, &delegate_id)
-            .expect("read delegate record");
-
-        assert!(
-            stored.prompt.contains("把今天的部署结果汇总成一段结论"),
-            "正文要含任务目标：{}",
-            stored.prompt
-        );
-        assert!(
-            stored.prompt.contains("先查部署日志"),
-            "正文要含待办原文：{}",
-            stored.prompt
-        );
-        assert_ne!(stored.prompt, stored.goal, "正文不能退化成回填出来的标题");
     }
 
     /// 护航委托：正文是算出来的审查词，不是 `goal` 里那句泛化目标。
@@ -18381,7 +17628,7 @@
             ("kanban_set_plan", json!({"number": 1, "planPath": ".pai/plan/x.md"})),
             ("question", json!("当前会话问题（共 1 条）：\n\n#1 t")),
             ("get_tool", json!("已记录：read，下轮可用")),
-            ("task", json!({"task_id": "t1", "goal": "标题", "completion_state": "active", "completion_conclusion": "", "trigger": {"run_at": null, "cron_expression": null, "every_minutes": 0.0, "end_at": null, "next_run_at": null}})),
+            ("timer", json!({"id": "1", "message": "每天早上九点提醒开会", "conversationId": null, "dispatchMode": "delegate", "enabled": true, "runAt": "2026-03-01T09:00:00+08:00", "cron": "0 9 * * *", "endAt": null, "lastTriggeredAt": null, "nextRunAt": "2026-03-02T09:00:00+08:00", "createdAt": "2026-02-28T10:00:00+08:00"})),
             ("create_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "active", "startedAt": "t", "endedAt": null, "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": null}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
             ("update_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "complete", "startedAt": "t", "endedAt": "t2", "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
             ("get_session", json!([{"sessionId": "s1", "kind": "local_unarchived", "title": "t", "personaName": "我", "remoteContactId": null, "remoteContactName": null, "channelName": null, "updatedAt": "t"}])),
@@ -18467,59 +17714,12 @@
 
     /// 回执不得出现调用方刚提交的那段正文。
     ///
-    /// 逐项钉住九处入参回显的修复：task / delegate / create_goal / update_goal 走纯函数，
+    /// 逐项钉住入参回显的修复：delegate / create_goal / update_goal 走纯函数，
     /// team_send / team_report / inform_session / question 的 json! 与模板里已无该字段，
     /// 由样例形状（`builtin_tool_output_samples`）固定。
     #[test]
     fn tool_receipt_should_not_echo_submitted_text() {
         const MARKER: &str = "回显标记-7f3a";
-
-        // task：why / todo 不回执；goal 在 list/get 里当标题保留；
-        // completion_state / completion_conclusion 是控制流依赖，必须留。
-        // TaskEntry 按蛇形序列化，夹具也用蛇形，否则测的是不存在的分支。
-        let task_list_receipt = task_tool_receipt(
-            serde_json::json!({
-                "task_id": "t1",
-                "goal": "标题",
-                "why": MARKER,
-                "todo": MARKER,
-                "completion_state": "complete",
-                "completion_conclusion": "结论原文",
-            }),
-            true,
-        );
-        let task_list_text = task_list_receipt.to_string();
-        assert!(
-            !task_list_text.contains(MARKER),
-            "task 回执回显了调用方提交的正文：{task_list_text}"
-        );
-        assert_eq!(
-            task_list_receipt.get("goal").and_then(Value::as_str),
-            Some("标题"),
-            "list/get 里 goal 是任务唯一的标题，不能删"
-        );
-        assert_eq!(
-            task_list_receipt
-                .get("completion_conclusion")
-                .and_then(Value::as_str),
-            Some("结论原文"),
-            "completion_conclusion 是任务控制流依赖，不能一起删掉"
-        );
-
-        // create / complete 是刚提交完那一刻，goal 属于回显，一起剥掉。
-        let task_create_receipt = task_tool_receipt(
-            serde_json::json!({
-                "task_id": "t1",
-                "goal": MARKER,
-                "why": MARKER,
-                "todo": MARKER,
-            }),
-            false,
-        );
-        assert!(
-            !task_create_receipt.to_string().contains(MARKER),
-            "create/complete 回执仍带调用方正文：{task_create_receipt}"
-        );
 
         // delegate：why / goal / todo 不回执；标识与调用栈保留。
         let entry: DelegateEntry = serde_json::from_value(serde_json::json!({

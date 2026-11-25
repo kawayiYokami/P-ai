@@ -27,7 +27,10 @@ const DATA_MIGRATION_VERSION_V8_DEPUTY_NOT_SYSTEM: u32 = 8;
 /// V9：人格从单文件 `config/agents.json` 拆成 `config/agents/<id>.json`，一人格一文件。
 /// 拆分后业务代码只读目录；旧单文件留在原地，不再被业务读写。
 const DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE: u32 = 9;
-const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V9_AGENTS_PER_FILE;
+/// V10：旧 Jira 式任务账本（`task/task_store.db`）退场，会话定时改由 `state/state.sqlite`
+/// 的 `timers` 表承载，旧行无模式平移过去。旧文件留在原地，版本推进后永不回头检测。
+const DATA_MIGRATION_VERSION_V10_TASK_TO_TIMER: u32 = 10;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V10_TASK_TO_TIMER;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";

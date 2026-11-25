@@ -296,10 +296,6 @@ async fn process_claimed_conversation_batch(
         && maybe_enqueue_goal_continue_after_idle(state, conversation_id).unwrap_or(false)
     {
         trigger_chat_queue_processing(state);
-    } else if result_ok
-        && maybe_enqueue_overdue_task_after_idle(state, conversation_id).unwrap_or(false)
-    {
-        trigger_chat_queue_processing(state);
     } else {
         handle_conversation_stopped(
             state,
@@ -396,10 +392,6 @@ async fn process_guided_queue_when_idle(
         trigger_chat_queue_processing(state);
     } else if guided_result_ok
         && maybe_enqueue_goal_continue_after_idle(state, conversation_id).unwrap_or(false)
-    {
-        trigger_chat_queue_processing(state);
-    } else if guided_result_ok
-        && maybe_enqueue_overdue_task_after_idle(state, conversation_id).unwrap_or(false)
     {
         trigger_chat_queue_processing(state);
     } else {

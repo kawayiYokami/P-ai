@@ -261,8 +261,8 @@ fn delegate_runtime_thread_create(
             delegate.delegate_id
         ));
     }
-    if task_conversation_id_is_system_notification(&delegate.conversation_id) {
-        task_ensure_system_notification_conversation(app_state)?;
+    if timer_conversation_id_is_system_notification(&delegate.conversation_id) {
+        conversation_service_v2().ensure_system_notification_conversation(app_state)?;
     } else {
         conversation_service_v2()
             .get_conversation_meta(app_state, &delegate.conversation_id)

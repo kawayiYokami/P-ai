@@ -12,7 +12,7 @@
         <MonitorOverview
           class="h-full w-full"
           :delegate-statuses="delegates"
-          :running-tasks="tasks"
+          :running-timers="timers"
           :background-shells="backgroundShells"
           :latest-batches="batches"
         />
@@ -30,7 +30,7 @@ import type {
   ConversationDelegateStatusSummary,
 } from "../../../types/app";
 import type { ToolReviewBatchSummary } from "../../chat/composables/use-chat-tool-review";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { TimerEntry } from "../../chat/utils/timer-entry";
 
 const preset = ref<"empty" | "normal" | "busy" | "backgroundOnly">("normal");
 
@@ -55,8 +55,8 @@ function makeDelegate(index: number, status: string): ConversationDelegateStatus
   };
 }
 
-function makeTask(index: number): TaskEntry {
-  const goals = [
+function makeTimer(index: number): TimerEntry {
+  const messages = [
     "每周整理一次 changelog 未发布条目",
     "补齐后台 shell 终止的回归测试",
     "梳理监控面板 tab 的状态链路",
@@ -64,19 +64,19 @@ function makeTask(index: number): TaskEntry {
     "核对三语言包缺失的 key",
   ];
   return {
-    taskId: `demo-task-${index}`,
-    orderIndex: index,
-    goal: goals[index % goals.length],
-    why: "保持发布流程可追溯",
-    todo: "检查清单并逐项归类",
-    completionState: "active",
-    completionConclusion: "",
-    progressNotes: [],
-    trigger: index < 3
-      ? { next_run_at: new Date(Date.now() + (index === 0 ? 5 : index === 1 ? 125 : 1490) * 60000).toISOString() }
-      : {},
-    createdAtLocal: new Date().toISOString(),
-    updatedAtLocal: new Date().toISOString(),
+    id: `demo-timer-${index}`,
+    message: messages[index % messages.length],
+    conversationId: "demo",
+    dispatchMode: index % 2 === 0 ? "direct" : "delegate",
+    enabled: true,
+    runAt: new Date(Date.now() - 60000).toISOString(),
+    cron: index % 2 === 0 ? "0 9 * * *" : null,
+    endAt: null,
+    lastTriggeredAt: null,
+    nextRunAt: index < 3
+      ? new Date(Date.now() + (index === 0 ? 5 : index === 1 ? 125 : 1490) * 60000).toISOString()
+      : null,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -104,10 +104,10 @@ const delegates = computed<ConversationDelegateStatusSummary[]>(() => {
   return [makeDelegate(0, "running"), makeDelegate(1, "delivered")];
 });
 
-const tasks = computed<TaskEntry[]>(() => {
+const timers = computed<TimerEntry[]>(() => {
   if (preset.value === "empty" || preset.value === "backgroundOnly") return [];
-  if (preset.value === "busy") return [0, 1, 2, 3, 4].map((index) => makeTask(index));
-  return [makeTask(0)];
+  if (preset.value === "busy") return [0, 1, 2, 3, 4].map((index) => makeTimer(index));
+  return [makeTimer(0)];
 });
 
 const backgroundShells = computed<BackgroundShellTaskSummary[]>(() => {
