@@ -3,7 +3,7 @@ import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 import DelegateScheduleTimeline from "./DelegateScheduleTimeline.vue";
 import { i18n } from "../../../i18n";
-import type { ArchiveBlockPage, ScheduleRun } from "../../../types/app";
+import type { ArchiveBlockPage, ConversationDelegateStatusSummary, ScheduleRun } from "../../../types/app";
 
 describe("DelegateScheduleTimeline", () => {
   it("renders thought, semantic tool calls, and final text cleanly", async () => {
@@ -51,12 +51,30 @@ describe("DelegateScheduleTimeline", () => {
       hasNextBlock: false,
     };
 
+    const statusSnapshot: ConversationDelegateStatusSummary = {
+      delegateId: "conv-1",
+      kind: "delegate",
+      conversationId: "conv-1",
+      rootConversationId: "root-1",
+      title: "委托",
+      status: "completed",
+      active: false,
+      startedAt: "2026-11-02T10:00:00Z",
+      updatedAt: "2026-11-02T10:01:14Z",
+      elapsedMs: 74000,
+      requestCount: 14,
+      toolCallCount: 1,
+      lastToolName: "deeprecall_search",
+      tokenCount: 0,
+    };
+
     const app = createSSRApp({
       render: () =>
         h(DelegateScheduleTimeline, {
           conversationId: "conv-1",
           initialRuns,
           initialBlockPage,
+          statusSnapshot,
         }),
     });
     app.use(i18n);

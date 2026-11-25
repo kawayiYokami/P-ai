@@ -68,12 +68,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 import DelegateScheduleTimeline from "./DelegateScheduleTimeline.vue";
 
-defineProps<{
+const props = defineProps<{
   statuses: ConversationDelegateStatusSummary[];
   errorText: string;
 }>();
@@ -105,8 +105,16 @@ watch(detailDialogRef, syncDetailDialog);
 const detailDialogTitle = ref("");
 const detailDialogConversationId = ref("");
 const detailDialogRefreshKey = ref("");
-// 列表那行的状态汇总：重启后 Run 的耗时倒推不出来，用它兜住起止时间与步数
-const detailStatusSnapshot = ref<ConversationDelegateStatusSummary | null>(null);
+// 列表那行的状态汇总：重启后 Run 的耗时倒推不出来，用它兜住起止时间与步数。
+// 跟着列表刷新走，面板开着跑完也能拿到写回消息 id。
+const detailStatusSnapshot = computed<ConversationDelegateStatusSummary | null>(
+  () =>
+    props.statuses.find(
+      (status) =>
+        String(status?.conversationId || status?.delegateId || "").trim() ===
+        detailDialogConversationId.value,
+    ) || null,
+);
 
 function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
   const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
@@ -114,7 +122,6 @@ function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
   detailDialogTitle.value = String(status?.title || status?.delegateId || "委托详情");
   detailDialogConversationId.value = conversationId;
   detailDialogRefreshKey.value = `${status.status}:${status.updatedAt}`;
-  detailStatusSnapshot.value = status;
   detailDialogOpen.value = true;
 }
 

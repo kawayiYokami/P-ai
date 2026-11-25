@@ -2899,14 +2899,13 @@ async fn send_chat_message_inner(
                 // 最终落账时把完整一组（工具行们 + 正文行）一次性补进历史会话，
                 // 使下次应答委托读历史能拿到上次工具结果，不必从 0 开始。
                 // 中间正文已中途外发不落账；此处只补工具事件对，正文行由 append_final_text 写入。
-                if let Some(_delegate_id) = runtime_context
+                if let Some(delegate_id) = runtime_context
                     .remote_im_reply_delegate_id
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                 {
-                    // 补写工具行失败不中断最终落账：正文行仍由 append_final_text 写入，
-                    // 工具行丢失可留待下次委托重读，正文丢失影响更大。
+                    // 联系人会话的历史要带工具行，下次应答委托读历史才知道上次跑过什么。
                     match append_remote_im_delegate_tool_events_to_history(
                         &state,
                         &conversation_id,
@@ -2923,6 +2922,34 @@ async fn send_chat_message_inner(
                             runtime_log_warn(format!(
                                 "[委托] 补写工具行失败，继续正文落账 错误={}",
                                 err
+                            ));
+                        }
+                    }
+                    // 过程落在委托会话快照里，面板只读这一份。
+                    if !tool_history_events.is_empty() {
+                        let tool_rows = ChatMessage {
+                            id: format!(
+                                "remote-im-tool-history-{delegate_id}-{assistant_message_id}"
+                            ),
+                            role: "assistant".to_string(),
+                            created_at: now_iso(),
+                            speaker_agent_id: Some(current_agent.id.clone()),
+                            parts: Vec::new(),
+                            extra_text_blocks: Vec::new(),
+                            provider_meta: None,
+                            tool_call: Some(tool_history_events.clone()),
+                            mcp_call: None,
+                            meme_annotations: None,
+                        };
+                        if let Err(err) = remote_im_reply_delegate_mirror_message(
+                            &state,
+                            delegate_id,
+                            tool_rows,
+                            None,
+                        ) {
+                            runtime_log_warn(format!(
+                                "[委托] 失败 任务=过程写入委托会话 委托={} 错误={}",
+                                delegate_id, err
                             ));
                         }
                     }
@@ -2963,6 +2990,45 @@ async fn send_chat_message_inner(
                     }
                     // 远程应答不向普通聊天 Channel 推送 delta，最终正文须显式广播。
                     emit_conversation_message_appended_event(&state, &conversation_id, message);
+                    // 统计覆盖必须排在所有委托会话写入之后：每次写会话都会按消息重算快照，
+                    // 早写会被冲掉。这里用本轮真实值定稿。
+                    let mut round_tool_calls = 0usize;
+                    let mut round_last_tool_name = String::new();
+                    for event in &tool_history_events {
+                        let Some(calls) = event.get("tool_calls").and_then(Value::as_array) else {
+                            continue;
+                        };
+                        round_tool_calls = round_tool_calls.saturating_add(calls.len());
+                        if let Some(name) = calls
+                            .last()
+                            .and_then(|call| call.get("function"))
+                            .and_then(|func| func.get("name"))
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                        {
+                            round_last_tool_name = name.to_string();
+                        }
+                    }
+                    let round_output_tokens = message
+                        .provider_meta
+                        .as_ref()
+                        .and_then(|meta| meta.get("completionTokens"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    if let Err(err) = delegate_snapshot_apply_round_stats(
+                        &state.data_path,
+                        delegate_id,
+                        round_tool_calls,
+                        round_tool_calls,
+                        &round_last_tool_name,
+                        round_output_tokens,
+                    ) {
+                        runtime_log_warn(format!(
+                            "[委托] 失败 任务=覆盖本轮统计 委托={} 错误={}",
+                            delegate_id, err
+                        ));
+                    }
                 }
                 runtime_log_debug(format!(
                     "[聊天] 提交后 落盘标注数={} 落盘词元=[{}]",

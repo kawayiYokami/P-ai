@@ -149,23 +149,17 @@ let copyResetTimer: ReturnType<typeof window.setTimeout> | null = null;
 
 const currentRun = computed(() => runs.value[0] || null);
 
-/**
- * 后端冷路径合成的 Run（应用重启、内存事件已清）起止时间取自同一批持久化消息，
- * 两条相同就把耗时算成 0。列表那行的状态汇总里是准的，这种情况下改用它。
- */
-const runIsPersistedSynthesis = computed(() => String(currentRun.value?.runId || "").startsWith("persisted-"));
-const displaySnapshot = computed(() => (runIsPersistedSynthesis.value ? props.statusSnapshot || null : null));
+// 详情里的耗时、步数一律取状态汇总那一份，和列表行同源；run 只提供状态与模型名。
+const displaySnapshot = computed(() => props.statusSnapshot || null);
 const displayStartedAt = computed(() => displaySnapshot.value?.startedAt || currentRun.value?.startedAt || "");
 const displayUpdatedAt = computed(() => displaySnapshot.value?.updatedAt || currentRun.value?.updatedAt || "");
 const displayElapsedMs = computed(() => {
   const snapshotElapsed = displaySnapshot.value?.elapsedMs;
-  if (Number.isFinite(snapshotElapsed) && (snapshotElapsed as number) > 0) return snapshotElapsed as number;
-  return currentRun.value?.elapsedMs ?? 0;
+  return Number.isFinite(snapshotElapsed) ? (snapshotElapsed as number) : 0;
 });
 const displayRequestCount = computed(() => {
   const snapshotCount = displaySnapshot.value?.requestCount;
-  if (Number.isFinite(snapshotCount) && (snapshotCount as number) > 0) return snapshotCount as number;
-  return currentRun.value?.requestCount ?? 0;
+  return Number.isFinite(snapshotCount) ? (snapshotCount as number) : 0;
 });
 
 const isRunning = computed(() => currentRun.value?.status === "running");

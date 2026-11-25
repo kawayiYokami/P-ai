@@ -533,7 +533,10 @@ fn delegate_snapshot_stats_from_conversation(
     let mut tool_call_count = 0usize;
     let mut last_tool_name = String::new();
     for message in &conversation.messages {
-        if message.role != "assistant" || delegate_snapshot_compaction_kind(message).is_some() {
+        if message.role != "assistant"
+            || delegate_snapshot_compaction_kind(message).is_some()
+            || delegate_snapshot_message_is_internal(message)
+        {
             continue;
         }
         let events = normalize_message_tool_history_events(message, MessageToolHistoryView::Display);
@@ -572,6 +575,38 @@ fn delegate_snapshot_stats_from_conversation(
     (request_count, tool_call_count, last_tool_name, cumulative_usage)
 }
 
+/// 用调度收口那一刻的真实数字覆盖快照统计。
+///
+/// 委托会话里混着冻结的联系人历史，事后按消息数会把它算进来；写回时手上才是本轮真实值。
+fn delegate_snapshot_apply_round_stats(
+    data_path: &PathBuf,
+    delegate_id: &str,
+    step_count: usize,
+    tool_call_count: usize,
+    last_tool_name: &str,
+    output_tokens: u64,
+) -> Result<(), String> {
+    let Some(mut snapshot) = delegate_snapshot_store_read(data_path, delegate_id)? else {
+        return Ok(());
+    };
+    snapshot.step_count = step_count;
+    snapshot.tool_call_count = tool_call_count;
+    snapshot.last_tool_name = last_tool_name.to_string();
+    if output_tokens > 0 {
+        snapshot.cumulative_usage.output_tokens = output_tokens;
+    }
+    delegate_snapshot_cache_write(data_path, snapshot)
+}
+
+fn delegate_snapshot_message_is_internal(message: &ChatMessage) -> bool {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("remote_im_delegate_internal"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 fn delegate_snapshot_effective_prompt_tokens(message: &ChatMessage) -> Option<u64> {
     message
         .provider_meta
@@ -605,6 +640,9 @@ fn delegate_snapshot_token_count(messages: &[ChatMessage]) -> u64 {
     let mut total = 0u64;
     let mut latest_segment_usage = None::<u64>;
     for message in messages {
+        if delegate_snapshot_message_is_internal(message) {
+            continue;
+        }
         if let Some(value) = delegate_snapshot_effective_prompt_tokens(message) {
             latest_segment_usage = Some(value);
         }
@@ -1146,13 +1184,24 @@ fn delegate_store_get_delegate(data_path: &PathBuf, delegate_id: &str) -> Result
     .map_err(|err| format!("读取委托记录失败: {err}"))
 }
 
+/// 删掉已终结的委托：先让内存不认识它，再由内存把删除落到库。
 fn delegate_store_delete_terminal_delegate(data_path: &PathBuf, delegate_id: &str) -> Result<bool, String> {
+    let delegate_id = delegate_id.trim();
+    {
+        let mut cache = delegate_snapshot_cache_store()
+            .lock()
+            .map_err(|_| "Failed to lock delegate snapshot cache".to_string())?;
+        if let Some(snapshot_cache) = cache.get_mut(&delegate_snapshot_cache_key(data_path)) {
+            snapshot_cache.by_delegate_id.remove(delegate_id);
+            *snapshot_cache = delegate_snapshot_cache_from_map(snapshot_cache.by_delegate_id.clone());
+        }
+    }
     let conn = delegate_store_open(data_path)?;
     let affected = conn.execute(
         "DELETE FROM delegate_record WHERE delegate_id = ?1 AND status IN (?2, ?3)",
-        params![delegate_id.trim(), DELEGATE_STATUS_COMPLETED, DELEGATE_STATUS_FAILED],
+        params![delegate_id, DELEGATE_STATUS_COMPLETED, DELEGATE_STATUS_FAILED],
     )
-    .map_err(|err| format!("删除已终结委托记录失败，delegate_id={}，error={err}", delegate_id.trim()))?;
+    .map_err(|err| format!("删除已终结委托记录失败，delegate_id={}，error={err}", delegate_id))?;
     Ok(affected > 0)
 }
 
@@ -1530,6 +1579,96 @@ mod delegate_store_tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].delegate_id, entry.delegate_id);
         assert_eq!(snapshots[0].message_count, 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn delete_terminal_delegate_should_forget_it_from_cache() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-delegate-delete-terminal-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("config_mark");
+
+        let entry =
+            delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");
+        let conversation = test_delegate_conversation(&entry);
+        delegate_conversation_store_write(&data_path, &conversation).expect("write conversation");
+        delegate_snapshot_cache_list(&data_path).expect("load snapshot cache");
+        delegate_store_update_status(&data_path, &entry.delegate_id, DELEGATE_STATUS_COMPLETED)
+            .expect("mark completed");
+        assert!(
+            delegate_snapshot_cache_get(&data_path, &entry.delegate_id)
+                .expect("get snapshot")
+                .is_some(),
+            "删除前列表认识这条委托"
+        );
+
+        delegate_store_delete_terminal_delegate(&data_path, &entry.delegate_id)
+            .expect("delete terminal delegate");
+
+        assert!(
+            delegate_snapshot_cache_get(&data_path, &entry.delegate_id)
+                .expect("get snapshot")
+                .is_none(),
+            "删除后内存不该再认识这条委托"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stats_should_ignore_internal_snapshot_messages() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-delegate-stats-internal-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("config_mark");
+        let entry =
+            delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");
+        let mut conversation = test_delegate_conversation(&entry);
+        let tool_event = serde_json::json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": { "name": "exec", "arguments": "{}" }
+            }]
+        });
+        conversation.messages.push(ChatMessage {
+            id: "snapshot-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: entry.updated_at.clone(),
+            speaker_agent_id: None,
+            parts: Vec::new(),
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({ "remote_im_delegate_internal": true })),
+            tool_call: Some(vec![tool_event.clone()]),
+            mcp_call: None,
+            meme_annotations: None,
+        });
+
+        let (_, tool_call_count, _, _) = delegate_snapshot_stats_from_conversation(&conversation);
+        assert_eq!(
+            tool_call_count, 0,
+            "内部快照消息里的历史工具不该算进这条委托"
+        );
+
+        conversation.messages.push(ChatMessage {
+            id: "plain-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: entry.updated_at.clone(),
+            speaker_agent_id: None,
+            parts: Vec::new(),
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(vec![tool_event]),
+            mcp_call: None,
+            meme_annotations: None,
+        });
+
+        let (_, tool_call_count, _, _) = delegate_snapshot_stats_from_conversation(&conversation);
+        assert_eq!(tool_call_count, 1, "本轮自己的工具要算进去");
         let _ = fs::remove_dir_all(root);
     }
 }

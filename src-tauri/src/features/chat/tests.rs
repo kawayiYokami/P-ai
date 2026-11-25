@@ -12988,6 +12988,44 @@
     }
 
     #[test]
+    fn schedule_run_should_be_queryable_by_remote_reply_delegate_id() {
+        let state = test_chat_runtime_state();
+        let contact_conversation_id = "conversation-remote-contact";
+        let delegate_id = "delegate-remote-reply";
+        let mut runtime_context = RuntimeContext::default();
+        runtime_context.remote_im_reply_delegate_id = Some(delegate_id.to_string());
+        schedule_event_run_start_with_instant(
+            &state,
+            &runtime_context,
+            contact_conversation_id,
+            "run-remote-1",
+            "2026-08-28T13:00:00Z",
+            None,
+            0,
+            serde_json::json!({"traceId": "run-remote-1"}),
+        )
+        .expect("start run");
+        schedule_event_push_if_delegate(
+            &state,
+            &runtime_context,
+            contact_conversation_id,
+            "run-remote-1",
+            "tool_call",
+            0,
+            None,
+            serde_json::json!({"toolName": "exec"}),
+        )
+        .expect("push tool call");
+        let runs =
+            schedule_event_list_runs_inner(&state, delegate_id).expect("list by delegate id");
+        assert_eq!(runs.len(), 1, "按 delegateId 必须查得到远程应答委托的 run");
+        assert!(
+            !runs[0].events.is_empty(),
+            "查到的 run 必须带过程事件"
+        );
+    }
+
+    #[test]
     fn list_schedule_runs_should_stay_empty_when_memory_and_disk_have_no_delegate_events() {
         let state = test_chat_runtime_state();
         // delegate- 键：内存与磁盘皆无事件，返回空且不报错
