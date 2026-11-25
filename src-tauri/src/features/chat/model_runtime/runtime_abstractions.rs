@@ -184,6 +184,23 @@ fn receipt_plural(count: usize, singular: &str, plural: &str) -> String {
     }
 }
 
+/// 把毫秒时间戳说成「多久以前」：模型要判断的是新鲜度，不是绝对时刻。
+fn receipt_ago_text(finished_at_ms: u64) -> String {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or(0);
+    if finished_at_ms == 0 || finished_at_ms >= now_ms {
+        return "just now".to_string();
+    }
+    let seconds = (now_ms - finished_at_ms) / 1000;
+    match seconds {
+        0..=59 => format!("{seconds}s ago"),
+        60..=3599 => format!("{}m ago", seconds / 60),
+        _ => format!("{}h ago", seconds / 3600),
+    }
+}
+
 fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
     match tool_name {
         "recall" => {
@@ -588,6 +605,122 @@ fn tool_receipt_text(tool_name: &str, value: &Value) -> Option<String> {
             } else {
                 format!("sent to {id}")
             })
+        }
+        "automation" => {
+            // get 的回执就是那份 guide，令牌必须原样跟到模型眼前：
+            // 只给一行摘要等于把「脚本怎么说话」这件事从回执里删掉。
+            let guide = value_string(value, "guide").unwrap_or_default();
+            if guide.is_empty() {
+                // reload 的回执只有 ok / tasks / errors。摘要必须把三样都摆出来，
+                // 否则模型看到的只是一句「成功 / 失败」，错在哪、改了哪条全靠猜。
+                let ok = value.get("ok").and_then(Value::as_bool);
+                let tasks = value
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let errors = value
+                    .get("errors")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                // ok 缺失不能当成失败：那会写出「failed 但没有 error」这种自相矛盾的行，
+                // 模型只能靠猜，而它猜的方向通常是错的。
+                let head = match (ok, errors.is_empty()) {
+                    (Some(true), _) => format!("automation reloaded — {} task(s)", tasks.len()),
+                    (Some(false), false) => {
+                        format!("automation reload failed — {} error(s)", errors.len())
+                    }
+                    (Some(false), true) => {
+                        "automation reload failed — receipt carries no error detail".to_string()
+                    }
+                    (None, true) => format!("automation reloaded — {} task(s)", tasks.len()),
+                    (None, false) => {
+                        format!("automation reload failed — {} error(s)", errors.len())
+                    }
+                };
+                let mut lines = vec![head];
+                for task in &tasks {
+                    let id = value_string(task, "id").unwrap_or_default();
+                    let command = value_string(task, "command").unwrap_or_default();
+                    let state = value_string(task, "state").unwrap_or_default();
+                    let cadence = match task.get("intervalSeconds").and_then(Value::as_u64) {
+                        Some(seconds) if seconds > 0 => format!("every {seconds}s"),
+                        _ => "resident".to_string(),
+                    };
+                    lines.push(format!("- {id}: {command} ({cadence}, {state})"));
+                }
+                for error in &errors {
+                    if let Some(text) = error.as_str() {
+                        lines.push(format!("- error: {text}"));
+                    }
+                }
+                Some(lines.join("\n"))
+            } else {
+                let token = value_string(value, "token").unwrap_or_default();
+                // 清单必须跟到模型眼前，并且带上最近一次执行结果：
+                // 「脚本跑没跑、成没成」应该从回执直接读到，不该去翻日志或猜状态文件。
+                let mut lines = vec![guide];
+                let tasks = value
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if tasks.is_empty() {
+                    lines.push("manifest: no tasks registered".to_string());
+                } else {
+                    lines.push(format!("manifest: {} task(s)", tasks.len()));
+                    for task in &tasks {
+                        let id = value_string(task, "id").unwrap_or_default();
+                        let command = value_string(task, "command").unwrap_or_default();
+                        let cadence = match task.get("intervalSeconds").and_then(Value::as_u64) {
+                            Some(seconds) if seconds > 0 => format!("every {seconds}s"),
+                            _ => "resident".to_string(),
+                        };
+                        let running =
+                            task.get("running").and_then(Value::as_bool).unwrap_or(false);
+                        let mut status =
+                            if running { "running".to_string() } else { "not running".to_string() };
+                        if let Some(last) = task.get("lastRun").filter(|last| !last.is_null()) {
+                            let code = last
+                                .get("exitCode")
+                                .and_then(Value::as_i64)
+                                .map(|code| code.to_string())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            let duration =
+                                last.get("durationMs").and_then(Value::as_u64).unwrap_or(0);
+                            let at =
+                                last.get("finishedAtMs").and_then(Value::as_u64).unwrap_or(0);
+                            status.push_str(&format!(
+                                "; last run {} exit {code} in {duration}ms",
+                                receipt_ago_text(at)
+                            ));
+                        } else if running {
+                            status.push_str("; no run finished yet");
+                        }
+                        lines.push(format!("- {id}: {command} ({cadence}) — {status}"));
+                    }
+                }
+                lines.push(format!("token: {token}"));
+                // 最近日志跟到模型眼前：问一次 get 就能看到脚本刚打印了什么、上一轮怎么退出的，
+                // 不必去猜日志路径、也不必拿脚本自己的状态文件当证据。
+                let recent = value
+                    .get("recentLog")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if recent.is_empty() {
+                    lines.push("recent log: nothing for this conversation yet".to_string());
+                } else {
+                    lines.push(format!("recent log (last {}):", recent.len()));
+                    for line in &recent {
+                        if let Some(text) = line.as_str() {
+                            lines.push(format!("  {text}"));
+                        }
+                    }
+                }
+                Some(lines.join("\n"))
+            }
         }
         "team_recruit" => {
             let role = value_string(value, "role").unwrap_or_default();
@@ -1225,5 +1358,80 @@ mod runtime_tool_result_tests {
             }),
         );
         assert_eq!(create.output, "remembered 7099");
+    }
+
+    /// reload 回执：errors 为空就是成功，ok 缺失也不能当失败。
+    /// 曾经写成「ok 取不到就 false」，于是出现「failed 但一条 error 都没有」的自相矛盾输出，
+    /// 模型连着两轮据此判断脚本没跑。
+    #[test]
+    fn automation_reload_receipt_should_not_invent_failure() {
+        let with_ok = |ok: Option<bool>, errors: Vec<&str>| {
+            let mut map = serde_json::Map::new();
+            if let Some(ok) = ok {
+                map.insert("ok".to_string(), serde_json::Value::Bool(ok));
+            }
+            map.insert(
+                "tasks".to_string(),
+                serde_json::json!([{
+                    "id": "scan", "command": "python scan.py",
+                    "intervalSeconds": 1800, "state": "running"
+                }]),
+            );
+            map.insert("errors".to_string(), serde_json::json!(errors));
+            serde_json::Value::Object(map)
+        };
+
+        let ok_true = provider_tool_output_from_value("automation", &with_ok(Some(true), vec![]));
+        assert!(ok_true.contains("reloaded"), "errors 为空就是成功：{ok_true}");
+        assert!(ok_true.contains("scan"), "要列出任务：{ok_true}");
+
+        let ok_missing = provider_tool_output_from_value("automation", &with_ok(None, vec![]));
+        assert!(
+            ok_missing.contains("reloaded"),
+            "ok 缺失且 errors 为空，不能判失败：{ok_missing}"
+        );
+
+        let failed_without_detail =
+            provider_tool_output_from_value("automation", &with_ok(Some(false), vec![]));
+        assert!(
+            failed_without_detail.contains("no error detail"),
+            "要说明回执里没有错误详情，而不是只丢一句 failed：{failed_without_detail}"
+        );
+
+        let failed_with_detail = provider_tool_output_from_value(
+            "automation",
+            &with_ok(Some(false), vec!["第 3 行第 5 列：expected value"]),
+        );
+        assert!(
+            failed_with_detail.contains("1 error(s)"),
+            "失败要带错误条数：{failed_with_detail}"
+        );
+        assert!(
+            failed_with_detail.contains("第 3 行"),
+            "要把错误原文摆出来：{failed_with_detail}"
+        );
+    }
+
+    /// get 回执要带出每条任务的最近一次执行：跑没跑、成没成，不该让模型去翻日志或猜状态文件。
+    #[test]
+    fn automation_get_receipt_should_carry_last_run() {
+        let receipt = serde_json::json!({
+            "automationDir": "C:/tmp/automations",
+            "token": "secret-token",
+            "endpoint": "http://127.0.0.1:1/activation",
+            "guide": "automationDir: C:/tmp/automations",
+            "tasks": [{
+                "id": "scan",
+                "command": "python scan.py",
+                "intervalSeconds": 1800,
+                "running": true,
+                "lastRun": { "exitCode": 1, "durationMs": 1142, "finishedAtMs": 1 }
+            }]
+        });
+        let text = provider_tool_output_from_value("automation", &receipt);
+        assert!(text.contains("last run"), "要带出最近一次执行：{text}");
+        assert!(text.contains("exit 1"), "要带出退出码：{text}");
+        assert!(text.contains("1142ms"), "要带出耗时：{text}");
+        assert!(text.contains("secret-token"), "令牌要原样跟到模型眼前：{text}");
     }
 }

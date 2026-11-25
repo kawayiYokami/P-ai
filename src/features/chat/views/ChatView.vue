@@ -2457,11 +2457,8 @@ onBeforeUnmount(() => {
 
 // ==================== virtual scroll (virtua) ====================
 
-// 远近分界：与当前首项索引差超过 50 项（约 4 屏）算远，走瞬移。
-// 依据是实测：目标项在 range 内时 smooth 落点准（index 50 用时 1181ms、误差 0）；
-// 目标项完全没渲染的超长距离下 smooth 不自我校正，180 帧还在动、落点偏 690px，
-// 这种距离必须瞬移。原先取 10 项太保守，把 10~50 项这段本可以平滑的距离也挡掉了。
-const VIRTUAL_SMOOTH_DISTANCE = 50;
+// 远近分界：与当前首项索引差超过10项算远（约3屏），走瞬移保性能；以内走平滑
+const VIRTUAL_SMOOTH_DISTANCE = 10;
 
 function currentFirstVisibleVirtualIndex(): number {
   const el = scrollContainer.value;
@@ -2511,8 +2508,19 @@ function scrollVirtualizerToIndex(
   el.scrollTo({ top: approxOffset, behavior: smooth ? "smooth" : "auto" });
 }
 
+let ownTopAlignGen = 0;
+const ownTopAlignPinnedTop = ref<number | null>(null);
 // elastic 对齐只管同会话内的新用户消息：会话刚切时只记基线，对齐交给编排层的 own_top，避免两路抢。
 let lastElasticAlignConversationId = "";
+// 「切会话后的第一次对齐」标记：切换会话时置位，被对齐消费一次即清。
+// 只有这一次走瞬间落位，其余（发送新消息等）走平滑。
+let pendingSwitchAlign = true;
+
+function consumeConversationSwitchAlign(): boolean {
+  if (!pendingSwitchAlign) return false;
+  pendingSwitchAlign = false;
+  return true;
+}
 
 watch(latestOwnElasticItemId, (next, prev) => {
   const cid = String(props.activeConversationId || "").trim();
@@ -2529,50 +2537,128 @@ watch(latestOwnElasticItemId, (next, prev) => {
 });
 
 watch(() => String(props.activeConversationId || "").trim(), () => {
+  ownTopAlignGen += 1;
+  ownTopAlignPinnedTop.value = null;
   lastTrackedElasticItemId = "";
+  pendingSwitchAlign = true;
 });
 
 // 最新用户消息对齐到视口顶部（Path B 回合容器架构）：
-// 容器自身通过 turnViewportMinHeight 在最新轮次撑开视口；换轮次时上一轮自动回归内容真实高，无需留白计算。
-//
-// 定位交给虚拟列表按回合索引做（align: start），不再按 DOM 节点 rect 自己算偏移：
-// 虚拟列表首帧常常还没把目标回合渲染进 range，查节点会落空，重试 6 帧也只是在赌它什么时候渲染出来。
+// 容器自身通过 turnViewportMinHeight 在最新轮次撑开视口；换轮次时上一轮自动回归内容真实高，无需留白计算
+// 切会话时 Virtualizer 按会话 id 重建，新实例内部还没有实测高度，scrollToIndex 会把偏移算成 0
+// 而滚不上去；这里按目标回合在 DOM 里的真实位置定位，并用 rAF 重试吃掉测量前的抖动。
 //
 // 瞬间还是平滑：只有「切会话后的第一次对齐」走瞬间，其余（发送新消息等）走平滑。
-// 切会话时新实例还没测高，平滑动画会与测量回填互相踩，表现成一抖一抖，所以直接落位。
+// 切会话时新实例还没测高，真实位置要重试几帧才收敛，平滑动画与重试会互相踩——
+// 动画期间 scrollTop 每帧都在变，重试判据（偏差 > 2px）恒为真，于是每帧重新 scrollTo，
+// 动画永远走不完，只能表现成一抖一抖。所以切会话直接落位。
+// 发送消息时位置是确定的，一次位移就够，不需要重试，交给浏览器原生平滑。
 function alignLatestOwnMessageToTop() {
   stopFollowBottom();
   updateScrollContainerHeight();
-  // 数据变化与本帧渲染之间隔着一拍：此刻 turnContainers 已经变长，virtua 手里的还是旧 data，
-  // 同步调 scrollToIndex 会被按旧长度夹紧、落到旧列表最后一项。必须等这一拍过去再定位。
-  void nextTick(() => {
+  const gen = (ownTopAlignGen += 1);
+  const smooth = !consumeConversationSwitchAlign();
+  // 对齐落空时的兜底：宁可在底部看到最新消息，也不要停在顶部。
+  // 侧面板（追问 / 队员）按会话 id 整棵重建，虚拟列表首帧可能还没渲染出目标回合，
+  // 按节点定位会落空；主会话列表常驻，切换时 DOM 里已经有上一轮，几乎走不到这里。
+  const fallbackToBottom = () => {
+    if (gen !== ownTopAlignGen) return;
+    resetVirtualizerAtConversationBottom("auto");
+  };
+
+  const attempt = (retries: number) => {
+    if (gen !== ownTopAlignGen) return;
+    const el = scrollContainer.value;
+    if (!el) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
+      return;
+    }
+    // 目标回合要每帧重读：数据与 DOM 都可能比这次调用更晚就绪，
+    // 在函数入口算一次就固定住的话，晚到的那一轮永远对不上。
+    const list = chatRenderItems.value;
+    if (list.length === 0) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
+      return;
+    }
+
     const turns = turnContainers.value;
-    const len = turns.length;
-    if (len <= 0 || !virtuaRef.value) return;
-    const targetTurn = turns[len - 1];
+    const targetTurn = turns[turns.length - 1];
+    const targetTurnId = String(targetTurn?.id || "");
     const firstItem = targetTurn?.items?.[0];
     const isUserTurn = !!(firstItem && firstItem.kind === "message" && firstItem.block && isUserBlock(firstItem.block));
-    // 没有用户回合（或唯一回合是 turn-intro）时不能对齐到顶部：scrollTop=0 会被当成触顶并向上加载历史。
-    const align = isUserTurn && String(targetTurn?.id || "") !== "turn-intro" ? "start" : "end";
-    // 目标项完全没渲染的超长距离不能平滑：virtua 的 smooth 在那种距离下等不到测量，
-    // 会放弃这次滚动，最终落点也偏。50 项以内目标项都在 range 里，平滑是准的。
-    const smooth = resolveVirtualSmooth(len - 1, "smooth");
-    virtuaRef.value.scrollToIndex(len - 1, { align, smooth } as any);
+
+    // 如果当前列表中没有用户消息（没有用户回合，或者唯一回合是 turn-intro）：
+    // 绝不能把视口对齐到顶部（否则 scrollTop=0 会导致误判触顶并疯狂向上加载历史），直接落位到底部最新消息。
+    if (!targetTurn || !isUserTurn || targetTurnId === "turn-intro") {
+      fallbackToBottom();
+      return;
+    }
+
+    const turnEl = (el.querySelector(`[data-turn-id="${targetTurnId}"]`) as HTMLElement | null);
+    if (!turnEl) {
+      if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      else fallbackToBottom();
+      return;
+    }
+    const desired = Math.max(
+      0,
+      Math.round(el.scrollTop + turnEl.getBoundingClientRect().top - el.getBoundingClientRect().top),
+    );
+    el.scrollTo({ top: desired, behavior: smooth ? "smooth" : "auto" });
     chatScrollbarRef.value?.updateThumb();
-  });
+    // 平滑动画期间不做重试：位置一次就够，重试只会打断动画
+    if (!smooth && retries > 0 && Math.abs(el.scrollTop - desired) > 2) {
+      requestAnimationFrame(() => attempt(retries - 1));
+    }
+  };
+  // 帧数按老写法给到 6：虚拟列表首帧常常还没渲染出目标回合，
+  // 4 帧（约 66ms）在侧面板整棵重建时会落空。
+  void nextTick(() => requestAnimationFrame(() => attempt(6)));
+}
+// virtua 的 cache 不是响应式的，只能主动读一次快照。
+// 这两条判据来自老写法：列表还没测完高度时 scrollHeight 是估算值，
+// 滚到底后测量结果回填会让高度变长，而 scrollTop 与 targetTop 会一起被钳到上限，
+// 偏差判据看到的是 0 —— 只信它就会以为已经到底，提前收手停在中间。
+function readVirtualCacheSizes(): number[] | null {
+  const handle = virtuaRef.value as unknown as { cache?: unknown } | null;
+  const snapshot = handle?.cache as unknown;
+  if (Array.isArray(snapshot) && Array.isArray(snapshot[0])) {
+    return snapshot[0] as number[];
+  }
+  return null;
 }
 
-// 贴底：交给虚拟列表按最后一项定位，不再自己算 scrollHeight。
-// 末尾项还没测出真实高度时 scrollHeight 是估算值，自己滚会在测量回填后停在中间；
-// scrollToIndex 由 virtua 负责落点，并随测量结果重算目标。
+function isMeasuredVirtualSize(size: number | undefined): boolean {
+  return typeof size === "number" && Number.isFinite(size) && size > 0 && size !== -1;
+}
+
+/** 末尾几项还没测出真实高度：此时贴底结果不可信，要再等一帧。 */
+function virtualTailUnmeasured(): boolean {
+  if (!virtuaRef.value) return false;
+  const sizes = readVirtualCacheSizes();
+  if (!sizes) return true;
+  return sizes.slice(-4).some((size) => !isMeasuredVirtualSize(size));
+}
+
 function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
+  const el = scrollContainer.value;
+  if (el) {
+    const attempt = (retries = 6) => {
+      const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      el.scrollTo({ top: targetTop, behavior });
+      chatScrollbarRef.value?.updateThumb();
+      if (retries > 0 && (virtualTailUnmeasured() || Math.abs(el.scrollTop - targetTop) > 2)) {
+        requestAnimationFrame(() => attempt(retries - 1));
+      }
+    };
+    void nextTick(() => requestAnimationFrame(() => attempt()));
+    return;
+  }
   const len = turnContainers.value.length;
   if (len <= 0 || !virtuaRef.value) return;
-  virtuaRef.value.scrollToIndex(len - 1, {
-    align: "end",
-    smooth: behavior === "smooth",
-  } as any);
-  chatScrollbarRef.value?.updateThumb();
+  try { virtuaRef.value.scrollToIndex(len - 1, { align: "end", smooth: resolveVirtualSmooth(len - 1, behavior) } as any); } catch {}
 }
 function scheduleVirtualMeasure() {
   // virtua 内部 ResizeObserver 自动测量，无需手动触发

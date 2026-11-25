@@ -723,6 +723,8 @@ const TOOL_ICON_BY_NAME: Record<string, AppIconName> = {
   meme: "image",
   // 工具目录
   get_tool: "puzzle",
+  // 会话自动化：按间隔重跑，用循环箭头
+  automation: "refresh-cw",
 };
 
 /** 未命中的第三方 / MCP 工具统一挂网络图标：表示「接了个外部能力」，不去猜它具体干什么。 */

@@ -119,6 +119,7 @@ async fn prepare_ide_context_bridge_server_start(
     if !config.web_access_enabled {
         IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
         ide_context_set_current_port(ide_context_runtime, None);
+        activation_api_clear_port();
         clear_ide_context_bridge_discovery();
         port_service
             .set_status_text(WEB_ACCESS_SERVICE_ID, Some("disabled".to_string()))
@@ -139,6 +140,7 @@ async fn prepare_ide_context_bridge_server_start(
         Err(err) => {
             IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
             ide_context_set_current_port(ide_context_runtime, None);
+            activation_api_clear_port();
             // 端口被占用说明可能有另一个实例正在监听并维护 discovery 文件，
             // 此处不能清掉它，否则 VSCode 侧边栏会丢失后端发现信息。
             port_service
@@ -152,6 +154,7 @@ async fn prepare_ide_context_bridge_server_start(
         }
     };
     ide_context_set_current_port(ide_context_runtime, Some(port));
+    activation_api_set_port(port);
     let bridge_url = ide_context_bridge_url(port);
     port_service
         .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some(format!("{}:{}", IDE_CONTEXT_BRIDGE_BIND_HOST, port)))
@@ -161,6 +164,7 @@ async fn prepare_ide_context_bridge_server_start(
         Err(err) => {
             IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
             ide_context_set_current_port(ide_context_runtime, None);
+            activation_api_clear_port();
             clear_ide_context_bridge_discovery();
             port_service
                 .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
@@ -178,6 +182,7 @@ async fn prepare_ide_context_bridge_server_start(
     if let Err(err) = publish_ide_context_bridge_discovery(port, &remote_password) {
         IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
         ide_context_set_current_port(ide_context_runtime, None);
+        activation_api_clear_port();
         clear_ide_context_bridge_discovery();
         port_service
             .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
@@ -223,6 +228,7 @@ fn spawn_ide_context_bridge_server_task(
                     clear_ide_context_bridge_discovery();
                     IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
                     ide_context_set_current_port(&ide_context_runtime, None);
+                    activation_api_clear_port();
                     port_service
                         .set_status_text(WEB_ACCESS_SERVICE_ID, Some("stopped".to_string()))
                         .await;
@@ -297,6 +303,8 @@ async fn ide_context_stream_is_websocket(stream: &tokio::net::TcpStream) -> bool
 fn ide_context_http_status_text(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
         404 => "Not Found",
         405 => "Method Not Allowed",
         426 => "Upgrade Required",
@@ -386,11 +394,24 @@ async fn ide_context_http_write_response(
     let _ = stream.write_all(headers.as_bytes()).await;
     let _ = stream.write_all(&body).await;
     let _ = stream.shutdown().await;
+    // 关连接前把对端还没读走的数据排空：接收缓冲里留着未读字节时直接 close
+    // 会发 RST，调用方看到的是「连接被中止」而不是我们刚写出去的响应。
+    use tokio::io::AsyncReadExt;
+    let mut drain = [0_u8; 4096];
+    let mut drained = 0_usize;
+    while drained < 64 * 1024 {
+        match tokio::time::timeout(std::time::Duration::from_millis(200), stream.read(&mut drain)).await
+        {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+            Ok(Ok(count)) => drained += count,
+        }
+    }
 }
 
 async fn ide_context_http_handle_connection(
     mut stream: tokio::net::TcpStream,
     app: AppHandle,
+    state: AppState,
 ) {
     use tokio::io::AsyncReadExt;
 
@@ -404,8 +425,30 @@ async fn ide_context_http_handle_connection(
         Ok(Ok(count)) => count,
         _ => 0,
     };
-    let headers = String::from_utf8_lossy(&buffer[..count]);
+    // 请求行与请求头都可能跨 TCP 分段到达：先读满头再分流，否则分段来的激活请求会被判成 405。
+    let (headers, rest) = match ide_context_http_read_headers(&mut stream, buffer[..count].to_vec())
+        .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            ide_context_http_write_response(
+                &mut stream,
+                400,
+                "text/plain; charset=utf-8",
+                err.into_bytes(),
+            )
+            .await;
+            return;
+        }
+    };
     let (method, path) = ide_context_http_path_from_request(&headers);
+    let activation_request = path == ACTIVATION_API_PATH;
+    let activation_method = method.to_string();
+    if activation_request {
+        // 激活端点是本服务唯一的写入口：方法、鉴权、请求体都在这里收口。
+        activation_http_handle_request(stream, state, &activation_method, headers, rest).await;
+        return;
+    }
     if method != "GET" {
         ide_context_http_write_response(
             &mut stream,
@@ -471,4 +514,231 @@ async fn ide_context_http_handle_connection(
         body,
     )
     .await;
+}
+
+// ==================== 外部激活端点 ====================
+//
+// `POST /api/v1/sessions/activate`，鉴权头 `Authorization: Bearer <token>`。
+// 令牌绑定的会话就是投递目标，请求体只带一句话：
+//   {"test": true}          只验令牌、回目标会话短号，不投递、不唤醒
+//   {"message": "..."}      投一条系统引导消息并唤醒该会话
+// 不检查会话是否存在、是否归档；投不进去就把原因回给调用方。
+
+const ACTIVATION_API_PATH: &str = "/api/v1/sessions/activate";
+/// 请求体上限：激活消息是给主助理看的文本，不需要更大的壳。
+const ACTIVATION_API_MAX_BODY_BYTES: usize = 256 * 1024;
+
+#[derive(Debug, Deserialize)]
+struct ActivationApiRequest {
+    #[serde(default)]
+    test: bool,
+    #[serde(default)]
+    message: String,
+}
+
+async fn activation_http_json_response(
+    stream: &mut tokio::net::TcpStream,
+    status: u16,
+    payload: serde_json::Value,
+) {
+    let body = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    ide_context_http_write_response(stream, status, "application/json; charset=utf-8", body).await;
+}
+
+fn activation_http_find_header_end(raw: &[u8]) -> Option<usize> {
+    raw.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+/// 读到请求头结束为止，返回（头文本，已经多读到的请求体字节）。
+/// 请求行与头都可能跨 TCP 分段到达，一次 read 拿到的字节不能当完整请求用。
+async fn ide_context_http_read_headers(
+    stream: &mut tokio::net::TcpStream,
+    already_read: Vec<u8>,
+) -> Result<(String, Vec<u8>), String> {
+    use tokio::io::AsyncReadExt;
+
+    let mut raw = already_read;
+    let mut chunk = vec![0_u8; 8192];
+    let header_end = loop {
+        if let Some(position) = activation_http_find_header_end(&raw) {
+            break position;
+        }
+        if raw.len() > 64 * 1024 {
+            return Err("请求头过大".to_string());
+        }
+        let count = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read(&mut chunk),
+        )
+        .await
+        {
+            Ok(Ok(count)) => count,
+            Ok(Err(err)) => return Err(format!("读取请求失败: {err}")),
+            Err(_) => return Err("读取请求超时".to_string()),
+        };
+        if count == 0 {
+            return Err("请求不完整".to_string());
+        }
+        raw.extend_from_slice(&chunk[..count]);
+    };
+    let header_text = String::from_utf8_lossy(&raw[..header_end]).to_string();
+    Ok((header_text, raw[header_end + 4..].to_vec()))
+}
+
+/// 按 Content-Length 补齐请求体。
+async fn activation_http_read_body(
+    stream: &mut tokio::net::TcpStream,
+    header_text: &str,
+    mut body: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    use tokio::io::AsyncReadExt;
+
+    let content_length = ide_context_http_header_value(header_text, "content-length")
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    if content_length > ACTIVATION_API_MAX_BODY_BYTES {
+        return Err("请求体过大".to_string());
+    }
+    let mut chunk = vec![0_u8; 8192];
+    while body.len() < content_length {
+        let count = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read(&mut chunk),
+        )
+        .await
+        {
+            Ok(Ok(count)) => count,
+            Ok(Err(err)) => return Err(format!("读取请求体失败: {err}")),
+            Err(_) => return Err("读取请求体超时".to_string()),
+        };
+        if count == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..count]);
+    }
+    body.truncate(content_length.min(body.len()));
+    Ok(body)
+}
+
+/// 从 `Authorization: Bearer <token>` 取出令牌明文。
+fn activation_http_bearer_token(headers: &str) -> Option<String> {
+    let value = ide_context_http_header_value(headers, "authorization")?;
+    let value = value.trim();
+    let token = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))?
+        .trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
+async fn activation_http_handle_request(
+    mut stream: tokio::net::TcpStream,
+    state: AppState,
+    method: &str,
+    header_text: String,
+    already_read: Vec<u8>,
+) {
+    if method != "POST" {
+        activation_http_json_response(
+            &mut stream,
+            405,
+            serde_json::json!({ "ok": false, "error": "Method Not Allowed" }),
+        )
+        .await;
+        return;
+    }
+    let Some(token) = activation_http_bearer_token(&header_text) else {
+        activation_http_json_response(
+            &mut stream,
+            401,
+            serde_json::json!({ "ok": false, "error": "missing bearer token" }),
+        )
+        .await;
+        return;
+    };
+    let record = match activation_token_verify(&state, &token) {
+        Ok(record) => record,
+        Err(err) => {
+            runtime_log_warn(format!("[自动化] 跳过 任务=激活令牌鉴权 原因={err}"));
+            activation_http_json_response(
+                &mut stream,
+                401,
+                serde_json::json!({ "ok": false, "error": "invalid token" }),
+            )
+            .await;
+            return;
+        }
+    };
+    let body = match activation_http_read_body(&mut stream, &header_text, already_read).await {
+        Ok(body) => body,
+        Err(err) => {
+            activation_http_json_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": err }),
+            )
+            .await;
+            return;
+        }
+    };
+    let parsed = match serde_json::from_slice::<ActivationApiRequest>(&body) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            activation_http_json_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": format!("请求体不是合法 JSON: {err}") }),
+            )
+            .await;
+            return;
+        }
+    };
+    let conversation_id = record.conversation_id.clone();
+    // 对外一律回短号：调用方与模型看到的是同一个标识，不回传长 UUID。
+    let short_id = conversation_short_id_for(&state, &conversation_id).map(|id| id.to_string());
+    let message = parsed.message.trim();
+    // 没消息就没有要发生的事：验令牌的、空请求体，都在这里收口，不投递、不唤醒。
+    if parsed.test || message.is_empty() {
+        activation_http_json_response(
+            &mut stream,
+            200,
+            serde_json::json!({ "ok": true, "conversationId": short_id }),
+        )
+        .await;
+        return;
+    }
+    match activation_deliver_event(&state, &conversation_id, message) {
+        Ok(event_id) => {
+            runtime_log_info(format!(
+                "[自动化] 完成 任务=外部激活投递 令牌号={} 会话号={:?} 事件={}",
+                record.token_id, short_id, event_id
+            ));
+            activation_http_json_response(
+                &mut stream,
+                200,
+                serde_json::json!({
+                    "ok": true,
+                    "conversationId": short_id,
+                    "eventId": event_id,
+                }),
+            )
+            .await;
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[自动化] 失败 任务=外部激活投递 令牌号={} 原因={}",
+                record.token_id, err
+            ));
+            activation_http_json_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": err }),
+            )
+            .await;
+        }
+    }
 }

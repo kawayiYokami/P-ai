@@ -174,7 +174,7 @@ async fn ide_context_ws_handle_connection(
     ide_context_runtime: IdeContextRuntime,
 ) {
     if !ide_context_stream_is_websocket(&stream).await {
-        ide_context_http_handle_connection(stream, app).await;
+        ide_context_http_handle_connection(stream, app, state).await;
         return;
     }
     let path_holder = std::sync::Arc::new(std::sync::Mutex::new(String::new()));

@@ -26,6 +26,9 @@ function createPresentation(agentNames: Record<string, string> = {}) {
     "status.toolTimeline.windowsActivate": "激活窗口 {id}",
     "status.toolTimeline.windowsMoreSteps": "另 {count} 步",
     "status.toolTimeline.actionGetTool": "取用工具",
+    "status.toolTimeline.actionAutomation": "自动化",
+    "status.toolTimeline.automationGet": "查看托管入口",
+    "status.toolTimeline.automationReload": "重读清单",
     "status.toolTimeline.actionKanban": "维护议题看板",
     "status.toolTimeline.actionKanbanList": "查看议题看板",
     "status.toolTimeline.actionKanbanCreate": "创建议题",
@@ -583,6 +586,22 @@ describe("createToolCallPresentation", () => {
     expect(getTool.action).toBe("取用工具");
     expect(getTool.summary).toBe("deepwiki__ask_wiki_question、akasha_search");
 
+    const automationGet = presentation.toolCallSemanticPresentation({
+      name: "automation",
+      argsText: JSON.stringify({ command: "get" }),
+    });
+    expect(automationGet.action).toBe("自动化");
+    expect(automationGet.summary).toBe("查看托管入口");
+    expect(automationGet.text).toBe("自动化 查看托管入口");
+
+    const automationReload = presentation.toolCallSemanticPresentation({
+      name: "automation",
+      argsText: JSON.stringify({ command: "reload" }),
+    });
+    expect(automationReload.action).toBe("自动化");
+    expect(automationReload.summary).toBe("重读清单");
+    expect(automationReload.text).toBe("自动化 重读清单");
+
     const replyContact = presentation.toolCallSemanticPresentation({
       name: "contact_reply",
       argsText: JSON.stringify({ contact_name: "老王", text: "已经改好了" }),
@@ -619,7 +638,7 @@ describe("createToolCallPresentation", () => {
     expect(multiWindows.summary).toBe("列举窗口 · 激活窗口 42 · 另 1 步");
 
     // 六个工具都不该再落到 MCP 兜底
-    for (const toolName of ["kanban_list", "kanban_upsert", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question"]) {
+    for (const toolName of ["kanban_list", "kanban_upsert", "kanban_set_plan", "get_tool", "contact_reply", "contact_no_reply", "windows", "todo", "question", "automation"]) {
       expect(presentation.toolCallSemanticPresentation({ name: toolName, argsText: "{}" }).action).not.toBe("链接到");
       expect(presentation.toolCallDisplayName(toolName)).not.toContain("链接到");
     }

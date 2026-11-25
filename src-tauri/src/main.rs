@@ -69,6 +69,8 @@ include!("features/chat/conversation_service/mod.rs");
 include!("features/chat/model_runtime.rs");
 include!("features/chat/scheduler.rs");
 include!("features/chat/conversation_wheelchair_service.rs");
+include!("features/chat/conversation_automation.rs");
+include!("features/chat/conversation_activation.rs");
 include!("features/remote_im/channel_store.rs");
 include!("features/remote_im/markdown_filter.rs");
 include!("features/remote_im/onebot_v11_ws.rs");
@@ -502,6 +504,11 @@ async fn run_deferred_setup(app_handle: AppHandle) {
                 runtime_log_error(format!("[系统] 启动延迟 启动录音热键探针失败: {err}"));
             }
         }
+    }
+    log_step("加载会话自动化清单");
+    // 启动时无条件读一遍全部会话的 automations.json，读到什么就起什么。
+    if let Err(err) = conversation_automation_reload_all(app_state.inner()) {
+        runtime_log_error(format!("[自动化] 失败 任务=启动加载全部自动化清单 原因={err}"));
     }
     log_step("配置自检");
     match state_read_config_cached(app_state.inner()) {
@@ -991,6 +998,9 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
         "[系统] 退出 Web 访问服务已停止 耗时={}",
         ide_bridge_started_at.elapsed().as_millis()
     ));
+
+    // 会话自动化脚本的进程树必须在应用退出前收干净，不留孤儿进程。
+    conversation_automation_stop_all();
 
     match load_workspace_mcp_servers(&state) {
         Ok(servers) => {

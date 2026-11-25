@@ -83,6 +83,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "pai_config",
     "configure_pai",
     "app_config",
+    "automation",
   ]);
 
   function normalizeToolCallArgs(argsText: string): unknown {
@@ -1067,6 +1068,22 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
       };
     }
 
+    // 25d. 会话自动化 (automation)
+    if (toolName === "automation") {
+      const action = toolTimelineText("actionAutomation");
+      // reload 和 get 是两件事：一个把清单读进来起停任务，一个只是拿托管入口。
+      const command = safeStringValue(obj, "command").toLowerCase();
+      const summary =
+        command === "reload"
+          ? toolTimelineText("automationReload")
+          : toolTimelineText("automationGet");
+      return {
+        action,
+        summary,
+        text: formatFullText(action, summary),
+      };
+    }
+
     // 26. 外部 / MCP 工具：统一显示「链接到 {mcp工具名}」
     const action = toolTimelineText("actionConnectMcp");
     const target = toolName;
@@ -1115,6 +1132,7 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (raw === "operate") return toolTimelineText("actionOperate");
     if (raw === "windows") return toolTimelineText("actionWindows");
     if (raw === "get_tool") return toolTimelineText("actionGetTool");
+    if (raw === "automation") return toolTimelineText("actionAutomation");
     if (raw === "kanban_list") return toolTimelineText("actionKanbanList");
     if (raw === "kanban_set_plan") return toolTimelineText("actionKanbanSetPlan");
     if (raw === "kanban_upsert") return toolTimelineText("actionKanban");

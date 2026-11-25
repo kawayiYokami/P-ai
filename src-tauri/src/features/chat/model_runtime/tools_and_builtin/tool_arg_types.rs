@@ -76,6 +76,13 @@ struct ConfigToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct AutomationToolArgs {
+    /// `get` = 拿目录、令牌、端点与当前清单；`reload` = 重读清单并起停。
+    command: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ReadMediaToolArgs {
     #[serde(alias = "absolute_path", alias = "absolutePath")]
     path: String,

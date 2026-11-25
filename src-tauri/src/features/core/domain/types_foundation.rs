@@ -458,6 +458,13 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "automation".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["automation".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "background".to_string(),
             command: "builtin".to_string(),
             args: vec!["background".to_string()],

@@ -12,6 +12,8 @@
 //   remote_im_contact_checkpoints(contact_id TEXT PRIMARY KEY, checkpoint_json)
 //   window_layouts(window_label TEXT PRIMARY KEY, width, height, x, y, maximized)
 //   git_repo_history(repo_key TEXT PRIMARY KEY, history_json)
+//   activation_tokens(token_id INTEGER PRIMARY KEY, token_hash, conversation_id, created_at)
+//                    会话激活令牌；明文只在 automation get 那一次回执里出现，库里只存哈希
 
 const STATE_DB_FILE_NAME: &str = "state.sqlite";
 
@@ -138,6 +140,15 @@ fn state_db_open(data_path: &PathBuf) -> Result<rusqlite::Connection, String> {
            domain TEXT PRIMARY KEY,
            next_val INTEGER NOT NULL DEFAULT 0
          );
+
+         CREATE TABLE IF NOT EXISTS activation_tokens (
+           token_id INTEGER PRIMARY KEY,
+           token_hash TEXT NOT NULL UNIQUE,
+           conversation_id TEXT NOT NULL,
+           created_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_activation_tokens_conversation
+           ON activation_tokens(conversation_id);
 
          CREATE TABLE IF NOT EXISTS timers (
            timer_id TEXT PRIMARY KEY,

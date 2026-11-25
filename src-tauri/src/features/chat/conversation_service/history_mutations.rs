@@ -97,6 +97,9 @@ impl ConversationServiceV2 {
             },
         )?;
 
+        // 会话没了，它的自动化脚本一并停机：不留后台进程。
+        conversation_automation_stop(normalized_conversation_id);
+
         if preparation.should_create_system_notification {
             let system_notification = build_system_notification_conversation_record();
             state_schedule_conversation_persist(state, &system_notification)?;

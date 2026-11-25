@@ -299,6 +299,11 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             app_state: state.clone(),
         }
         .provider_tool_definition(),
+        BuiltinAutomationTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinWriteFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -1266,6 +1271,10 @@ fn build_builtin_runtime_tool_executor(
             executor_agent_id: executor_agent_id.clone(),
         }),
         "config" => Box::new(BuiltinConfigTool { app_state: state.clone() }),
+        "automation" => Box::new(BuiltinAutomationTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
         "write" => Box::new(BuiltinWriteFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),

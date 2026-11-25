@@ -457,6 +457,25 @@ fn chat_metadata_set_conversation_short_id(
     .map_err(|err| format!("写入会话短 ID 索引失败，会话={conversation_id}，error={err}"))
 }
 
+/// 按会话主键反查短 ID。
+fn chat_metadata_conversation_short_id(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<Option<u64>, String> {
+    use rusqlite::OptionalExtension as _;
+    let conn = crate::message_store::chat_metadata_store_open(data_path)?;
+    let short_id: Option<i64> = conn
+        .query_row(
+            "SELECT short_id FROM conversation_metadata WHERE conversation_id=?1",
+            rusqlite::params![conversation_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()
+        .map_err(|err| format!("按会话查短 ID 失败，会话={conversation_id}，error={err}"))?
+        .flatten();
+    Ok(short_id.and_then(|value| u64::try_from(value).ok()))
+}
+
 /// 按短 ID 查会话主键（走索引列）。
 fn chat_metadata_conversation_id_by_short_id(
     data_path: &PathBuf,

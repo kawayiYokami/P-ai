@@ -1495,6 +1495,58 @@ impl RuntimeToolMetadata for BuiltinGetSessionTool {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinAutomationTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+impl RuntimeToolMetadata for BuiltinAutomationTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "automation",
+            "PAI 会话自动化工具。在后台托管周期轮询或常驻运行的脚本与命令，充当本会话的事件哨兵，满足条件时主动向本会话投递消息。`get` 获取专属脚本目录、当前清单与执行指南；`reload` 在修改清单后重载起停任务。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "enum": ["get", "reload"],
+                  "description": "get = 拿脚本目录、当前清单、状态与指南；reload = 修改 automations.json 后重载起停。"
+                }
+              },
+              "required": ["command"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeValueTool for BuiltinAutomationTool {
+    const NAME: &'static str = "automation";
+    type Args = AutomationToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[工具] 内置工具执行开始 工具=automation 参数={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_automation(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            // 回执里有令牌明文，不往日志里打结果，只记命令。
+            match &result {
+                Ok(_) => runtime_log_debug("[工具] 内置工具执行完成 工具=automation".to_string()),
+                Err(err) => {
+                    runtime_log_error(format!("[工具] 内置工具 automation 执行失败 错误={err}"))
+                }
+            }
+            result
+        })
+    }
+}
+
 impl RuntimeToolMetadata for BuiltinBackgroundTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(

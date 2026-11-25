@@ -17649,6 +17649,7 @@
             ("update_goal", json!({"conversationId": "c", "goal": {"goalId": "goal-1", "status": "complete", "startedAt": "t", "endedAt": "t2", "usageStart": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}, "usageEnd": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "reasoningTokens": 0, "byProviderModel": {}}}, "usageDelta": {"inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0}})),
             ("get_session", json!([{"sessionId": "s1", "kind": "local_unarchived", "title": "t", "personaName": "我", "remoteContactId": null, "remoteContactName": null, "channelName": null, "updatedAt": "t"}])),
             ("inform_session", json!({"session_id": "s1", "remote_contact_id": null, "pushed_to_remote": false, "message_id": "m1"})),
+            ("automation", json!({"automationDir": "/data/chat/conversations/c1/automations", "token": "pai_act_x", "endpoint": "http://127.0.0.1:8790/api/v1/sessions/activate", "guide": "automationDir: /data/chat/conversations/c1/automations", "tasks": [{"id": "check", "command": "python poll.py", "intervalSeconds": 300, "running": true}]})),
             ("team_info", json!({"ok": true, "scope": "active", "activeMemberCount": 1, "members": [{"role": "r", "duty": "d", "status": "active", "conversationId": "c", "recruitedAt": "t", "dismissedAt": null, "worktreePath": "", "workBranch": "", "state": "idle"}], "hasActiveMember": true})),
             ("team_recruit", json!({"ok": true, "role": "r", "duty": "d", "conversationId": "c", "note": "n"})),
             ("team_send", json!({"role": "r", "issueNumber": null, "conversationId": "c", "messageId": "m"})),
@@ -17829,4 +17830,5 @@
         }
     }
 
+    include!("automation_tests.rs");
 

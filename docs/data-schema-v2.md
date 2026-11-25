@@ -26,7 +26,7 @@
 |---|---|---|
 | `config/app_config.toml`（Windows 标准 / 便携）或 `app_config.toml`（Linux / macOS 标准，位于业务根直下） | TOML | 顶层配置（热键、供应商、工具开关等）。实际路径始终是 `config_dir/app_config.toml` |
 | `config/agents/` | 目录 | 人格定义，一人格一文件（`<id>.json`） |
-| `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点；定时器在 `timers` 表） |
+| `state/state.sqlite` | SQLite | 全局状态总库（V4，runtime_state 表为现役落点；定时器在 `timers` 表，会话激活令牌在 `activation_tokens` 表） |
 | `chat/chat_metadata.sqlite` | SQLite | 聊天元数据、消息定位索引、用量统计 |
 | `chat/conversations/<id>/` | 分片目录 | 会话正文（见下文） |
 | `backups/` | 目录 | 迁移/导出备份，按 `backups/<时间戳>/` 组织 |
@@ -45,6 +45,7 @@
 | 路径 | 形态 | 说明 |
 |---|---|---|
 | `state/runtime_state.json` 等旧 JSON | JSON | 仅迁移读取，V4 起不再写入（`help` 地图不列） |
+| `chat/conversations/<id>/automations/` | 目录 | 会话级自动化脚本工作目录：脚本与 `automations.json` 清单放这里，由 PAI 按清单到点执行（省略 `intervalSeconds` 为常驻），会话删除或应用退出时连进程树一并回收 |
 | `avatars/` | 目录 | 代理头像（webp） |
 | `media/` | 目录 | 媒体文件（`<sha256>.<ext>`） |
 | `exports/` | 目录 | 导出产物 |
@@ -172,6 +173,10 @@ V10 迁移（`features/config/data_migration.rs` 的 `migrate_v9_to_v10`）按�
 ## 7.1 state/state.sqlite 的 timers 表
 
 `timers`：`timer_id` PK、`conversation_id`（NULL＝全局定时器）、`message`、`dispatch_mode`（`direct` / `delegate`）、`enabled`、`run_at_utc`、`cron_expression`、`end_at_utc`、`next_run_at_utc`、`last_triggered_at_utc`、`created_at_utc`；索引 `idx_timers_active_next_run`、`idx_timers_conversation`。时间列一律 UTC 存储串，出入口转本地 RFC3339。
+
+### 7.2 state/state.sqlite 的 activation_tokens 表
+
+`activation_tokens`：`token_id` PK（全局短 ID 序列 `activation_token` 域）、`token_hash`（SHA-256 十六进制，唯一）、`conversation_id`、`created_at`；索引 `idx_activation_tokens_conversation`。令牌绑定单个会话，明文只在 `automation get` 那一次回执里出现，库里没有明文可读。
 
 ## 8. delegate/delegate_store.db
 

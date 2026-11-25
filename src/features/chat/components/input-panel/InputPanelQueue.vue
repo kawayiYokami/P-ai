@@ -23,7 +23,7 @@
       >
         {{ sourceText(event.source) }}
       </span>
-      <span class="flex-1 truncate opacity-80">{{ previewText(event.messagePreview) }}</span>
+      <span class="flex-1 truncate opacity-80">{{ event.messagePreview }}</span>
       <button
         v-if="event.source === 'user' && event.queueMode !== 'guided'"
         class="btn btn-ghost btn-xs btn-square shrink-0"
@@ -94,21 +94,6 @@ const orderedQueueEvents = computed(() => {
     return timeOf(a) - timeOf(b);
   });
 });
-
-/**
- * 队列预览只显示纯文字：见到 `<` 就丢到 `>` 为止，不做成对匹配。
- * 原文留在 event.messageText 里，召回到输入框拿到的仍是原样。
- */
-function previewText(raw: string): string {
-  let out = "";
-  let inTag = false;
-  for (const ch of String(raw || "")) {
-    if (ch === "<") inTag = true;
-    else if (ch === ">") inTag = false;
-    else if (!inTag) out += ch;
-  }
-  return out.trim();
-}
 
 function sourceText(source: string): string {
   switch (source) {
