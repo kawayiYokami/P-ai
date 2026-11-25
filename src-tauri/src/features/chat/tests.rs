@@ -4336,9 +4336,10 @@
         ready_meta_json["previewMessages"] = serde_json::Value::Array(Vec::new());
         let cleared_payload: message_store::ConversationShardMeta =
             serde_json::from_value(ready_meta_json).expect("deserialize cleared payload");
-        let cleared_meta = message_store::ConversationStoredMeta::new(
+        let cleared_meta = message_store::ConversationStoredMeta::new_with_questions(
             ready_meta.backbone().clone(),
             cleared_payload,
+            ready_meta.questions().clone(),
         );
         message_store::chat_store_write_meta(&store_paths, &cleared_meta)
             .expect("write cleared meta");
@@ -4471,54 +4472,68 @@
     }
 
     #[test]
-    fn state_schedule_conversation_persist_should_not_revive_answered_questions() {
+    fn question_should_survive_metadata_cache_rebuild() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let conversation =
             test_chat_conversation("conversation-question-no-revive", "active", &now);
         state_schedule_conversation_persist(&state, &conversation)
             .expect("schedule initial persist");
+        let store_paths = message_store::message_store_paths(&state.data_path, &conversation.id)
+            .expect("store paths");
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
+            .expect("write message store");
 
-        // 提问工具落下两道待答题
-        let seeded = serde_json::json!([
-            {
-                "number": 1, "title": "第一题", "background": "",
-                "options": ["A", "B"], "createdAt": now.clone(), "updatedAt": now.clone()
-            },
-            {
-                "number": 2, "title": "第二题", "background": "",
-                "options": ["A", "B"], "createdAt": now.clone(), "updatedAt": now.clone()
-            }
-        ]);
-        state_update_conversation_metadata_cached(&state, &conversation.id, |conversation| {
-            conversation.questions = serde_json::from_value(seeded.clone())
-                .map_err(|err| format!("构造问题失败: {err}"))?;
-            conversation.question_next_number = 3;
-            Ok(())
-        })
-        .expect("seed questions");
+        // 提问工具落下两道待答题：走真实工具入口，列与缓存副本一起更新。
+        for title in ["第一题", "第二题"] {
+            question_apply_tool_mutations(
+                &state,
+                &conversation.id,
+                &[QuestionUpdateItem {
+                    number: None,
+                    title: Some(title.to_string()),
+                    background: None,
+                    options: Some(vec!["A".to_string(), "B".to_string()]),
+                }],
+            )
+            .expect("create question through tool path");
+        }
 
-        // 调度在答题之前拿到的快照，里面仍是两道题
-        let scheduling_snapshot =
-            state_read_conversation_cached(&state, &conversation.id).expect("read snapshot");
-        assert_eq!(scheduling_snapshot.questions.len(), 2);
-
-        // 调度进行中，用户答掉第一题（题目按编号升序，首条即 #1）
-        state_update_conversation_metadata_cached(&state, &conversation.id, |conversation| {
-            conversation.questions.remove(0);
-            Ok(())
-        })
+        // 用户答掉第一题：真实答题入口把题从快照里去掉，游标不动。
+        question_answer_inner(
+            &state,
+            &conversation.id,
+            vec![QuestionAnswerInput {
+                number: 1,
+                option_index: Some(0),
+                custom_text: None,
+            }],
+        )
         .expect("answer question");
+        let answered_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta right after answer");
+        assert_eq!(answered_meta.questions.len(), 1, "答完应当只剩 #2");
+        assert_eq!(answered_meta.questions[0].number, 2);
 
-        // 调度收尾，用那份旧快照落盘
-        state_schedule_conversation_persist(&state, &scheduling_snapshot)
-            .expect("schedule stale persist");
+        // 清未读会按会话快照整项重建元数据缓存：问题字段不属于这条重建，必须原样保留。
+        state_update_conversation_metadata_cached(&state, &conversation.id, |cached| {
+            cached.unread_count = 0;
+            Ok(())
+        })
+        .expect("rebuild metadata cache by clearing unread");
 
-        let cached =
-            state_read_conversation_cached(&state, &conversation.id).expect("read back cached");
-        assert_eq!(cached.questions.len(), 1, "已答的问题不能被调度旧快照写回");
+        let rebuilt_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("meta after cache rebuild");
         assert_eq!(
-            cached.question_next_number, 3,
+            rebuilt_meta.questions.len(),
+            1,
+            "缓存重建后仍要看到未答的 #2，不能被会话快照冲成空"
+        );
+        assert_eq!(rebuilt_meta.questions[0].number, 2);
+        assert_eq!(
+            rebuilt_meta.question_next_number, 3,
             "问题编号游标不应被旧快照回退"
         );
     }

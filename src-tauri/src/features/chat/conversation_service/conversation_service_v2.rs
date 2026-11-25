@@ -336,8 +336,8 @@ impl ConversationMetaView {
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
             team: meta.team().clone(),
-            questions: meta.questions().to_vec(),
-            question_next_number: meta.question_next_number(),
+            questions: meta.questions().items.clone(),
+            question_next_number: meta.questions().next_number,
             issues: meta.issues().to_vec(),
             issue_next_number: meta.issue_next_number(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
@@ -1342,27 +1342,7 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_id: &str,
     ) -> Result<ConversationMetaView, String> {
-        let meta = match state_read_conversation_metadata_cached(state, conversation_id) {
-            Ok(meta) => meta,
-            // 仅使用本次运行中已经进入 pending/current runtime cache 的完整快照兜住
-            // 尚未落盘的状态；这里不会读取或解释 V1/V2 文件。
-            Err(meta_err) => match state_read_conversation_cached(state, conversation_id) {
-                Ok(conversation) => {
-                    runtime_log_warn(format!(
-                        "[聊天] 消息仓库轻量读取失败，使用当前运行时缓存继续 原因={}",
-                        meta_err
-                    ));
-                    message_store::ConversationStoredMeta::from_conversation(&conversation)
-                }
-                Err(_) => {
-                    return Err(ConversationServiceV2Error::new(
-                        ConversationServiceV2ErrorCode::ConversationNotFound,
-                        format!("conversationId={}", conversation_id.trim()),
-                    )
-                    .into_string())
-                }
-            },
-        };
+        let meta = state_read_conversation_metadata_cached(state, conversation_id)?;
         Ok(ConversationMetaView::from_meta(&meta))
     }
 

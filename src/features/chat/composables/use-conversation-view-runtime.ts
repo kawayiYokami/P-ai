@@ -10,6 +10,10 @@ import {
 } from "../../../services/tauri-api";
 import type { AssistantStreamBlock, ChatMentionTarget, ChatMessage, ChatRewindCompletedPayload, ChatTodoItem } from "../../../types/app";
 import { ensureConversationMessageIds } from "../utils/message-id";
+import {
+  normalizeConversationQuestions,
+  type ConversationQuestionView,
+} from "../utils/conversation-question";
 import { registerChatFlowRuntime } from "./chat-flow-runtime-registry";
 import { invokeSendChatMessage, invokeStopChatMessage } from "./chat-send-transport";
 import type { ExclusiveChatViewSubscriptionSlot } from "./exclusive-chat-view-subscription-slot";
@@ -63,6 +67,8 @@ type ConversationLightSnapshot = {
   streamCache?: ConversationRuntimeStreamCacheSnapshot | null;
   resumeProjectionAuthoritative?: boolean;
   currentTodos?: ChatTodoItem[];
+  /** 整份会话 meta：题目条目从它的 `questions` 读出，与主窗口同一来源。 */
+  conversationMeta?: { questions?: ConversationQuestionView[] } | null;
   conversation?: { planModeEnabled?: boolean } | null;
 };
 
@@ -91,6 +97,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
   const hasMoreHistory = ref(false);
   const loadingOlderHistory = ref(false);
   const currentTodos = ref<ChatTodoItem[]>([]);
+  const currentQuestions = ref<ConversationQuestionView[]>([]);
   const planModeEnabled = ref(false);
   const runtimeState = ref<ConversationRuntimeState>("idle");
   const foregroundSyncing = ref(false);
@@ -149,7 +156,10 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     return chatting.value || phase === "queued" || phase === "waiting" || phase === "streaming";
   }
 
-  function applySnapshot(snapshot: ConversationLightSnapshot, preserveExistingHistory: boolean) {
+  function applySnapshot(
+    snapshot: ConversationLightSnapshot,
+    preserveExistingHistory: boolean,
+  ) {
     const incomingMessages = ensureConversationMessageIds(Array.isArray(snapshot?.messages) ? snapshot.messages : []);
     allMessages.value = preserveExistingHistory
       ? mergeAuthoritativeMessages(allMessages.value, incomingMessages)
@@ -158,6 +168,8 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     if (snapshotApiConfigId) preferredApiConfigId.value = snapshotApiConfigId;
     hasMoreHistory.value = !!snapshot?.hasMoreHistory;
     currentTodos.value = Array.isArray(snapshot?.currentTodos) ? snapshot.currentTodos : [];
+    // 快照带的就是权威清单：切会话一次到位，不需要推送水位也不需要补拉。
+    currentQuestions.value = normalizeConversationQuestions(snapshot?.conversationMeta?.questions);
     planModeEnabled.value = !!snapshot?.conversation?.planModeEnabled;
     runtimeState.value = snapshot?.runtimeState || "idle";
     // 打开追问时恢复后端持久化的轮次错误，保证重启/切换后仍可见。
@@ -172,6 +184,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     if (!conversationId) {
       allMessages.value = [];
       currentTodos.value = [];
+      currentQuestions.value = [];
       planModeEnabled.value = false;
       runtimeState.value = "idle";
       return null;
@@ -254,6 +267,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       ++snapshotRequestSequence;
       allMessages.value = [];
       currentTodos.value = [];
+      currentQuestions.value = [];
       planModeEnabled.value = false;
       runtimeState.value = "idle";
       return;
@@ -558,6 +572,12 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       if (String(record.conversationId || "").trim() !== currentConversationId()) return;
       currentTodos.value = Array.isArray(record.currentTodos) ? record.currentTodos : [];
     },
+    handleExternalQuestionItemsUpdated(payload: unknown) {
+      if (!payload || typeof payload !== "object") return;
+      const record = payload as { conversationId?: string; items?: ConversationQuestionView[] };
+      if (String(record.conversationId || "").trim() !== currentConversationId()) return;
+      currentQuestions.value = normalizeConversationQuestions(record.items);
+    },
   });
   const unregister = registerChatFlowRuntime({
     bindingId: flow.bindingId,
@@ -568,6 +588,8 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
   watch(options.conversationId, async () => {
     const conversationId = currentConversationId();
     chatErrorText.value = "";
+    // 换会话立刻清题目：上一会话的题不能挂在新会话的面板上等快照回来。
+    currentQuestions.value = [];
     preferredApiConfigId.value = String(options.apiConfigId.value || "").trim();
     runtimeState.value = "idle";
     if (!conversationId) {
@@ -761,6 +783,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     hasMoreHistory,
     loadingOlderHistory,
     currentTodos,
+    currentQuestions,
     planModeEnabled,
     send: (overrides?: { text?: string; extraTextBlocks?: string[] }) => flow.sendChat(overrides),
     stop: () => flow.stopChat(),

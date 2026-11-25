@@ -1275,6 +1275,9 @@ struct SwitchActiveConversationSnapshotOutput {
     preferred_api_config_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     active_goal: Option<ConversationGoalState>,
+    /// 整份会话 meta：题目条目、todo、goal、短 ID 全在里面。
+    /// 切换会话是「一次到位」，不再让前端另发一次 question_list 去补题目。
+    conversation_meta: ConversationMetaView,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
 }
 
@@ -1298,6 +1301,8 @@ struct ForegroundConversationLightSnapshotOutput {
     active_goal: Option<ConversationGoalState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conversation: Option<UnarchivedConversationSummary>,
+    /// 整份会话 meta：题目条目、todo、goal、短 ID 全在里面，切会话一次到位。
+    conversation_meta: ConversationMetaView,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stream_cache: Option<ConversationStreamRuntimeCacheSnapshot>,
     #[serde(default)]

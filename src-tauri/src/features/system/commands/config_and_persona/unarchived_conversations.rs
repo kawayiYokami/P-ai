@@ -77,16 +77,15 @@ async fn switch_active_conversation_snapshot(
         let result =
             conversation_service_v2().switch_active_conversation_snapshot(&app_state, &input)?;
         let mut snapshot = result.snapshot;
-        if let Ok(conversation_meta) = conversation_service_v2()
-            .get_conversation_meta(&app_state, &snapshot.conversation_id)
-        {
-            snapshot.preferred_api_config_id =
-                repair_conversation_preferred_model_for_snapshot_meta(
-                    &app_state,
-                    &conversation_meta.id,
-                    conversation_meta.preferred_api_config_id.as_deref(),
-                )?;
-        }
+        // 整份会话 meta 与消息同批返回：题目、todo、goal、短 ID 都在里面，
+        // 前端拿到即渲染，不再补发 question_list。
+        let conversation_meta =
+            conversation_service_v2().get_conversation_meta(&app_state, &snapshot.conversation_id)?;
+        snapshot.preferred_api_config_id = repair_conversation_preferred_model_for_snapshot_meta(
+            &app_state,
+            &conversation_meta.id,
+            conversation_meta.preferred_api_config_id.as_deref(),
+        )?;
         let unarchived_conversations = result.unarchived_conversations;
         runtime_log_debug(format!(
             "[聊天] 完成 消息数={} 还有历史={} 摘要数={} 耗时={}",
@@ -105,6 +104,7 @@ async fn switch_active_conversation_snapshot(
             current_todos: snapshot.current_todos,
             preferred_api_config_id: snapshot.preferred_api_config_id,
             active_goal: snapshot.active_goal,
+            conversation_meta,
             unarchived_conversations,
         })
     })
@@ -212,6 +212,9 @@ fn get_foreground_conversation_light_snapshot_blocking(
     ));
     let conversation = conversation_service_v2()
         .read_unarchived_conversation_summary(state, &snapshot.conversation_id)?;
+    // 整份会话 meta 随消息同批返回：题目条目、todo、goal、短 ID 都在里面。
+    let conversation_meta =
+        conversation_service_v2().get_conversation_meta(state, &snapshot.conversation_id)?;
 
     Ok(ForegroundConversationLightSnapshotOutput {
         conversation_id: snapshot.conversation_id,
@@ -224,6 +227,7 @@ fn get_foreground_conversation_light_snapshot_blocking(
         preferred_api_config_id: snapshot.preferred_api_config_id,
         active_goal: snapshot.active_goal,
         conversation,
+        conversation_meta,
         stream_cache,
         should_bind_stream,
         resume_projection_authoritative,

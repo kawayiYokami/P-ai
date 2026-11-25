@@ -9,6 +9,7 @@ import type {
   ToolLoadStatus,
 } from "../../../types/app";
 import type { ContextUsageUpdatePayload } from "./use-chat-flow-events";
+import type { ConversationQuestionView } from "../utils/conversation-question";
 
 type UseChatWindowStateOptions = {
   isMacPlatform: boolean;
@@ -160,6 +161,8 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     && window.localStorage.getItem("easy-call.debug.chat-stream") === "1";
   const toolReviewRefreshTick = ref(0);
   const currentChatTodos = ref<ChatTodoItem[]>([]);
+  /// 当前会话的待答问题：随切换快照里那整份会话 meta 一起到，不再单独请求。
+  const currentChatQuestions = ref<ConversationQuestionView[]>([]);
   const foregroundTailLatestReady = ref(true);
 
   return {
@@ -174,6 +177,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     chatWindowEventUnlisteners,
     currentChatConversationId,
     currentChatPreferredApiConfigId,
+    currentChatQuestions,
     personas,
     assistantAgentId,
     personaEditorId,

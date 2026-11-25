@@ -212,14 +212,25 @@ fn sync_cached_conversation_metadata(
     state: &AppState,
     conversation: &Conversation,
 ) -> Result<(), String> {
+    // 会话快照里没有问题列（它只住 `questions_json` 这一列）：缓存里已有那一份就沿用，
+    // 缓存没有就去读一次列，读不出来就是空。
+    let cached_questions = state
+        .cached_conversation_metadata
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?
+        .get(&conversation.id)
+        .map(|meta| meta.questions().clone());
+    let questions = cached_questions.unwrap_or_else(|| {
+        message_store::chat_metadata_store_read_questions(&state.data_path, &conversation.id)
+            .unwrap_or_default()
+    });
+    let mut meta = message_store::ConversationStoredMeta::from_conversation(conversation);
+    meta.set_questions(questions);
     let mut metadata = state
         .cached_conversation_metadata
         .lock()
         .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
-    metadata.insert(
-        conversation.id.clone(),
-        message_store::ConversationStoredMeta::from_conversation(conversation),
-    );
+    metadata.insert(conversation.id.clone(), meta);
     Ok(())
 }
 
@@ -331,18 +342,54 @@ fn apply_cached_conversation_metadata(
     Ok(())
 }
 
-fn apply_cached_conversation_questions(
+/// 会话提问字段的读：从快照里取这一字段；快照里还没有这个会话，就整份读一次装进来。
+fn state_conversation_questions(
     state: &AppState,
-    conversation: &mut Conversation,
-) -> Result<(), String> {
-    let metadata = state
+    conversation_id: &str,
+) -> ConversationQuestionsColumn {
+    let conversation_id = conversation_id.trim();
+    if let Some(questions) = state
         .cached_conversation_metadata
         .lock()
-        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
-    if let Some(source) = metadata.get(&conversation.id) {
-        source.apply_questions_to_conversation(conversation);
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get(conversation_id)
+        .map(|meta| meta.questions().clone())
+    {
+        return questions;
     }
-    Ok(())
+    state_read_conversation_metadata_cached(state, conversation_id)
+        .map(|meta| meta.questions().clone())
+        .unwrap_or_default()
+}
+
+/// 会话提问字段的写：改快照里这一个字段，立刻返回；同一份值随后异步写进那一列。
+///
+/// 落盘是快照自己的事：它自己失败不影响内存里这份的正确性，也不回报给调用方。
+fn state_set_conversation_questions(
+    state: &AppState,
+    conversation_id: &str,
+    questions: ConversationQuestionsColumn,
+) {
+    let conversation_id = conversation_id.trim();
+    // 读一次就把快照装进来了（没有就整份读一次），随后只改这一个字段。
+    let _ = state_conversation_questions(state, conversation_id);
+    if let Some(meta) = state
+        .cached_conversation_metadata
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get_mut(conversation_id)
+    {
+        meta.set_questions(questions.clone());
+    }
+    let data_path = state.data_path.clone();
+    let conversation_id = conversation_id.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = message_store::chat_metadata_store_write_questions(
+            &data_path,
+            &conversation_id,
+            &questions,
+        );
+    });
 }
 
 fn state_read_conversation_metadata_cached(
@@ -669,13 +716,14 @@ fn state_update_conversation_metadata_cached_unlocked<T>(
     let result = updater(&mut conversation)?;
     let mut updated_meta = message_store::ConversationStoredMeta::from_conversation(&conversation);
     updated_meta.preserve_message_derived_fields_from(&conversation_meta);
-    {
-        let mut metadata = state
-            .cached_conversation_metadata
-            .lock()
-            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
-        metadata.insert(conversation.id.clone(), updated_meta.clone());
-    }
+    // 这条路径按字段重建整份 meta（其它字段的历史写法），问题列不是它该写的东西：
+    // 原样沿用刚读到的那一份，谁都不许多改一个字。
+    updated_meta.set_questions(conversation_meta.questions().clone());
+    state
+        .cached_conversation_metadata
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?
+        .insert(conversation.id.clone(), updated_meta.clone());
     lock_cached_conversation_field_metadata_ids(state).insert(conversation.id.clone());
     let seq = state
         .conversation_persist_latest_seq
@@ -742,13 +790,14 @@ fn state_update_conversation_meta_cached_unlocked<T>(
         .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         + 1;
     let disk_mtime = conversation_shard_modified_time(&state.data_path, normalized_conversation_id);
-    {
-        let mut metadata = state
-            .cached_conversation_metadata
-            .lock()
-            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
-        metadata.insert(normalized_conversation_id.to_string(), conversation_meta.clone());
-    }
+    state
+        .cached_conversation_metadata
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?
+        .insert(
+            normalized_conversation_id.to_string(),
+            conversation_meta.clone(),
+        );
     lock_cached_conversation_field_metadata_ids(state)
         .insert(normalized_conversation_id.to_string());
     {
@@ -1333,9 +1382,8 @@ fn state_schedule_conversation_persist(
         // messages 仍来自传入快照；完整快照若要修改 metadata，应改走字段级 API。
         apply_cached_conversation_metadata(state, &mut conversation_for_cache)?;
     }
-    // questions / question_next_number 只由提问工具写入。调度是「开头拿快照、跑完整轮才落盘」，
-    // 用户在调度中答题时，收尾若照搬快照就会把已答写回未答。这里不看权威标记、无条件取缓存当前值。
-    apply_cached_conversation_questions(state, &mut conversation_for_cache)?;
+    // 问题清单住在 `questions_json` 独立列，通用落盘不写它，所以这里也不需要在落盘前
+    // 用缓存覆盖一次：调度持旧快照落盘，写的是 metadata_json，那一列一动不动。
     if let Some(current) = pending_conversation {
         conversation_for_cache
             .cumulative_usage

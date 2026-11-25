@@ -258,7 +258,15 @@ pub(super) const CHAT_METADATA_BACKBONE_COLUMNS: &[(&str, &str)] = &[
     ("parent_conversation_id", "TEXT"),
     ("root_conversation_id", "TEXT"),
     ("delegate_id", "TEXT"),
+    // 问题清单独立成列：它与 short_id 一样只由专用写入口动，通用 meta 写入的 UPDATE
+    // 里没有它，所以整段覆写 metadata_json 的路径碰不到它。
+    ("questions_json", CHAT_METADATA_QUESTIONS_COLUMN_DEFINITION),
 ];
+
+/// `questions_json` 的列定义。建表语句与本文件的补列常量共用这一份字面量，
+/// 避免两条 schema 路径各自演化。
+pub(super) const CHAT_METADATA_QUESTIONS_COLUMN_DEFINITION: &str =
+    "TEXT NOT NULL DEFAULT '{\"nextNumber\":1,\"items\":[]}'";
 
 /// 底座索引：全部 `IF NOT EXISTS`，重复执行无副作用。
 pub(super) const CHAT_METADATA_BACKBONE_INDEXES: &[&str] = &[
@@ -354,7 +362,10 @@ pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WA
            agent_id TEXT NOT NULL DEFAULT '',
            parent_conversation_id TEXT,
            root_conversation_id TEXT,
-           delegate_id TEXT
+           delegate_id TEXT,
+           -- 与 CHAT_METADATA_QUESTIONS_COLUMN_DEFINITION 必须一致：新建库走这里，
+           -- 老库补列走那份常量，两处定义同一条列。
+           questions_json TEXT NOT NULL DEFAULT '{\"nextNumber\":1,\"items\":[]}'
          );
          CREATE TABLE IF NOT EXISTS conversation_blocks (
            conversation_id TEXT NOT NULL,
@@ -930,7 +941,8 @@ fn chat_metadata_store_read_meta(
     let row = conn
         .query_row(
             "SELECT metadata_json, short_id, created_at, updated_at, status, conversation_kind,
-                    agent_id, parent_conversation_id, root_conversation_id, delegate_id
+                    agent_id, parent_conversation_id, root_conversation_id, delegate_id,
+                    questions_json
                FROM conversation_metadata WHERE conversation_id=?1",
             [&paths.conversation_id],
             |row| {
@@ -950,6 +962,7 @@ fn chat_metadata_store_read_meta(
                         root_conversation_id: row.get(8)?,
                         delegate_id: row.get(9)?,
                     },
+                    row.get::<_, String>(10)?,
                 ))
             },
         )
@@ -960,7 +973,7 @@ fn chat_metadata_store_read_meta(
                 paths.conversation_id
             )
         })?;
-    let Some((raw, backbone)) = row else {
+    let Some((raw, backbone, raw_questions)) = row else {
         return Ok(None);
     };
     let payload = conversation_shard_meta_from_stored_json(&raw).map_err(|err| {
@@ -969,7 +982,23 @@ fn chat_metadata_store_read_meta(
             paths.conversation_id
         )
     })?;
-    Ok(Some(ConversationStoredMeta::new(backbone, payload)))
+    let questions = chat_metadata_parse_questions_json(&raw_questions, &paths.conversation_id)?;
+    Ok(Some(ConversationStoredMeta::new_with_questions(
+        backbone, payload, questions,
+    )))
+}
+
+/// 解析 `questions_json` 列。
+///
+/// 列是问题唯一的物理位置：解析不出来就是错误，不拿空清单顶——空清单会让人以为
+/// 「这个会话没有题」，随后一次写入就把真清单覆盖掉。
+fn chat_metadata_parse_questions_json(
+    raw: &str,
+    conversation_id: &str,
+) -> Result<ConversationQuestionsColumn, String> {
+    serde_json::from_str::<ConversationQuestionsColumn>(raw.trim()).map_err(|err| {
+        format!("解析 questions_json 失败：conversation_id={conversation_id}，error={err}")
+    })
 }
 
 fn chat_metadata_store_read_index(paths: &MessageStorePaths) -> Result<Option<MessageStoreIndexFile>, String> {
@@ -1739,6 +1768,67 @@ fn chat_metadata_store_write_meta_only(
         }
         Ok(())
     })
+}
+
+/// 读 `questions_json`：一句 SELECT，不套缓存、不套锁、不套重试。
+///
+/// 解析失败、行不存在都是错误，直接往上抛——列就是唯一事实，读不到就是读不到。
+pub(crate) fn chat_metadata_store_read_questions(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<ConversationQuestionsColumn, String> {
+    let paths = message_store_paths(data_path, conversation_id)?;
+    let conn = chat_metadata_store_open(&paths.data_path)?;
+    let raw = conn
+        .query_row(
+            "SELECT questions_json FROM conversation_metadata WHERE conversation_id=?1",
+            rusqlite::params![paths.conversation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|err| {
+            format!(
+                "读取 questions_json 失败：conversation_id={}，error={err}",
+                paths.conversation_id
+            )
+        })?;
+    chat_metadata_parse_questions_json(&raw, &paths.conversation_id)
+}
+
+/// 写 `questions_json`：一句 UPDATE，整列覆盖。
+///
+/// 底稿在内存里的会话元数据上算好（追加 / 按编号整条覆盖 / 按编号剔除），这里只把
+/// 那整份清单覆盖到磁盘：不读旧列、不在 SQL 里做就地手术、不合并。
+pub(crate) fn chat_metadata_store_write_questions(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    questions: &ConversationQuestionsColumn,
+) -> Result<(), String> {
+    let paths = message_store_paths(data_path, conversation_id)?;
+    let raw = serde_json::to_string(questions).map_err(|err| {
+        format!(
+            "序列化 questions_json 失败：conversation_id={}，error={err}",
+            paths.conversation_id
+        )
+    })?;
+    let conn = chat_metadata_store_open(&paths.data_path)?;
+    let updated = conn
+        .execute(
+            "UPDATE conversation_metadata SET questions_json=?2 WHERE conversation_id=?1",
+            rusqlite::params![paths.conversation_id, raw],
+        )
+        .map_err(|err| {
+            format!(
+                "写入 questions_json 失败：conversation_id={}，error={err}",
+                paths.conversation_id
+            )
+        })?;
+    if updated != 1 {
+        return Err(format!(
+            "写入 questions_json 失败：会话不存在，conversation_id={}",
+            paths.conversation_id
+        ));
+    }
+    Ok(())
 }
 
 fn chat_metadata_store_write_result(

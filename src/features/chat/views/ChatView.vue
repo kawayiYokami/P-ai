@@ -934,7 +934,6 @@ import {
 } from "../../shell/composables/use-chat-composer-appearance";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import {
-  appendTransportProbeLog,
   copyTransportChatImageToClipboard,
   getTransportHostContext,
   invokeTauri,
@@ -989,7 +988,6 @@ import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
-import { peekConversationQuestionItems } from "../composables/conversation-question-signal";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatVirtualStartMargin } from "../composables/use-chat-virtual-start-margin";
 import { probeChatScroll } from "../composables/chat-scroll-probe";
@@ -1075,6 +1073,11 @@ const props = defineProps<{
   syncWorkspaceBranch?: (workspacePath: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
+  /**
+   * 当前会话的待答题目：来源是 `conversation_metadata.questions_json` 那一列的读出值，
+   * 切会话时随快照一次到位，推送时由窗口层刷新。视图层不自己再拉一次。
+   */
+  conversationQuestionSnapshot?: ConversationQuestionView[];
   goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
   goalSaving: boolean; goalError: string;
   activeGoalTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;
@@ -1489,7 +1492,6 @@ function handleApprovalQuestionWorkspaceRemember(requestId: string) {
 const conversationQuestions = ref<ConversationQuestionView[]>([]);
 const conversationQuestionAnswers = ref<ConversationQuestionAnswerMap>({});
 const conversationQuestionSubmitting = ref(false);
-let unlistenConversationQuestions: (() => void) | undefined;
 
 /**
  * 面板只按会话重建：同一会话里发掉一题后列表会变，但面板不能重建——
@@ -1504,15 +1506,7 @@ const conversationQuestionItems = computed(() =>
 );
 
 /**
- * 题目列表的写入序号。
- *
- * 拉取与推送是两条并行来路：一个在推送之前发出的 `question_list` 完全可能在推送之后
- * 才返回，把刚拿到的题目覆盖成旧快照。每次写入都推进序号，在途请求返回时对不上就丢弃。
- */
-let conversationQuestionWriteSeq = 0;
-
-/**
- * 用后端返回的题目列表刷新面板。
+ * 用快照里的题目列表刷新面板。
  *
  * `resetAnswers` 只给「切会话」与「发送成功」用：前者已选内容全部失效，后者已经发出去了。
  * 拒绝单题、以及工具自行增删题走的是保留分支——只丢已经不在列表里的题目勾选，
@@ -1523,32 +1517,11 @@ function applyConversationQuestionItems(
   items: ConversationQuestionView[] | undefined,
   resetAnswers: boolean,
 ) {
-  conversationQuestionWriteSeq += 1;
   const next = Array.isArray(items) ? items : [];
   conversationQuestions.value = next;
   conversationQuestionAnswers.value = resetAnswers
     ? {}
     : pruneConversationQuestionAnswers(next, conversationQuestionAnswers.value);
-}
-
-async function loadConversationQuestions(conversationId?: string) {
-  const cid = String(conversationId ?? props.activeConversationId ?? "").trim();
-  if (!cid) {
-    conversationQuestions.value = [];
-    return;
-  }
-  const writeSeq = conversationQuestionWriteSeq;
-  try {
-    const items = await invokeTauri<ConversationQuestionView[]>("question_list", {
-      conversationId: cid,
-    });
-    // 请求返回时用户可能已切走；期间若已有推送写入，这次结果就是旧的，一并丢弃。
-    if (writeSeq !== conversationQuestionWriteSeq) return;
-    if (String(props.activeConversationId || "").trim() !== cid) return;
-    applyConversationQuestionItems(items, true);
-  } catch {
-    conversationQuestions.value = [];
-  }
 }
 
 function handleConversationQuestionSubmit(
@@ -1573,9 +1546,8 @@ function handleConversationQuestionSubmit(
       applyConversationQuestionItems(result?.remaining, true);
     })
     .catch((error) => {
-      // 消息已经发出去了，这里只回滚「已答」这一侧：把题重新拉回来提示用户。
+      // 写库失败 = 这一题没被标记，面板上它本来就还在，等不到推送也对得上。
       console.error("[会话问题] 标记已答失败", error);
-      void loadConversationQuestions(conversationId);
     })
     .finally(() => {
       conversationQuestionSubmitting.value = false;
@@ -1600,55 +1572,27 @@ function handleConversationQuestionReject(number: number) {
       applyConversationQuestionItems(remaining, false);
     })
     .catch((error) => {
+      // 同上：删失败了，这一题没少，面板保持原样就是对的。
       console.error("[会话问题] 拒绝回答失败", error);
-      void loadConversationQuestions(conversationId);
     })
     .finally(() => {
       conversationQuestionSubmitting.value = false;
     });
 }
 
+// 题目只有一个来源：窗口层 `currentChatQuestions`（快照写入 + 推送写入都落在那儿）。
+// 视图层不再自己发 question_list，也不维护按会话的影子缓存。
+const conversationQuestionSnapshotConversationId = ref("");
 watch(
-  () => String(props.activeConversationId || "").trim(),
-  (conversationId) => {
-    void loadConversationQuestions(conversationId);
+  [() => String(props.activeConversationId || "").trim(), () => props.conversationQuestionSnapshot],
+  ([conversationId, items]) => {
+    const switched = conversationQuestionSnapshotConversationId.value !== conversationId;
+    conversationQuestionSnapshotConversationId.value = conversationId;
+    applyConversationQuestionItems(items, switched);
   },
   { immediate: true },
 );
 
-// 窗口层的问题快照：事件走哪条路进来都不影响这里，
-// 不再依赖本组件那份 question.itemsUpdated 订阅有没有注册成功。
-watch(
-  () => peekConversationQuestionItems(String(props.activeConversationId || "").trim()),
-  (items) => {
-    if (!items) return;
-    applyConversationQuestionItems(items, false);
-  },
-);
-
-onMounted(() => {
-  unlistenConversationQuestions = onTransportNotification<Record<string, unknown>>(
-    "question.itemsUpdated",
-    (payload) => {
-      const conversationId = String((payload as any)?.conversationId || "").trim();
-      const activeConversationId = String(props.activeConversationId || "").trim();
-      const items = (payload as any)?.items;
-      appendTransportProbeLog("[会话问题]", "事件到达", {
-        payloadConversationId: conversationId,
-        activeConversationId,
-        matched: conversationId === activeConversationId,
-        itemCount: Array.isArray(items) ? items.length : -1,
-      });
-      if (!conversationId || conversationId !== activeConversationId) return;
-      applyConversationQuestionItems(items, false);
-    },
-  );
-});
-
-onBeforeUnmount(() => {
-  unlistenConversationQuestions?.();
-  unlistenConversationQuestions = undefined;
-});
 const chatStatusBanner = computed(() => {
   // 修复期间独占该库，所有会话调度必须让路，这里给一条常驻提示。
   if (chatStorageRepairing.value) {

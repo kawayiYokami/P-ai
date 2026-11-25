@@ -54,22 +54,16 @@ struct QuestionToolRequest {
     items: Vec<QuestionUpdateItem>,
 }
 
-/// 一次 `update` 调用里对单个条目的处置意图。
+/// 一次 `update` 调用里对单个条目的写入意图：带编号就写到那个编号上，不带就按新号写。
+///
+/// 没有「修改」这种动作：带编号的写入就是把那一整条换掉，原来写的是什么不参与计算。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum QuestionMutation {
-    Create {
+    Write {
+        number: Option<u32>,
         title: String,
         background: String,
         options: Vec<String>,
-    },
-    Update {
-        number: u32,
-        title: String,
-        background: String,
-        options: Vec<String>,
-    },
-    Delete {
-        number: u32,
     },
 }
 
@@ -141,40 +135,30 @@ fn question_mutation_from_item(item: &QuestionUpdateItem) -> Result<QuestionMuta
     let options = question_options_normalized(&item.options);
     let is_blank = title.is_empty() && background.is_empty() && options.is_empty();
 
-    match item.number {
-        Some(number) if number == 0 => Err("问题编号从 1 开始，0 不是合法编号".to_string()),
-        Some(number) if is_blank => Ok(QuestionMutation::Delete { number }),
-        Some(number) => {
-            if title.is_empty() {
-                return Err(format!(
-                    "#{number} 的更新缺少问题内容：清空问题应同时清空背景与选项"
-                ));
-            }
-            question_validate_title(&title)?;
-            question_validate_background(&background)?;
-            question_validate_options(&options)?;
-            Ok(QuestionMutation::Update {
-                number,
-                title,
-                background,
-                options,
-            })
-        }
-        None if is_blank => Err("缺少问题内容：新建问题需要提供问题与选项".to_string()),
-        None => {
-            if title.is_empty() {
-                return Err("新建问题必须提供问题内容".to_string());
-            }
-            question_validate_title(&title)?;
-            question_validate_background(&background)?;
-            question_validate_options(&options)?;
-            Ok(QuestionMutation::Create {
-                title,
-                background,
-                options,
-            })
-        }
+    if item.number == Some(0) {
+        return Err("问题编号从 1 开始，0 不是合法编号".to_string());
     }
+    if is_blank {
+        return Err(match item.number {
+            Some(number) => format!("#{number} 缺少要写入的内容：请提供问题与选项"),
+            None => "缺少问题内容：新建问题需要提供问题与选项".to_string(),
+        });
+    }
+    if title.is_empty() {
+        return Err(match item.number {
+            Some(number) => format!("#{number} 缺少问题内容：请提供要写入的问题"),
+            None => "新建问题必须提供问题内容".to_string(),
+        });
+    }
+    question_validate_title(&title)?;
+    question_validate_background(&background)?;
+    question_validate_options(&options)?;
+    Ok(QuestionMutation::Write {
+        number: item.number,
+        title,
+        background,
+        options,
+    })
 }
 
 /// 工具层文本输出：与 `list` 同形，队长一次调用即可看到最新状态。

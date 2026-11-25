@@ -288,19 +288,7 @@ fn ide_chat_timer_delete_timer_for_web_settings(
     ide_chat_serialize(timer_delete_timer_inner(input, state)?)
 }
 
-/// 会话问题列表：Web/IDE 与桌面端走同一个后端读取。
-fn ide_chat_question_list_for_web_settings(
-    state: &AppState,
-    params: Value,
-) -> Result<Value, String> {
-    let input = ide_chat_parse_param_field::<QuestionListWebParams>(params, "input")?;
-    ide_chat_serialize(question_views_for_conversation(
-        state,
-        &input.conversation_id,
-    )?)
-}
-
-/// 会话问题作答：Web/IDE 与桌面端走同一条命令实现，删题与入队在同一事务内完成。
+/// 会话问题作答：Web/IDE 与桌面端走同一条命令实现，只按编号删掉已答题，不碰发送与调度。
 fn ide_chat_question_answer_for_web_settings(
     state: &AppState,
     params: Value,

@@ -172,6 +172,7 @@
       :scroll-to-bottom-behavior="scrollToBottomBehavior"
       :current-chat-conversation-id="currentChatConversationId"
       :current-chat-todos="currentChatTodos"
+      :current-chat-questions="currentChatQuestions"
       :chat-goal-active="chatGoalActive"
       :chat-goal-title="chatGoalTitle"
       :goal-dialog-open="goalDialogOpen"

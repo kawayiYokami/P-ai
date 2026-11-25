@@ -104,6 +104,11 @@ impl ConversationBackbone {
 pub(super) struct ConversationStoredMeta {
     backbone: ConversationBackbone,
     payload: ConversationShardMeta,
+    /// 问题清单 + 编号游标：`conversation_metadata.questions_json` 列在内存里的那一份。
+    ///
+    /// 它不参与 `metadata_json` 的序列化，也不进通用 meta 写入的 UPDATE。读写都走提问
+    /// 链路：读会话元数据时连这一列一起取出，写入时整列覆盖回库。
+    questions: ConversationQuestionsColumn,
 }
 
 impl std::ops::Deref for ConversationStoredMeta {
@@ -128,14 +133,47 @@ impl std::ops::DerefMut for ConversationStoredMeta {
 }
 
 impl ConversationStoredMeta {
-    pub(super) fn new(backbone: ConversationBackbone, payload: ConversationShardMeta) -> Self {
-        Self { backbone, payload }
+    pub(super) fn new(
+        backbone: ConversationBackbone,
+        payload: ConversationShardMeta,
+    ) -> Self {
+        Self {
+            backbone,
+            payload,
+            questions: ConversationQuestionsColumn::default(),
+        }
+    }
+
+    /// 从库里读出的那份：问题列与骨肉同一条 SELECT 拿出，原样带进来。
+    pub(super) fn new_with_questions(
+        backbone: ConversationBackbone,
+        payload: ConversationShardMeta,
+        questions: ConversationQuestionsColumn,
+    ) -> Self {
+        Self {
+            backbone,
+            payload,
+            questions,
+        }
+    }
+
+    pub(super) fn questions(&self) -> &ConversationQuestionsColumn {
+        &self.questions
+    }
+
+    pub(super) fn set_questions(&mut self, questions: ConversationQuestionsColumn) {
+        self.questions = questions;
+    }
+
+    pub(super) fn questions_mut(&mut self) -> &mut ConversationQuestionsColumn {
+        &mut self.questions
     }
 
     pub(super) fn from_conversation(conversation: &Conversation) -> Self {
         Self {
             backbone: ConversationBackbone::from_conversation(conversation),
             payload: ConversationShardMeta::from_conversation(conversation),
+            questions: ConversationQuestionsColumn::default(),
         }
     }
 
@@ -154,6 +192,7 @@ impl ConversationStoredMeta {
                 removed_messages,
                 inserted_messages,
             ),
+            questions: ConversationQuestionsColumn::default(),
         }
     }
 
@@ -232,19 +271,21 @@ impl ConversationStoredMeta {
     }
 
     /// 先铺肉、再铺骨：骨是列权威，任何残留的肉字段都不许盖掉它。
+    /// 问题来自独立列，放在最后铺，谁都不会把它盖掉。
     pub(super) fn apply_to_conversation(&self, target: &mut Conversation) {
         self.payload.apply_to_conversation(target);
         self.backbone.apply_to_conversation(target);
-    }
-
-    pub(super) fn apply_questions_to_conversation(&self, target: &mut Conversation) {
-        self.payload.apply_questions_to_conversation(target);
+        target.questions = self.questions.items.clone();
+        target.question_next_number = self.questions.next_number;
     }
 
     pub(super) fn into_conversation(self, messages: Vec<ChatMessage>) -> Conversation {
+        let questions = self.questions.clone();
         let (backbone, payload) = self.into_parts();
         let mut conversation = payload.into_conversation(messages);
         backbone.apply_to_conversation(&mut conversation);
+        conversation.questions = questions.items;
+        conversation.question_next_number = questions.next_number;
         conversation
     }
 }
@@ -339,9 +380,9 @@ pub(super) struct ConversationShardMeta {
     /// 会话级队伍状态；联系人会话摘要需要读取名册，故对本 crate 开放。
     #[serde(default)]
     pub(crate) team: TeamState,
-    /// 本会话自己的待答问题与编号游标。
-    questions: Vec<ConversationQuestionEntry>,
-    question_next_number: u32,
+    /// 本会话自己的待答问题与编号游标**不在这里**：它们住在
+    /// `conversation_metadata.questions_json` 独立列，只由提问写入路径维护，
+    /// 因此 `metadata_json` 里永远不会出现这两个键。
     /// 队长会话的议题看板与编号游标；队员会话恒为空。
     issues: Vec<KanbanIssueEntry>,
     issue_next_number: u32,
@@ -383,8 +424,6 @@ pub(super) fn conversation_json_fill_missing_attachments(value: &mut serde_json:
         return;
     };
     for (key, empty) in [
-        ("questions", serde_json::Value::Array(Vec::new())),
-        ("questionNextNumber", serde_json::Value::from(0)),
         ("issues", serde_json::Value::Array(Vec::new())),
         ("issueNextNumber", serde_json::Value::from(0)),
     ] {
@@ -598,14 +637,6 @@ impl ConversationShardMeta {
         &self.team
     }
 
-    pub(super) fn questions(&self) -> &[ConversationQuestionEntry] {
-        self.questions.as_slice()
-    }
-
-    pub(super) fn question_next_number(&self) -> u32 {
-        self.question_next_number
-    }
-
     pub(super) fn issues(&self) -> &[KanbanIssueEntry] {
         self.issues.as_slice()
     }
@@ -683,22 +714,11 @@ impl ConversationShardMeta {
         target.cumulative_usage = self.cumulative_usage.clone();
         target.active_goal = self.active_goal.clone();
         target.team = self.team.clone();
-        target.questions = self.questions.clone();
-        target.question_next_number = self.question_next_number;
         target.issues = self.issues.clone();
         target.issue_next_number = self.issue_next_number;
         target.loaded_mcp_tools = self.loaded_mcp_tools.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
         target.last_error = self.last_error.clone();
-    }
-
-    /// 只把问题列表覆盖到目标会话。
-    ///
-    /// questions / question_next_number 只由提问工具写入。调度等后台路径持有的会话
-    /// 快照可能早于答题完成，落盘前必须用缓存里的当前值覆盖，否则会把已答写回未答。
-    pub(crate) fn apply_questions_to_conversation(&self, target: &mut Conversation) {
-        target.questions = self.questions.clone();
-        target.question_next_number = self.question_next_number;
     }
 
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
@@ -727,8 +747,6 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
-        self.questions = source.questions.clone();
-        self.question_next_number = source.question_next_number;
         self.issues = source.issues.clone();
         self.issue_next_number = source.issue_next_number;
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
@@ -762,8 +780,6 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
-        self.questions = source.questions.clone();
-        self.question_next_number = source.question_next_number;
         self.issues = source.issues.clone();
         self.issue_next_number = source.issue_next_number;
         self.loaded_mcp_tools = source.loaded_mcp_tools.clone();
@@ -794,8 +810,6 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.team = source.team.clone();
-        self.questions = source.questions.clone();
-        self.question_next_number = source.question_next_number;
         self.issues = source.issues.clone();
         self.issue_next_number = source.issue_next_number;
         self.last_error = source.last_error.clone();
@@ -1067,8 +1081,6 @@ impl ConversationShardMeta {
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
             team: conversation.team.clone(),
-            questions: conversation.questions.clone(),
-            question_next_number: conversation.question_next_number,
             issues: conversation.issues.clone(),
             issue_next_number: conversation.issue_next_number,
             loaded_mcp_tools: conversation.loaded_mcp_tools.clone(),
@@ -1195,8 +1207,10 @@ impl ConversationShardMeta {
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
             team: self.team,
-            questions: self.questions,
-            question_next_number: self.question_next_number,
+            // 问题清单住在独立列：这里只填占位，由
+            // `ConversationStoredMeta::into_conversation` 用列值覆盖。
+            questions: Vec::new(),
+            question_next_number: 0,
             issues: self.issues,
             issue_next_number: self.issue_next_number,
             loaded_mcp_tools: self.loaded_mcp_tools,
@@ -1282,7 +1296,12 @@ pub(super) fn conversation_stored_meta_from_legacy_json(
         root_conversation_id: text("rootConversationId"),
         delegate_id: text("delegateId"),
     };
-    Ok(ConversationStoredMeta::new(backbone, payload))
+    Ok(ConversationStoredMeta::new_with_questions(
+        backbone,
+        payload,
+        // 老明文里若还留着 questions 键，反序列化时已被忽略：不迁移，按空开始。
+        ConversationQuestionsColumn::default(),
+    ))
 }
 
 fn write_conversation_shard_meta_atomic(
@@ -1314,30 +1333,53 @@ pub(super) fn read_conversation_stored_meta(
 mod message_store_meta_tests {
     use super::*;
 
-    /// 老分片缺这四个键时，整条会话要照常读出来，附属记录读成空。
+    /// 老分片缺附属记录键时整条会话要照常读出来；问题相关键已经不在落盘结构里。
     #[test]
     fn missing_attachment_keys_should_read_as_empty() {
         let conversation = test_conversation();
         let meta = ConversationShardMeta::from_conversation(&conversation);
         let mut value = serde_json::to_value(&meta).expect("serialize meta");
         let object = value.as_object_mut().expect("落盘元数据必须是 JSON 对象");
-        for key in ["questions", "questionNextNumber", "issues", "issueNextNumber"] {
+        for key in ["questions", "questionNextNumber"] {
             assert!(
-                object.remove(key).is_some(),
-                "这四个键本来就在落盘结构里：{key}"
+                !object.contains_key(key),
+                "问题不再进 metadata_json：{key}"
             );
         }
-        let raw = serde_json::to_string(&value).expect("to text");
+        for key in ["issues", "issueNextNumber"] {
+            assert!(
+                object.remove(key).is_some(),
+                "议题清单仍应在落盘结构里：{key}"
+            );
+        }
+        // 落盘结构里没有这两个键，是结构决定的；磁盘上的实况断言放在 chat 的落盘守卫测试里
+        // （直读 `conversation_metadata.metadata_json` 原文）。这里补一条真有行为含义的：
+        // 老明文里若还残留 questions 键，必须照常读出来并按空开始——不迁移、不报错。
+        let mut legacy = value.clone();
+        if let Some(object) = legacy.as_object_mut() {
+            object.insert(
+                "questions".to_string(),
+                serde_json::json!([{ "number": 1, "title": "旧题" }]),
+            );
+            object.insert("questionNextNumber".to_string(), serde_json::json!(9));
+        }
+        let legacy_raw = serde_json::to_string(&legacy).expect("to text");
+        let restored_legacy = conversation_shard_meta_from_stored_json(&legacy_raw)
+            .expect("老明文带 questions 键也要读得出来");
+        assert_eq!(
+            restored_legacy.id(),
+            conversation.id,
+            "带 legacy questions 键的老行不能被跳过"
+        );
 
+        let raw = serde_json::to_string(&value).expect("to text");
         let restored = conversation_shard_meta_from_stored_json(&raw).expect("缺键也要读得出来");
         assert_eq!(
             restored.id(),
             conversation.id,
             "会话本身要读得出来，不许跳过"
         );
-        assert!(restored.questions().is_empty(), "问题清单要读成空");
         assert!(restored.issues().is_empty(), "议题清单要读成空");
-        assert_eq!(restored.question_next_number(), 0, "问题编号游标要读成 0");
         assert_eq!(restored.issue_next_number(), 0, "议题编号游标要读成 0");
     }
 

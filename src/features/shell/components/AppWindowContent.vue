@@ -181,6 +181,7 @@
         :active-agent-id="currentChatAgentId"
         :active-conversation-id="currentChatConversationId"
         :current-todos="currentChatTodos"
+        :conversation-question-snapshot="currentChatQuestions"
         :goal-active="chatGoalActive"
         :goal-title="chatGoalTitle"
         :goal-dialog-open="goalDialogOpen"
@@ -611,6 +612,7 @@ import type {
 import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind, ThemeSourceKind } from "../../shell/theme/theme-types";
 import type { AgentPersonaOption } from "../../shared/agent-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
+import type { ConversationQuestionView } from "../../chat/utils/conversation-question";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
 import { isViewLayerBusy } from "../../chat/composables/chat-view-busy";
 import {
@@ -774,6 +776,8 @@ const props = defineProps<{
   createSideConversationBranchFromTurn?: (payload: { turnId: string; sourceConversationId?: string }) => Promise<void> | void;
   closeSideChatConversations?: (conversationIds: string[]) => Promise<void> | void;
   currentChatTodos: ChatTodoItem[];
+  /** 当前会话的待答题目快照：来源是会话 meta 的 `questions_json` 列 */
+  currentChatQuestions?: ConversationQuestionView[];
   chatGoalActive: boolean;
   chatGoalTitle: string;
   goalDialogOpen: boolean;

@@ -8,6 +8,7 @@ import {
 } from "./use-chat-conversation-message-utils";
 import { useChatConversationOverviewUtils } from "./use-chat-conversation-overview-utils";
 import { applyStreamingHistoryOverlay } from "./use-chat-flow-stream-overlay";
+import { normalizeConversationQuestions } from "../utils/conversation-question";
 
 type ForegroundPaintTrace = {
   id: number;
@@ -450,7 +451,9 @@ export function useChatConversationSync(bindings: Record<string, any>) {
 
   function applyConversationSnapshot(
     snapshot: Record<string, any>,
-    options?: { preserveExistingHistory?: boolean },
+    options?: {
+      preserveExistingHistory?: boolean;
+    },
   ) {
     const nextConversationId = String(snapshot.conversationId || "").trim();
     const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
@@ -486,6 +489,10 @@ export function useChatConversationSync(bindings: Record<string, any>) {
         }))
         .filter((item: any) => item.content && (item.status === "pending" || item.status === "in_progress" || item.status === "completed"))
       : [];
+    // 题目随快照一次到位：来源是 `conversation_meta.questions_json` 那一列的读出值。
+    bindings.currentChatQuestions.value = normalizeConversationQuestions(
+      snapshot.conversationMeta?.questions,
+    );
     bindings.allMessages.value = nextMessages;
     bindings.hasMoreBackendHistory.value = !!snapshot.hasMoreHistory;
     bindings.foregroundTailLatestReady.value = true;
@@ -520,6 +527,13 @@ export function useChatConversationSync(bindings: Record<string, any>) {
         }
         : item
     );
+  }
+
+  function applyConversationQuestionsUpdated(payload?: Record<string, any> | null) {
+    const conversationId = String(payload?.conversationId || "").trim();
+    if (!conversationId) return;
+    if (conversationId !== String(bindings.currentChatConversationId.value || "").trim()) return;
+    bindings.currentChatQuestions.value = normalizeConversationQuestions(payload?.items);
   }
 
   function applyConversationOverviewUpdated(payload?: Record<string, any> | null) {
@@ -727,6 +741,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     applyConversationMessageAppended,
     applyConversationSnapshot,
     applyConversationTodosUpdated,
+    applyConversationQuestionsUpdated,
     applyConversationOverviewUpdated,
     applyConversationOverviewItemUpdated,
     applyConversationPinUpdated,

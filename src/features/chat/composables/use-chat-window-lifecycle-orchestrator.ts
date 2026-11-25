@@ -94,6 +94,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     clearSideConversationUnread: bindings.clearSideConversationUnread,
     clearSideConversationRuntimeState: bindings.clearSideConversationRuntimeState,
     applyConversationTodosUpdated: bindings.applyConversationTodosUpdated,
+    applyConversationQuestionsUpdated: bindings.applyConversationQuestionsUpdated,
     applyConversationPinUpdated: bindings.applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated: bindings.applyConversationRuntimeStateUpdated,
     applyConversationOverviewUpdated: bindings.applyConversationOverviewUpdated,

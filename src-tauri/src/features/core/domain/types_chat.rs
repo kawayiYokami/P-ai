@@ -556,7 +556,7 @@ struct TeamMembership {
 /// 归属由「它躺在这条会话的元数据里」表达，再存一遍等于让字段指向自己。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ConversationQuestionEntry {
+pub(crate) struct ConversationQuestionEntry {
     /// 会话内自增编号，单调递增、不回收，是唯一的对外引用。
     number: u32,
     #[serde(default)]
@@ -569,6 +569,32 @@ struct ConversationQuestionEntry {
     created_at: String,
     #[serde(default)]
     updated_at: String,
+}
+
+/// `conversation_metadata.questions_json` 一列的值：问题清单 + 编号游标。
+///
+/// 这一列只由提问写入路径动：通用 meta 写入的 UPDATE 里没有它，所以调度、归档、
+/// 重命名、消息落盘怎么整段覆写 `metadata_json` 都碰不到它。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConversationQuestionsColumn {
+    #[serde(default = "default_question_next_number")]
+    pub(crate) next_number: u32,
+    #[serde(default)]
+    pub(crate) items: Vec<ConversationQuestionEntry>,
+}
+
+fn default_question_next_number() -> u32 {
+    1
+}
+
+impl Default for ConversationQuestionsColumn {
+    fn default() -> Self {
+        Self {
+            next_number: 1,
+            items: Vec::new(),
+        }
+    }
 }
 
 /// 议题归属。

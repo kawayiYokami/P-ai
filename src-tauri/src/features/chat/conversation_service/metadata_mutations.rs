@@ -660,24 +660,30 @@ mod unarchived_summary_batch_tests {
     }
 
     fn seed_questions(state: &AppState, counts: &[usize]) {
+        // 问题住在 `conversation_metadata.questions_json` 那一列，种子直接写列：
+        // 通用元数据写入已经不碰它，走那条路只会种出空列表。
         for (index, count) in counts.iter().enumerate() {
             let conversation_id = format!("perf-leader-{index}");
             let copy = *count as u32;
-            state_update_conversation_metadata_cached(state, &conversation_id, |conversation| {
-                let now = now_utc_rfc3339();
-                for number in 1..=copy {
-                    conversation.questions.push(ConversationQuestionEntry {
-                        number,
-                        title: format!("问题 {number}"),
-                        background: String::new(),
-                        options: vec!["是".to_string()],
-                        created_at: now.clone(),
-                        updated_at: now.clone(),
-                    });
-                }
-                conversation.question_next_number = copy + 1;
-                Ok(())
-            })
+            let now = now_utc_rfc3339();
+            let items = (1..=copy)
+                .map(|number| ConversationQuestionEntry {
+                    number,
+                    title: format!("问题 {number}"),
+                    background: String::new(),
+                    options: vec!["是".to_string()],
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                })
+                .collect::<Vec<_>>();
+            message_store::chat_metadata_store_write_questions(
+                &state.data_path,
+                &conversation_id,
+                &ConversationQuestionsColumn {
+                    next_number: copy + 1,
+                    items,
+                },
+            )
             .expect("写入问题记录");
         }
     }
@@ -697,9 +703,9 @@ mod unarchived_summary_batch_tests {
         }
     }
 
-    /// 概览的问题条数直接取自会话元数据，并且一次批量读取不碰任何附属库文件。
+    /// 概览的问题条数直接取自会话元数据的 `questions_json` 列，一次批量读取不碰任何附属库文件。
     #[test]
-    fn batch_summary_read_should_take_question_count_from_metadata() {
+    fn batch_summary_read_should_take_question_count_from_questions_column() {
         let state = test_chat_runtime_state();
         let ids = seed_team_conversations(&state);
         seed_questions(&state, &[2, 1, 0]);

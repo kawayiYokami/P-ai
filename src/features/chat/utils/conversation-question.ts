@@ -30,6 +30,27 @@ export function buildConversationQuestionItems(
   }));
 }
 
+/**
+ * 会话问题条目的落地清洗。
+ *
+ * 编号是题目唯一对外引用（后端不回收、不复用），缺号或非正整数的条目留着也点不了，
+ * 只会让面板多出一个无法作答的空格子，直接丢掉。其余字段只做类型兜底，不改内容。
+ *
+ * 快照（切会话）与推送（工具改题、答题、拒绝）都先过这里，两条来路得到同一个形状。
+ */
+export function normalizeConversationQuestions(raw: unknown): ConversationQuestionView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item: any) => ({
+      number: Number(item?.number),
+      title: String(item?.title ?? ""),
+      background: String(item?.background ?? ""),
+      options: (Array.isArray(item?.options) ? item.options : []).map((option: any) =>
+        String(option ?? "")),
+    }))
+    .filter((item) => Number.isInteger(item.number) && item.number >= 1);
+}
+
 /** 会话问题的已选答复：键是题目编号字符串，与面板 `QuestionItem.id` 对齐。 */
 export type ConversationQuestionAnswerMap = Record<
   string,

@@ -54,6 +54,7 @@
     :active-agent-id="agentId"
     :active-conversation-id="conversationId"
     :current-todos="runtime.currentTodos.value"
+    :conversation-question-snapshot="runtime.currentQuestions.value"
     :current-theme="currentTheme"
     :unarchived-conversation-items="conversationItems"
     :remote-im-contact-conversations="[]"

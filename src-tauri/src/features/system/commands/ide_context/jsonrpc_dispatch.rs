@@ -559,7 +559,6 @@ async fn ide_chat_handle_jsonrpc_request(
         "timer_create_timer" => ide_chat_timer_create_timer_for_web_settings(state, request.params),
         "timer_update_timer" => ide_chat_timer_update_timer_for_web_settings(state, request.params),
         "timer_delete_timer" => ide_chat_timer_delete_timer_for_web_settings(state, request.params),
-        "question_list" => ide_chat_question_list_for_web_settings(state, request.params),
         "question_answer" => ide_chat_question_answer_for_web_settings(state, request.params),
         "question_reject" => ide_chat_question_reject_for_web_settings(state, request.params),
         "mcp_list_servers" => ide_chat_mcp_list_servers_for_web_settings(state),

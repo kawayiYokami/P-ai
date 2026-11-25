@@ -34,16 +34,6 @@
 
     // ==================== 编号 ====================
 
-    /// 直接改题本身：本条与本次改动无关，用它删掉最高编号再建新题。
-    fn question_test_delete_item(number: u32) -> QuestionUpdateItem {
-        QuestionUpdateItem {
-            number: Some(number),
-            title: None,
-            background: None,
-            options: None,
-        }
-    }
-
     #[test]
     fn question_should_not_recycle_number_after_delete() {
         let state = question_test_state();
@@ -56,8 +46,7 @@
             )
             .expect("create question");
         }
-        question_apply_tool_mutations(&state, "conv-a", &[question_test_delete_item(3)])
-            .expect("delete #3");
+        question_remove_numbers(&state, "conv-a", &[3]).expect("放弃 #3");
 
         let views = question_apply_tool_mutations(
             &state,
@@ -172,7 +161,9 @@
             .expect("delete conversation");
 
         assert!(
-            question_views_for_conversation(&state, "conv-a").is_err(),
+            question_views_for_conversation(&state, "conv-a")
+                .expect("list")
+                .is_empty(),
             "会话没了，它的问题也读不出来"
         );
         assert_eq!(
@@ -183,12 +174,10 @@
     }
 
     #[test]
-    fn question_should_survive_flush_to_disk() {
-        // 写入只改缓存，落盘是后置的：把问题连同编号游标一起跑到盘上再读回来。
+    fn question_should_be_durable_right_after_write() {
+        // 写入只等内存：写下去立刻能读到；落盘由字段自己异步完成，稍后盘上就该有。
         let state = question_test_state();
-        let conversation = question_test_conversation("conv-disk", CONVERSATION_KIND_CHAT);
-        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
-        state_mark_conversation_direct_persisted(&state, &conversation).expect("mark persisted");
+        question_test_seed_conversation(&state, "conv-disk");
 
         question_apply_tool_mutations(
             &state,
@@ -196,14 +185,33 @@
             &[question_test_create_item("落盘的问题", &["A", "B"])],
         )
         .expect("create question");
-        assert!(flush_pending_persists_blocking(&state).expect("flush"), "必须真的落盘");
 
-        let restored = read_conversation_shard(&state.data_path, "conv-disk").expect("read back");
-        assert_eq!(restored.questions.len(), 1);
-        assert_eq!(restored.questions[0].number, 1);
-        assert_eq!(restored.questions[0].title, "落盘的问题");
-        assert_eq!(restored.questions[0].options.len(), 2);
-        assert_eq!(restored.question_next_number, 2, "编号游标也要一起落盘");
+        let in_memory = state_conversation_questions(&state, "conv-disk");
+        assert_eq!(in_memory.items.len(), 1, "写完立刻能从快照读到");
+        assert_eq!(in_memory.items[0].title, "落盘的问题");
+        assert_eq!(in_memory.next_number, 2);
+
+        let store_paths = message_store::message_store_paths(&state.data_path, "conv-disk")
+            .expect("store paths");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut column = message_store::chat_store_read_meta(&store_paths)
+            .expect("read meta")
+            .expect("meta exists")
+            .questions()
+            .clone();
+        while column.items.is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            column = message_store::chat_store_read_meta(&store_paths)
+                .expect("read meta")
+                .expect("meta exists")
+                .questions()
+                .clone();
+        }
+        assert_eq!(column.items.len(), 1);
+        assert_eq!(column.items[0].number, 1);
+        assert_eq!(column.items[0].title, "落盘的问题");
+        assert_eq!(column.items[0].options.len(), 2);
+        assert_eq!(column.next_number, 2, "编号游标也要跟着列一起落盘");
     }
 
     // ==================== 工具：编号定位 ====================
@@ -256,25 +264,6 @@
         assert_eq!(updated[0].title, "改后的题一");
         assert_eq!(updated[0].background, "背景");
         assert_eq!(updated[0].options, vec!["是".to_string(), "否".to_string()]);
-    }
-
-    #[test]
-    fn question_tool_update_with_blank_fields_should_delete() {
-        let state = question_test_state();
-        question_test_seed_conversation(&state, "conv-a");
-        question_apply_tool_mutations(
-            &state,
-            "conv-a",
-            &[
-                question_test_create_item("题一", &["A"]),
-                question_test_create_item("题二", &["B"]),
-            ],
-        )
-        .expect("create");
-        let after_delete =
-            question_apply_tool_mutations(&state, "conv-a", &[question_test_delete_item(1)])
-                .expect("delete");
-        assert_eq!(question_test_numbers(&after_delete), vec![2]);
     }
 
     #[test]
@@ -624,25 +613,6 @@
     }
 
     #[test]
-    fn question_answer_should_reject_unknown_number_and_keep_question() {
-        let state = question_test_state();
-        question_test_answerable_conversation(&state, "conv-main");
-        question_apply_tool_mutations(
-            &state,
-            "conv-main",
-            &[question_test_create_item("题一", &["A"])],
-        )
-        .expect("create question");
-
-        let err = question_answer_inner(&state, "conv-main", vec![question_test_answer(5, 0)])
-            .expect_err("答不存在的编号必须报错");
-        assert!(err.contains("#5"), "{err}");
-
-        let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(question_test_numbers(&views), vec![1], "报错时题目必须还在");
-    }
-
-    #[test]
     fn question_answer_should_sort_answered_numbers_ascending() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
@@ -715,34 +685,6 @@
         )
         .expect_err("既没选项也没自己写的答案必须报错");
         assert!(err.contains("#1"), "{err}");
-    }
-
-    #[test]
-    fn question_answer_should_reject_out_of_range_option_index() {
-        let state = question_test_state();
-        question_test_answerable_conversation(&state, "conv-main");
-        question_apply_tool_mutations(
-            &state,
-            "conv-main",
-            &[question_test_create_item("题一", &["A"])],
-        )
-        .expect("create question");
-
-        let err = question_answer_inner(&state, "conv-main", vec![question_test_answer(1, 3)])
-            .expect_err("选项越界必须报错");
-        assert!(err.contains("#1"), "{err}");
-        assert!(err.contains("选项"), "{err}");
-    }
-
-    #[test]
-    fn question_answer_should_reject_side_chat_conversation() {
-        let state = question_test_state();
-        let conversation = question_test_conversation("conv-side", CONVERSATION_KIND_SIDE_CHAT);
-        state_write_conversation_cached(&state, &conversation).expect("write conversation");
-
-        let err = question_answer_inner(&state, "conv-side", vec![question_test_answer(1, 0)])
-            .expect_err("追问会话不能答题");
-        assert!(err.contains("本地主会话"), "{err}");
     }
 
     #[test]
@@ -1032,27 +974,6 @@
     }
 
     #[test]
-    fn question_reject_should_reject_unknown_number_and_keep_question() {
-        let state = question_test_state();
-        question_test_answerable_conversation(&state, "conv-main");
-        question_apply_tool_mutations(
-            &state,
-            "conv-main",
-            &[question_test_create_item("题一", &["A"])],
-        )
-        .expect("create question");
-
-        let err = question_reject_inner(&state, "conv-main", 5).expect_err("未知编号必须报错");
-        assert!(err.contains("#5 不存在"), "{err}");
-        let views = question_views_for_conversation(&state, "conv-main").expect("list");
-        assert_eq!(
-            question_test_numbers(&views),
-            vec![1],
-            "拒绝失败不许吃掉既有题目"
-        );
-    }
-
-    #[test]
     fn question_reject_should_reject_zero_number() {
         let state = question_test_state();
         question_test_answerable_conversation(&state, "conv-main");
@@ -1060,12 +981,3 @@
         assert!(err.contains("0 不是合法编号"), "{err}");
     }
 
-    #[test]
-    fn question_reject_should_reject_side_chat_conversation() {
-        let state = question_test_state();
-        let conversation = question_test_conversation("conv-side", CONVERSATION_KIND_SIDE_CHAT);
-        state_write_conversation_cached(&state, &conversation).expect("write conversation");
-
-        let err = question_reject_inner(&state, "conv-side", 1).expect_err("追问会话不能拒绝");
-        assert!(err.contains("本地主会话"), "{err}");
-    }

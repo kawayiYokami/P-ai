@@ -1706,7 +1706,6 @@ fn main() {
             timer_delete_timer,
             kanban::kanban_get_board,
             kanban::kanban_approve_issue,
-            question_list,
             question_answer,
             question_reject,
             goal_get_current,
