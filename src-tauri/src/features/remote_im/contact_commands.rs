@@ -117,6 +117,10 @@ struct RemoteImContactDashboardSnapshot {
     last_presence_at: Option<String>,
     watermark: String,
     updated_at: String,
+    #[serde(default)]
+    next_inspection_remaining_seconds: Option<f64>,
+    #[serde(default)]
+    next_inspection_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +171,31 @@ fn remote_im_contact_dashboard_snapshot_inner(
         presence_runtime.work_state,
         presence_runtime.has_pending,
     );
+    // 巡检排期：观察员正等着看群时，把剩余时间和这一轮的用途一并给前端。
+    let inspection_key = remote_im_group_reply_state_key(state, contact_id);
+    let (next_inspection_remaining_seconds, next_inspection_kind) = {
+        let store = lock_remote_im_inspection_schedule_store();
+        match store.next_inspection.get(&inspection_key) {
+            Some(schedule) => {
+                let remaining = schedule
+                    .due_at
+                    .saturating_duration_since(std::time::Instant::now())
+                    .as_secs_f64();
+                if remaining > 0.0 {
+                    (
+                        Some(remaining),
+                        Some(match schedule.kind {
+                            RemoteImGroupReplyTimerKind::Mention => "点名".to_string(),
+                            RemoteImGroupReplyTimerKind::NonMention => "常规巡检".to_string(),
+                        }),
+                    )
+                } else {
+                    (None, None)
+                }
+            }
+            None => (None, None),
+        }
+    };
     let maximum_energy = pacing.maximum_energy;
     let energy_percent = if maximum_energy > 0.0 {
         energy / maximum_energy * 100.0
@@ -183,6 +212,8 @@ fn remote_im_contact_dashboard_snapshot_inner(
         last_presence_at,
         watermark,
         updated_at: now_iso(),
+        next_inspection_remaining_seconds,
+        next_inspection_kind,
     })
 }
 

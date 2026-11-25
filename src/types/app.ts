@@ -554,6 +554,10 @@ export type RemoteImContactDashboardSnapshot = {
   energyRecoveryPerSecond: number;
   presence: "away" | "present";
   lastPresenceAt?: string;
+  /** 下一次巡检的剩余秒数；当前没有排期时后端下发 null。 */
+  nextInspectionRemainingSeconds?: number | null;
+  /** 下一次巡检的类型，后端给的是给人看的说法（点名 / 常规巡检）；没有排期时下发 null。 */
+  nextInspectionKind?: string | null;
   watermark: string;
   updatedAt: string;
 };

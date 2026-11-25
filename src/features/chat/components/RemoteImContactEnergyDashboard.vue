@@ -14,6 +14,11 @@
       <span class="h-4 w-px bg-base-300"></span>
       <AppIcon name="battery-charging" class="size-4" :class="energyClass" aria-hidden="true" />
       <span class="text-xs font-semibold tabular-nums" :class="energyClass">{{ compactEnergyText }}</span>
+      <template v-if="inspectionText">
+        <span class="h-4 w-px bg-base-300"></span>
+        <AppIcon name="clock" class="size-3.5 text-base-content/55" aria-hidden="true" />
+        <span class="text-xs tabular-nums text-base-content/70">{{ inspectionText }}</span>
+      </template>
     </button>
 
     <Transition name="remote-energy-card">
@@ -46,6 +51,10 @@
         <div v-if="lastPresenceText" class="mt-1 flex items-center justify-between gap-3 text-xs text-base-content/60">
           <span>最近在场</span>
           <span class="tabular-nums">{{ lastPresenceText }}</span>
+        </div>
+        <div v-if="inspectionText" class="mt-1 flex items-center justify-between gap-3 text-xs text-base-content/60">
+          <span>下次巡检</span>
+          <span class="tabular-nums">{{ inspectionDetailText }}</span>
         </div>
       </section>
     </Transition>
@@ -80,6 +89,24 @@ const maximumEnergyText = computed(() => formatNumber(maximumEnergy.value));
 const compactEnergyText = computed(() => `${energyText.value}/${maximumEnergyText.value}`);
 const recoveryText = computed(() => `+${formatNumber(finiteNumber(props.snapshot?.energyRecoveryPerSecond))} / 秒`);
 const lastPresenceText = computed(() => formatDate(props.snapshot?.lastPresenceAt));
+const inspectionRemainingSeconds = computed(() => {
+  const raw = props.snapshot?.nextInspectionRemainingSeconds;
+  // 后端没有排期时下发 null；Number(null) 是 0，不先挡掉会显示成 0s
+  if (raw === null || raw === undefined) return null;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds) : null;
+});
+/** 胶囊里只放秒数：面板窄，类型留给展开卡。 */
+const inspectionText = computed(() =>
+  inspectionRemainingSeconds.value === null ? "" : `${inspectionRemainingSeconds.value}s`,
+);
+const inspectionKindText = computed(() => {
+  const raw = props.snapshot?.nextInspectionKind;
+  return raw === null || raw === undefined ? "" : String(raw).trim();
+});
+const inspectionDetailText = computed(() =>
+  inspectionKindText.value ? `${inspectionKindText.value} · ${inspectionText.value}` : inspectionText.value,
+);
 const dashboardTitle = computed(() => `${presenceText.value}，能量 ${compactEnergyText.value}`);
 
 function finiteNumber(value: unknown) {
