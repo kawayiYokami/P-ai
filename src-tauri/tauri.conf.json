@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "url": "index.html",
         "title": "PAI - 配置窗口",
         "width": 900,
@@ -28,6 +29,7 @@
       },
       {
         "label": "chat",
+        "create": false,
         "url": "chat.html",
         "title": "PAI - 对话窗口",
         "width": 618,
@@ -41,6 +43,7 @@
       },
       {
         "label": "archives",
+        "create": false,
         "url": "archives.html",
         "title": "PAI - 归档窗口",
         "width": 900,

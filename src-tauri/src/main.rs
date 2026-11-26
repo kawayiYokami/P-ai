@@ -1322,6 +1322,12 @@ fn main() {
                 runtime_log_info(format!("[系统] 启动 构建托盘完成"));
             }
 
+            // 主窗口由 tauri.conf.json 声明但带 create: false，必须在这里建：
+            // 只有建窗器能指定 WebView2 数据目录，内置创建路径不接受该参数。
+            if let Err(err) = create_configured_windows(&app_handle) {
+                runtime_log_error(format!("[系统] 启动 创建主窗口失败: {err}"));
+            }
+
             // ========== 阶段 1：最小启动，尽快让前端可见 ==========
             let app_state = app_handle.state::<AppState>();
             // 旧配置键只在迁移模块内可见，且任何一次配置落盘都会让它消失；

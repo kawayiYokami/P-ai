@@ -480,18 +480,21 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
 
             let encoded_path = urlencoding::encode(&path);
             let url = format!("file-reader.html?path={encoded_path}");
-            let window = match tauri::WebviewWindowBuilder::new(
-                &app_handle,
-                FILE_READER_WINDOW_LABEL,
-                tauri::WebviewUrl::App(url.into()),
+            let window = match attach_webview_data_directory(
+                tauri::WebviewWindowBuilder::new(
+                    &app_handle,
+                    FILE_READER_WINDOW_LABEL,
+                    tauri::WebviewUrl::App(url.into()),
+                )
+                .title("PAI - 文件阅读")
+                .inner_size(1040.0, 760.0)
+                .min_inner_size(720.0, 520.0)
+                .resizable(true)
+                .decorations(false)
+                .shadow(true)
+                .visible(false),
+                webview_data_directory(&app_handle),
             )
-            .title("PAI - 文件阅读")
-            .inner_size(1040.0, 760.0)
-            .min_inner_size(720.0, 520.0)
-            .resizable(true)
-            .decorations(false)
-            .shadow(true)
-            .visible(false)
             .build()
             {
                 Ok(window) => window,
@@ -1305,6 +1308,74 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+// ==================== WebView2 数据目录 ====================
+
+/// WebView2 用户数据目录，跟随 `app_root`：`<app_root>/webview`。
+///
+/// 不指定时 Tauri 会退到 `%LOCALAPPDATA%\<identifier>`，而 dev 与便携版的
+/// identifier 相同、落到的是同一份目录；两个实例同时开着，后建的 WebView2
+/// 环境会把先占着的那个实例的浏览器进程挤掉（多个窗口同一秒 exit_code=2）。
+/// 按 `app_root` 分开之后两边各用各的目录，互不相干。
+///
+/// 同一进程内所有窗口必须用同一个值：WebView2 环境按目录建，混用会让不同
+/// 窗口落进不同环境。
+fn webview_data_directory(app: &AppHandle) -> Option<std::path::PathBuf> {
+    static WEBVIEW_DATA_DIRECTORY: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    WEBVIEW_DATA_DIRECTORY
+        .get_or_init(|| {
+            let data_path = app.state::<AppState>().data_path.clone();
+            let dir = app_root_from_data_path(&data_path).join("webview");
+            if let Err(err) = std::fs::create_dir_all(&dir) {
+                runtime_log_error(format!(
+                    "[系统] WebView 数据目录创建失败 目录={} 错误={err}",
+                    dir.display()
+                ));
+                return None;
+            }
+            runtime_log_info(format!("[系统] WebView 数据目录：{}", dir.display()));
+            Some(dir)
+        })
+        .clone()
+}
+
+/// 给建窗器挂上 WebView2 数据目录。macOS 的 WKWebView 没有这个参数，
+/// 原样返回，走 Tauri 默认数据存储。
+fn attach_webview_data_directory<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
+    builder: tauri::WebviewWindowBuilder<'a, R, M>,
+    data_directory: Option<std::path::PathBuf>,
+) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        if let Some(dir) = data_directory {
+            return builder.data_directory(dir);
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = data_directory;
+    }
+    builder
+}
+
+/// 按 tauri.conf.json 的声明创建主窗口（main / chat / archives）。
+/// 配置里这些窗口带 `"create": false`，Tauri 不再自己建：只有走建窗器这条
+/// 路径才能指定 WebView2 数据目录，Tauri 内置的创建路径不接受该参数。
+fn create_configured_windows(app: &AppHandle) -> Result<(), String> {
+    let data_directory = webview_data_directory(app);
+    for config in app.config().app.windows.clone() {
+        if app.get_webview_window(&config.label).is_some() {
+            continue;
+        }
+        let builder = tauri::WebviewWindowBuilder::from_config(app, &config)
+            .map_err(|err| format!("构建窗口失败：label={}，error={err}", config.label))?;
+        attach_webview_data_directory(builder, data_directory.clone())
+            .build()
+            .map_err(|err| format!("创建窗口失败：label={}，error={err}", config.label))?;
+        runtime_log_info(format!("[系统] 窗口已创建 窗口={}", config.label));
+    }
+    Ok(())
+}
+
 /// 重载窗口内的 WebView：渲染进程死亡或持续无响应后的最小恢复动作。
 #[cfg(target_os = "windows")]
 fn reload_window(app: &AppHandle, label: &str) -> Result<(), String> {
@@ -1342,8 +1413,9 @@ fn rebuild_window(app: &AppHandle, label: &str) -> Result<(), String> {
             .map_err(|err| format!("销毁窗口失败：label={label}，error={err}"))?;
     }
 
-    let window = tauri::WebviewWindowBuilder::from_config(app, &config)
-        .map_err(|err| format!("构建窗口失败：label={label}，error={err}"))?
+    let builder = tauri::WebviewWindowBuilder::from_config(app, &config)
+        .map_err(|err| format!("构建窗口失败：label={label}，error={err}"))?;
+    let window = attach_webview_data_directory(builder, webview_data_directory(app))
         .build()
         .map_err(|err| format!("重建窗口失败：label={label}，error={err}"))?;
 
@@ -1597,18 +1669,21 @@ fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
             if app_handle.get_webview_window(RUNTIME_LOGS_WINDOW_LABEL).is_some() {
                 return;
             }
-            let window = match tauri::WebviewWindowBuilder::new(
-                &app_handle,
-                RUNTIME_LOGS_WINDOW_LABEL,
-                tauri::WebviewUrl::App("runtime-logs.html".into()),
+            let window = match attach_webview_data_directory(
+                tauri::WebviewWindowBuilder::new(
+                    &app_handle,
+                    RUNTIME_LOGS_WINDOW_LABEL,
+                    tauri::WebviewUrl::App("runtime-logs.html".into()),
+                )
+                .title("PAI - 运行日志")
+                .inner_size(900.0, 600.0)
+                .min_inner_size(600.0, 400.0)
+                .resizable(true)
+                .decorations(false)
+                .shadow(true)
+                .visible(false),
+                webview_data_directory(&app_handle),
             )
-            .title("PAI - 运行日志")
-            .inner_size(900.0, 600.0)
-            .min_inner_size(600.0, 400.0)
-            .resizable(true)
-            .decorations(false)
-            .shadow(true)
-            .visible(false)
             .build()
             {
                 Ok(w) => w,
