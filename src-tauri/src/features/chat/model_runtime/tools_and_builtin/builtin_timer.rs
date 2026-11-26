@@ -61,6 +61,26 @@ fn timer_tool_assert_timer_in_scope(
     timer_tool_assert_conversation_in_scope(session_id, record.conversation_id.as_deref())
 }
 
+/// 工具只该看见自己能管的那批：本会话的，加上没有会话归属的全局定时器。
+/// 全量返回会把别的会话的定时器也倒给模型，还会给出一堆它无权修改的条目。
+fn timer_tool_visible_timers(
+    timers: Vec<TimerRecord>,
+    scope_conversation_id: Option<&str>,
+) -> Vec<TimerRecord> {
+    let scope = scope_conversation_id.map(str::trim).filter(|id| !id.is_empty());
+    timers
+        .into_iter()
+        .filter(|timer| {
+            let target = timer
+                .conversation_id
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
+            target.is_empty() || Some(target) == scope
+        })
+        .collect()
+}
+
 async fn builtin_timer(
     app_state: &AppState,
     session_id: &str,
@@ -70,7 +90,8 @@ async fn builtin_timer(
     match args.action.trim() {
         "list" => {
             let timers = timer_store_list(&app_state.data_path)?;
-            serde_json::to_value(timers).map_err(|err| format!("序列化定时器列表失败：{err}"))
+            let visible = timer_tool_visible_timers(timers, bound_conversation_id.as_deref());
+            serde_json::to_value(visible).map_err(|err| format!("序列化定时器列表失败：{err}"))
         }
         "create" => {
             timer_tool_reject_delegate_thread(app_state, session_id)?;

@@ -392,3 +392,38 @@ fn timer_list_should_only_return_requested_conversation() {
             .unwrap_or(&data_path),
     );
 }
+
+#[test]
+fn timer_tool_list_should_only_show_own_conversation_and_global() {
+    // 模型侧的 list 与前端侧栏同一口径：本会话的，加上没有会话归属的全局定时器。
+    let data_path = timer_test_sandbox_data_path("tool-list-scope");
+
+    let global = timer_test_stored("1", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    let mut mine = timer_test_stored("2", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    mine.conversation_id = Some("conversation-a".to_string());
+    let mut other = timer_test_stored("3", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    other.conversation_id = Some("conversation-b".to_string());
+
+    timer_store_write_records(&data_path, &global).expect("写入全局定时器");
+    timer_store_write_records(&data_path, &mine).expect("写入本会话定时器");
+    timer_store_write_records(&data_path, &other).expect("写入其他会话定时器");
+
+    let all = timer_store_list(&data_path).expect("读取定时器列表");
+
+    let scoped = timer_tool_visible_timers(all.clone(), Some("conversation-a"));
+    let mut visible: Vec<&str> = scoped.iter().map(|timer| timer.id.as_str()).collect();
+    visible.sort_unstable();
+    assert_eq!(visible, vec!["1", "2"], "别的会话的定时器不该出现在列表里");
+
+    let globals = timer_tool_visible_timers(all, None);
+    let mut global_only: Vec<&str> = globals.iter().map(|timer| timer.id.as_str()).collect();
+    global_only.sort_unstable();
+    assert_eq!(global_only, vec!["1"], "没有会话上下文时只剩全局定时器");
+
+    let _ = fs::remove_dir_all(
+        data_path
+            .parent()
+            .and_then(|path| path.parent())
+            .unwrap_or(&data_path),
+    );
+}
