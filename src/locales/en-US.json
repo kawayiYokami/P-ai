@@ -109,8 +109,7 @@
     },
     "navGroups": {
       "general": "General",
-      "ai": "Model Capabilities",
-      "agents": "Agents",
+      "ai": "AI",
       "remote": "Remote",
       "data": "Data & Tasks",
       "system": "System & Maintenance"

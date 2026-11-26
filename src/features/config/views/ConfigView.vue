@@ -525,16 +525,10 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     ],
   },
   {
-    id: "agents",
-    titleKey: "config.navGroups.agents",
-    items: [
-      { tab: "persona", icon: "user", labelKey: "config.tabs.persona" },
-    ],
-  },
-  {
     id: "ai",
     titleKey: "config.navGroups.ai",
     items: [
+      { tab: "persona", icon: "user", labelKey: "config.tabs.persona" },
       { tab: "api", icon: "cpu", labelKey: "config.tabs.api" },
       { tab: "mcp", icon: "puzzle", labelKey: "config.tabs.mcp" },
       { tab: "skill", icon: "code", labelKey: "config.tabs.skill" },

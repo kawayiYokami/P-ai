@@ -109,8 +109,7 @@
     },
     "navGroups": {
       "general": "常規設定",
-      "ai": "模型能力",
-      "agents": "智能體",
+      "ai": "人工智能",
       "remote": "遠端",
       "data": "資料與任務",
       "system": "系統與維護"
