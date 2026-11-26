@@ -2043,7 +2043,7 @@
       "shellInterrupt": "打斷",
       "delegateLabel": "委託",
       "timerLabel": "定時器",
-      "toolLabel": "最近工具",
+      "toolLabel": "最近變更",
       "toolChangedFiles": "修改了 {n} 個檔案",
       "toolMoreFiles": "還有 {n} 個檔案被修改",
       "planLabel": "最近計劃",

@@ -11,15 +11,19 @@
     <template #trailing>
       <span class="ecall-home-num shrink-0 text-xs text-base-content/45">{{ t("chat.homePanel.toolChangedFiles", { n: totalFileCount }) }}</span>
     </template>
-    <ul v-if="visibleFiles.length" class="menu menu-xs w-full gap-0.5 p-0">
-      <li v-for="file in visibleFiles" :key="file.path">
-        <div class="min-w-0 gap-2 font-normal" :title="file.path">
-          <span class="min-w-0 flex-1 truncate text-base-content/80">{{ file.label }}</span>
-          <span class="ecall-home-num shrink-0 font-mono text-xs">
-            <span class="text-success">+{{ file.added }}</span>
-            <span class="ml-1 text-error">-{{ file.deleted }}</span>
-          </span>
-        </div>
+    <ul v-if="visibleFiles.length" class="flex w-full flex-col text-xs">
+      <li
+        v-for="(file, index) in visibleFiles"
+        :key="file.path"
+        class="flex min-w-0 items-center gap-2 p-1"
+        :title="file.path"
+      >
+        <span class="ecall-home-num shrink-0 text-base-content/45">{{ index + 1 }}</span>
+        <span class="min-w-0 flex-1 truncate text-base-content/80">{{ file.label }}</span>
+        <span class="ecall-home-num shrink-0 font-mono text-xs">
+          <span class="text-success">+{{ file.added }}</span>
+          <span class="ml-1 text-error">-{{ file.deleted }}</span>
+        </span>
       </li>
     </ul>
   </CardShell>

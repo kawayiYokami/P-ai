@@ -165,7 +165,7 @@ function onBranchSwitched() {
 }
 
 button.ecall-env-row:hover:not(:disabled) {
-  background-color: var(--color-base-200);
+  background-color: var(--ecall-home-layer-hover, var(--color-base-200));
 }
 
 .ecall-env-row:disabled {

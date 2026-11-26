@@ -1910,7 +1910,7 @@
       "shellInterrupt": "Interrupt",
       "delegateLabel": "Delegate",
       "timerLabel": "Timers",
-      "toolLabel": "Recent tools",
+      "toolLabel": "Recent changes",
       "toolChangedFiles": "{n} files changed",
       "toolMoreFiles": "{n} more files changed",
       "planLabel": "Recent Plan",

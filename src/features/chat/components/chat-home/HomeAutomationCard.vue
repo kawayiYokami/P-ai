@@ -9,11 +9,15 @@
     <template #trailing>
       <span class="ecall-home-num shrink-0 text-xs text-base-content/45">{{ tasks.length }}</span>
     </template>
-    <ul class="menu menu-xs w-full gap-0.5 overflow-y-auto p-0">
-      <li v-for="task in tasks" :key="task.id">
-        <div class="min-w-0 gap-2 font-normal" :title="task.id">
-          <span class="min-w-0 flex-1 truncate text-base-content/80">{{ task.description || task.id }}</span>
-        </div>
+    <ul class="flex w-full flex-col overflow-y-auto text-xs">
+      <li
+        v-for="(task, index) in tasks"
+        :key="task.id"
+        class="flex min-w-0 items-center gap-2 p-1"
+        :title="task.id"
+      >
+        <span class="ecall-home-num shrink-0 text-base-content/45">{{ index + 1 }}</span>
+        <span class="min-w-0 flex-1 truncate text-base-content/80">{{ task.description || task.id }}</span>
       </li>
     </ul>
   </CardShell>

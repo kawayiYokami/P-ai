@@ -2046,7 +2046,7 @@
       "shellInterrupt": "打断",
       "delegateLabel": "委托",
       "timerLabel": "定时器",
-      "toolLabel": "最近工具",
+      "toolLabel": "最近变更",
       "toolChangedFiles": "修改了 {n} 个文件",
       "toolMoreFiles": "还有 {n} 个文件被修改",
       "planLabel": "最近计划",
