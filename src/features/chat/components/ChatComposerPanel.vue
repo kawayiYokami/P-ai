@@ -147,6 +147,8 @@
           </div>
         </template>
         <template #attachments>
+          <!-- 提问内容展开时，未发送的附件与引用跟着输入内容一起让位 -->
+          <template v-if="!questionExpanded">
           <div v-if="attachedIssueReferences.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
               v-for="item in attachedIssueReferences"
@@ -188,6 +190,7 @@
             @remove-file="removePanelAttachmentFile($event)"
             @toggle-bridge="togglePanelBridge($event)"
           />
+          </template>
         </template>
         <template #body>
           <!-- 提问内容与普通输入是同一种容器内的两种内容形态：
