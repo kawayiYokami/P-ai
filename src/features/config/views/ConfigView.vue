@@ -43,7 +43,7 @@
       <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
         <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
           <template v-for="(group, groupIndex) in CONFIG_NAV_GROUPS" :key="group.id">
-            <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
+            <li v-if="group.items.length > 1" class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
               <div
                 v-if="group.collapsible"
                 role="button"
@@ -117,7 +117,7 @@
         <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
           <ul class="menu w-full gap-0.5 p-0 pt-2 pb-6 [&>li>a]:w-full">
             <template v-for="(group, groupIndex) in CONFIG_NAV_GROUPS" :key="group.id">
-              <li class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
+              <li v-if="group.items.length > 1" class="menu-title px-1 pb-0.5" :class="groupIndex > 0 ? 'pt-2.5' : 'pt-1'">
                 <div
                   v-if="group.collapsible"
                   role="button"
