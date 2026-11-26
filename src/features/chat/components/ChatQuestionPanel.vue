@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import AppMarkdownRenderer from "../markdown/AppMarkdownRenderer.vue";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
-import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
 import type {
@@ -13,10 +12,6 @@ import type {
   QuestionOption,
   QuestionOptionKind,
 } from "./chat-question-panel-types";
-import {
-  conversationQuestionFingerprints,
-  conversationQuestionsGotUpdates,
-} from "../utils/conversation-question";
 import {
   buildQuestionSubmitPayload,
   buildSelectedQuestionSubmitPayload,
@@ -54,6 +49,8 @@ const emit = defineEmits<{
   submit: [answers: QuestionSubmitPayloadItem[]];
   reject: [number: number];
   cancel: [];
+  /** 收起：容器由输入卡提供，收起动作交给父级决定是否换回普通输入。 */
+  collapse: [];
   approveForWorkspace: [requestId: string];
 }>();
 
@@ -72,25 +69,13 @@ const CUSTOM_ANSWER_MAX_CHARS = 1000;
 const customAnswerEditing = ref(false);
 const customAnswerDrafts = ref<Record<string, string>>({});
 const customAnswerInputEl = ref<HTMLInputElement | null>(null);
-/**
- * 搁置折叠：只活在组件内部，不落库、不进任何持久化结构。
- * 切会话时父级用 `:key="conversationQuestionKey"` 重建面板，折叠态随之归零，正好回到展开。
- */
-const panelCollapsed = ref(false);
-let previousQuestionFingerprints = conversationQuestionFingerprints(props.items);
-
 const total = computed(() => props.items.length);
 const currentItem = computed(() => props.items[currentIndex.value] ?? null);
 const isSingle = computed(() => total.value <= 1);
 /** 手动发送（会话提问工具）：选项只记录为已选，点右下角发送才把这批已选题交出去。 */
 const isManualSubmit = computed(() => props.submitMode === "manual");
-/** 提问卡露头显隐：前提内容（patch/单行）与确认列表放底座露头，题干与选项收进面卡 */
+/** 前提内容：题干上方那块 patch / 单行命令。 */
 const hasPreviewText = computed(() => !!String(currentItem.value?.previewText ?? "").trim());
-const hasExtra = computed(() => {
-  if (total.value === 0) return false;
-  if (confirmStep.value) return true;
-  return hasPreviewText.value;
-});
 const answersMap = computed(() => props.modelValue ?? {});
 /** 当前题已经采用的自定义答案。它本身就是这一题的选中态，点一下可重新编辑。 */
 const customAnswerText = computed(() => {
@@ -229,21 +214,6 @@ watch(
   },
 );
 
-/**
- * 折叠着的时候，题目有更新才自己展开：新题进来、或已有题被改。
- * 只是减少（答掉一题、拒掉一题）不展开——那是用户刚做完的动作，再弹回来就是打扰。
- * 父级每次刷新都会给一份新数组，所以比的是内容指纹，不是引用。
- */
-watch(
-  () => props.items,
-  (next) => {
-    if (conversationQuestionsGotUpdates(previousQuestionFingerprints, next)) {
-      panelCollapsed.value = false;
-    }
-    previousQuestionFingerprints = conversationQuestionFingerprints(next);
-  },
-);
-
 watch(() => props.modelValue, () => {
   // keep drafts if user navigates back: prefill draft from saved answer comment for withInput
   const item = currentItem.value;
@@ -360,31 +330,17 @@ function handleReject() {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl">
-    <!-- 搁置窄条：收起后只剩这一条。数字取当前列表里的题数，答掉的题会从列表消失 -->
-    <button
-      v-if="panelCollapsed"
-      type="button"
-      class="flex w-full items-center gap-2 rounded-box border border-base-content/15 bg-base-200/60 px-3 py-1.5 text-xs text-base-content/70 transition-colors hover:border-base-content/25 hover:text-base-content"
-      @click="panelCollapsed = false"
-    >
-      <AppIcon name="help-circle" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span class="min-w-0 truncate">{{ t("chat.questionPanel.pendingCount", { count: total }) }}</span>
-      <AppIcon name="chevron-up" class="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-    </button>
-    <!-- 提问卡：双层卡，前提内容放底卡露头，题干加选项放面卡。
-         收起不卸载卡片，走最大高度与透明度过渡，展开回来草稿与选中态都还在。 -->
-    <DoubleDeckCard
-      class="ecall-question-fold"
-      :class="panelCollapsed ? 'is-collapsed' : ''"
-      :extra-visible="hasExtra"
-      is-rounded
-      frameless
-      bg="base-200"
-    >
-      <template #extra>
-        <div v-if="total > 0" class="space-y-3 px-4 pb-1 pt-4">
-          <!-- confirm overview: N>1 all answered，列表放露头 -->
+  <!-- 提问内容：输入卡容器（InputPanelDock / DoubleDeckCard）内部的一种内容形态，
+       不自带卡片与外框，只渲染题干、描述、选项与操作。 -->
+  <div class="w-full">
+    <div v-if="total === 0" class="px-2 py-8 text-center text-sm text-base-content/50">
+      {{ t("chat.questionPanel.empty") }}
+    </div>
+
+    <template v-else>
+      <!-- 前提内容（patch / 单行命令）与多题确认列表：题干上方的同一块内容区 -->
+      <div v-if="confirmStep || (currentItem && hasPreviewText)" class="space-y-3 px-2 pb-1">
+          <!-- confirm overview: N>1 all answered -->
           <ul v-if="confirmStep" class="flex flex-col gap-2">
             <li
               v-for="(item, idx) in items"
@@ -428,15 +384,9 @@ function handleReject() {
             />
             <pre v-else class="whitespace-pre-wrap break-words text-xs leading-5 text-base-content/70">{{ currentItem.previewText }}</pre>
           </OverlayScrollArea>
-        </div>
-      </template>
-      <template #main>
-        <div v-if="total === 0" class="px-2 py-8 text-center text-sm text-base-content/50">
-          {{ t("chat.questionPanel.empty") }}
-        </div>
+      </div>
 
-        <template v-else>
-          <!-- header: 题号切换条。两种节奏都渲染：它的职责是挑题，不是走向导。 -->
+      <!-- header: 题号切换条。两种节奏都渲染：它的职责是挑题，不是走向导。 -->
           <nav v-if="!isSingle" class="flex flex-wrap items-center gap-1 px-2 pb-1 text-xs" aria-label="breadcrumb">
             <template v-for="(item, idx) in items" :key="item.id">
               <button
@@ -495,7 +445,7 @@ function handleReject() {
                 type="button"
                 class="btn btn-ghost btn-xs h-5 min-h-0 shrink-0 gap-1 px-1.5 text-xs font-normal text-base-content/50 hover:text-base-content"
                 :title="t('chat.questionPanel.collapseHint')"
-                @click="panelCollapsed = true"
+                @click="emit('collapse')"
               >
                 {{ t("chat.questionPanel.collapse") }}
                 <AppIcon name="chevron-down" class="h-3 w-3" aria-hidden="true" />
@@ -608,26 +558,11 @@ function handleReject() {
               {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.sendSelected", { count: selectedCount }) }}
             </button>
           </div>
-        </template>
-      </template>
-    </DoubleDeckCard>
+    </template>
   </div>
 </template>
 
 <style scoped>
-/* 收起/展开：卡片不卸载，靠最大高度与透明度过渡（时长由卡片根的 transition-all 提供） */
-.ecall-question-fold {
-  overflow: hidden;
-  max-height: 2000px;
-  opacity: 1;
-}
-
-.ecall-question-fold.is-collapsed {
-  max-height: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 /* 选项文字沿项目既有混色口径（同 style.css 的 --ecall-md-link-color）：
    主色掺入正文色——浅色主题把主色压深、深色主题把主色提亮。
    浅深两档主色都已单独过对比度，这里只是让文字比实心按钮更收敛，

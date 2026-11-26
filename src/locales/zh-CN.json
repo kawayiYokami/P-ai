@@ -791,7 +791,7 @@
       "hint": "定义 AI 的人格与自我认知。",
       "backToProfile": "返回智能体",
       "injection": {
-        "title": "加载顺序",
+        "title": "提示词顺序",
         "hint": "拼成系统提示词，技能全文注入。",
         "total": "共 {count} 段",
         "settings": "人格设定",
@@ -868,8 +868,6 @@
         "hint": "表情名要能一眼看出是什么情绪，比如 开心、无奈、得意。"
       },
       "capabilities": "能力与协同",
-      "residentSkills": "随身技能与加载顺序",
-      "residentSkillsDesc": "{count} 个随身技能 · 提示词首位",
       "tabPersona": "人格",
       "tabCapability": "能力",
       "skillsTab": "随身技能",
@@ -2576,6 +2574,7 @@
     "questionPanel": {
       "collapse": "收起",
       "collapseHint": "收起问题面板；题目有更新时会自动展开",
+      "expand": "展开问题",
       "pendingCount": "{count} 个问题待答",
       "empty": "暂无问题",
       "confirmSuffix": "确认",

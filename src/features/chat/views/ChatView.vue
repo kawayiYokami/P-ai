@@ -519,31 +519,9 @@
               </div>
             </div>
           </Transition>
-          <!-- 提问进行中就占掉输入框那一格：它在等用户回答，输入框留在下面只会两块并排。
-               这条链的结尾因此不能是无条件 v-else，要显式排除有会话提问的时候。 -->
-          <ChatQuestionPanel
-            v-if="conversationQuestionItems.length > 0"
-            :key="conversationQuestionKey"
-            :items="conversationQuestionItems"
-            v-model="conversationQuestionAnswers"
-            :submitting="conversationQuestionSubmitting"
-            submit-mode="manual"
-            class="px-4 pb-2 pt-1"
-            @submit="handleConversationQuestionSubmit"
-            @reject="handleConversationQuestionReject"
-          />
-          <ChatQuestionPanel
-            v-if="activeConversationTerminalApprovals.length > 0"
-            :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
-            :items="approvalQuestionItems"
-            v-model="approvalQuestionAnswers"
-            :submitting="!!terminalApprovalResolving"
-            class="px-4 pb-4 pt-1"
-            @submit="handleApprovalQuestionSubmit"
-            @approve-for-workspace="handleApprovalQuestionWorkspaceRemember"
-          />
+          <!-- 提问内容由输入卡内部承载（右下角问题图标切换）；这里不再额外渲染独立面板。 -->
           <div
-            v-else-if="activeConversationRecipientMissing"
+            v-if="activeConversationRecipientMissing"
             class="m-4 rounded-box border border-warning/30 bg-warning/10 p-4 text-sm"
           >
             <div class="flex flex-col gap-4">
@@ -597,8 +575,11 @@
             </div>
           </div>
           <ChatComposerPanel
-            v-else-if="conversationQuestionItems.length === 0" ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
+            v-else ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
             :composer-scope="composerScope"
+            :question-active="hasPendingQuestion"
+            :question-expanded="questionExpanded"
+            @toggle-question="questionExpanded = !questionExpanded"
             :selected-message-count="selectedMessageBlocks.length"
             :chat-input="chatInput" :instruction-presets="instructionPresets" :mention-entries="mentionEntries"
             :selected-mentions="selectedMentions"
@@ -656,7 +637,32 @@
             @selection-action-share="emitSelectionAction('share', $event)"
             @trim-conversation="$emit('trimConversation')" @open-conversation-list="$emit('openConversationList')" @open-settings="$emit('openSettings')"
             @create-conversation="$emit('createConversation', $event)"
-          />
+          >
+            <!-- 提问卡是输入卡容器内的一种内容形态：外框仍是同一个 InputPanelDock。 -->
+            <template #question>
+              <ChatQuestionPanel
+                v-if="questionPanelMode === 'conversation'"
+                :key="conversationQuestionKey"
+                :items="conversationQuestionItems"
+                v-model="conversationQuestionAnswers"
+                :submitting="conversationQuestionSubmitting"
+                submit-mode="manual"
+                @submit="handleConversationQuestionSubmit"
+                @reject="handleConversationQuestionReject"
+                @collapse="questionExpanded = false"
+              />
+              <ChatQuestionPanel
+                v-else-if="questionPanelMode === 'terminal_approval'"
+                :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
+                :items="approvalQuestionItems"
+                v-model="approvalQuestionAnswers"
+                :submitting="!!terminalApprovalResolving"
+                @submit="handleApprovalQuestionSubmit"
+                @approve-for-workspace="handleApprovalQuestionWorkspaceRemember"
+                @collapse="questionExpanded = false"
+              />
+            </template>
+          </ChatComposerPanel>
           </div>
         </div>
 
@@ -1698,6 +1704,27 @@ const conversationQuestionKey = computed(() => String(props.activeConversationId
 
 const conversationQuestionItems = computed(() =>
   buildConversationQuestionItems(conversationQuestions.value),
+);
+
+/**
+ * 输入卡内部的提问内容形态：会话提问优先，其次终端审批。
+ * 两者都走同一个容器内切换，不再各自顶掉整块输入区。
+ */
+type ComposerQuestionMode = "none" | "conversation" | "terminal_approval";
+const questionPanelMode = computed<ComposerQuestionMode>(() => {
+  if (conversationQuestionItems.value.length > 0) return "conversation";
+  if (activeConversationTerminalApprovals.value.length > 0) return "terminal_approval";
+  return "none";
+});
+const hasPendingQuestion = computed(() => questionPanelMode.value !== "none");
+/** 展开态只活在组件内：有待答问题时默认展开，用户点问题图标或「收起」后回到普通输入。 */
+const questionExpanded = ref(false);
+watch(
+  () => questionPanelMode.value,
+  (mode) => {
+    questionExpanded.value = mode !== "none";
+  },
+  { immediate: true },
 );
 
 /**

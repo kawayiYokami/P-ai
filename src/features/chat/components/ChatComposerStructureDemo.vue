@@ -21,6 +21,13 @@
         <button type="button" class="btn btn-xs" :class="demoBusy ? 'btn-primary' : 'btn-ghost'" @click="demoBusy = !demoBusy">忙碌态</button>
       </GalleryControls>
       <GalleryControls>
+        <span class="text-xs text-base-content/60">提问卡：</span>
+        <button id="demo-question-off" type="button" class="btn btn-xs" :class="demoQuestionMode === 'off' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionMode = 'off'">无提问</button>
+        <button id="demo-question-expanded" type="button" class="btn btn-xs" :class="demoQuestionMode === 'expanded' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionMode = 'expanded'">展开</button>
+        <button id="demo-question-collapsed" type="button" class="btn btn-xs" :class="demoQuestionMode === 'collapsed' ? 'btn-primary' : 'btn-ghost'" @click="demoQuestionMode = 'collapsed'">收起</button>
+        <span class="text-xs text-base-content/40">提问卡与普通输入在同一张输入卡里切换，右下角问题图标切换</span>
+      </GalleryControls>
+      <GalleryControls>
         <span class="text-xs text-base-content/60">功能：</span>
         <button type="button" class="btn btn-xs" :class="demoMentions.length > 0 ? 'btn-primary' : 'btn-ghost'" @click="demoMentions.length > 0 ? (demoMentions = []) : resetDemoMentions()">提及</button>
         <button type="button" class="btn btn-xs" :class="goalActive ? 'btn-primary' : 'btn-ghost'" @click="goalActive = !goalActive">目标</button>
@@ -101,6 +108,9 @@
           :is-rounded="!isFilled"
           :queue-events-override="demoQueueEvents"
           :queue-visible="showQueue"
+          :question-active="demoQuestionMode !== 'off'"
+          :question-expanded="demoQuestionMode === 'expanded'"
+          @toggle-question="demoQuestionMode = demoQuestionMode === 'expanded' ? 'collapsed' : 'expanded'"
           @update:chat-input="inputText = $event"
           @add-mention="handleDemoAddMention"
           @remove-mention="handleDemoRemoveMention"
@@ -121,7 +131,18 @@
           @open-goal-task="goalActive = !goalActive"
           @queue-recall="handleDemoRecall"
           @queue-mark-guided="handleDemoMarkGuided"
-        />
+        >
+          <template #question>
+            <ChatQuestionPanel
+              :items="demoQuestionItems"
+              v-model="demoQuestionAnswers"
+              submit-mode="manual"
+              @submit="demoQuestionAnswers = {}"
+              @reject="demoQuestionAnswers = {}"
+              @collapse="demoQuestionMode = 'collapsed'"
+            />
+          </template>
+        </ChatComposerPanel>
       </InputPanelCanvas>
         </div>
       </div>
@@ -133,6 +154,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ChatComposerPanel from "./ChatComposerPanel.vue";
+import ChatQuestionPanel from "./ChatQuestionPanel.vue";
+import type {
+  QuestionAnswer,
+  QuestionItem,
+} from "./chat-question-panel-types";
 import InputPanelCanvas from "./input-panel/InputPanelCanvas.vue";
 import GalleryControls from "../../dev-gallery/GalleryControls.vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
@@ -149,6 +175,28 @@ import type { ChatQueueEvent } from "../composables/use-chat-queue";
 
 const inputText = ref("");
 const isFilled = ref(true);
+/** 提问卡演示：展开/收起只是输入卡内部内容形态的切换，外框不动。 */
+const demoQuestionMode = ref<"off" | "expanded" | "collapsed">("expanded");
+const demoQuestionAnswers = ref<Record<string, QuestionAnswer>>({});
+const demoQuestionItems: QuestionItem[] = [
+  {
+    id: "1",
+    title: "发布前要不要先补一条回归测试？",
+    description: "改动已经全绿，但这次动的是**提问卡容器**内部的内容形态。",
+    options: [
+      { id: "yes", label: "先补测试", kind: "direct" },
+      { id: "no", label: "直接发", kind: "direct" },
+    ],
+  },
+  {
+    id: "2",
+    title: "用哪个分支发布？",
+    options: [
+      { id: "main", label: "main", kind: "direct" },
+      { id: "release", label: "release", kind: "direct" },
+    ],
+  },
+];
 /** 议题引用演示：磁贴与输入框共用这一份 store，和生产里一样只走一个入口。 */
 const demoKanbanIssues = ref<KanbanIssue[]>([
   {

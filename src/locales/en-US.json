@@ -791,7 +791,7 @@
       "hint": "Define the AI's persona and self-understanding.",
       "backToProfile": "Back to agent",
       "injection": {
-        "title": "Load order",
+        "title": "Prompt order",
         "hint": "Forms the system prompt; skills are injected in full.",
         "total": "{count} blocks",
         "settings": "Persona settings",
@@ -868,8 +868,6 @@
         "hint": "Name stickers so the mood reads at a glance — happy, resigned, smug."
       },
       "capabilities": "Capabilities & Delegation",
-      "residentSkills": "Resident Skills & Injection Order",
-      "residentSkillsDesc": "{count} resident skills · Prompt first",
       "tabPersona": "Persona",
       "tabCapability": "Capability",
       "skillsTab": "Skills",
@@ -2576,6 +2574,7 @@
     "questionPanel": {
       "collapse": "Collapse",
       "collapseHint": "Collapse the question panel; it expands again when questions update",
+      "expand": "Expand questions",
       "pendingCount": "{count} questions pending",
       "empty": "No questions",
       "confirmSuffix": "Confirm",

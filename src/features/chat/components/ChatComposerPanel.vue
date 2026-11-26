@@ -190,7 +190,10 @@
           />
         </template>
         <template #body>
-          <div ref="composerRootRef" class="relative">
+          <!-- 提问内容与普通输入是同一种容器内的两种内容形态：
+               有此行时整块内容换成提问卡，外框（底座、露头、圆角、底色）完全不动。 -->
+          <slot v-if="questionExpanded" name="question" />
+          <div v-else ref="composerRootRef" class="relative">
             <Transition name="ecall-dropdown-up">
               <div
                 v-if="instructionPanelOpen"
@@ -331,7 +334,7 @@
         <template #footer>
           <InputPanelToolbar>
             <template #left>
-              <div class="flex min-w-0 items-center gap-1">
+              <div v-if="!questionExpanded" class="flex min-w-0 items-center gap-1">
                 <EcallDropdown
                   v-model="plusPanelOpen"
                   teleport
@@ -503,6 +506,21 @@
               </div>
             </template>
             <template #right>
+              <!-- 问题图标：有待答问题时高亮，点一下在提问卡与普通输入之间切换。
+                   它留在同一张输入卡右下角，所以收起后仍然看得见还有题没答。 -->
+              <button
+                v-if="questionActive"
+                type="button"
+                class="btn btn-sm btn-circle shrink-0 transition-transform duration-150 ease-out active:scale-90"
+                :class="questionExpanded ? 'btn-warning' : 'text-warning btn-ghost'"
+                :title="questionExpanded ? t('chat.questionPanel.collapse') : t('chat.questionPanel.expand')"
+                @pointerdown.prevent
+                @mousedown.prevent
+                @click="emit('toggleQuestion')"
+              >
+                <AppIcon name="help-circle" class="h-4 w-4" />
+              </button>
+              <template v-if="!questionExpanded">
               <EcallDropdown
                 v-model="usagePanelOpen"
                 teleport
@@ -632,6 +650,7 @@
                   </div>
                 </div>
               </div>
+              </template>
             </template>
           </InputPanelToolbar>
         </template>
@@ -733,6 +752,10 @@ const props = withDefaults(defineProps<{
   isRounded?: boolean;
   queueEventsOverride?: ChatQueueEvent[] | null;
   queueVisible?: boolean;
+  /** 当前会话是否有待回答的问题（会话提问或终端审批）。有则右下角显示问题图标并高亮。 */
+  questionActive?: boolean;
+  /** 输入卡内部当前显示的是提问内容还是普通输入 */
+  questionExpanded?: boolean;
 }>(), {
   /** Vue 会把未传的可选布尔 prop 转成 false 而不是 undefined，必须显式默认显示，否则生产面板队列永远隐藏 */
   queueVisible: true,
@@ -773,6 +796,8 @@ const emit = defineEmits<{
   (e: "queueRecall", event: ChatQueueEvent): void;
   (e: "queueMarkGuided", eventId: string): void;
   (e: "createConversation", input?: { agentId?: string }): void;
+  /** 点输入卡右下角的问题图标：在提问内容与普通输入之间切换 */
+  (e: "toggleQuestion"): void;
 }>();
 
 const { t } = useI18n();

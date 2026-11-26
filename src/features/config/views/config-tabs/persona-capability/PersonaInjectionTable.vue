@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-3 min-w-0 max-w-full">
-    <!-- 随身技能与加载顺序分组卡片 -->
+    <!-- 提示词顺序分组卡片 -->
     <ConfigCard :title="t('config.persona.injection.title')" flush class="shadow-xs min-w-0 max-w-full">
       <div class="divide-y divide-base-200/60">
         <!-- 首段固定：系统准则（可关闭，关闭后该人格不再注入全局准则） -->
