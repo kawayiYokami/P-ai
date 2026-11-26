@@ -72,6 +72,11 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
         managed: None,
     },
     WorkspacePresetSkill {
+        dir_name: "self-learning",
+        skill_md: include_str!("../../../resources/preset-skills/self-learning/SKILL.md"),
+        managed: None,
+    },
+    WorkspacePresetSkill {
         dir_name: "persona-craft",
         skill_md: include_str!("../../../resources/preset-skills/persona-craft/SKILL.md"),
         managed: Some(ManagedSkillInjection::TeamLeader),
