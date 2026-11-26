@@ -942,6 +942,16 @@ async fn check_github_update(
     update_method: Option<String>,
     respect_cooldown: Option<bool>,
 ) -> Result<GithubUpdateInfo, String> {
+    check_github_update_inner(&app, update_method, respect_cooldown).await
+}
+
+/// 检查远端发行版本。桌面命令与 Web 端 bridge 共用这一份：
+/// 它只做网络请求与版本比较，不碰安装器，所以两端都能跑。
+async fn check_github_update_inner(
+    app: &AppHandle,
+    update_method: Option<String>,
+    respect_cooldown: Option<bool>,
+) -> Result<GithubUpdateInfo, String> {
     let method = GithubUpdateMethod::from_raw(update_method);
     let runtime = detect_update_runtime_paths()?;
     if respect_cooldown.unwrap_or(false) {
@@ -951,7 +961,7 @@ async fn check_github_update(
                 GITHUB_AUTO_UPDATE_COOLDOWN_HOURS
             ));
             let result = build_skipped_auto_update_result(runtime.runtime_kind);
-            sync_update_state_from_check_result(&app, &result);
+            sync_update_state_from_check_result(app, &result);
             return Ok(result);
         }
         mark_auto_update_check_now()?;
@@ -993,7 +1003,7 @@ async fn check_github_update(
         runtime_kind: runtime.runtime_kind.as_str().to_string(),
         can_force_update: true,
     };
-    sync_update_state_from_check_result(&app, &result);
+    sync_update_state_from_check_result(app, &result);
     Ok(result)
 }
 
@@ -1989,7 +1999,7 @@ async fn run_auto_update_cycle(app: AppHandle) {
     if state.has_prepared_update && state.has_visible_update {
         return;
     }
-    let result = check_github_update(app.clone(), None, Some(true)).await;
+    let result = check_github_update_inner(&app, None, Some(true)).await;
     let result = match result {
         Ok(result) => result,
         Err(err) => {

@@ -3,6 +3,7 @@ import { i18n } from "../../../i18n";
 import {
   applyPreparedTransportGithubUpdate,
   canUseTransportGithubUpdate,
+  canUseTransportGithubUpdateCheck,
   cancelTransportGithubUpdate,
   checkTransportGithubUpdate,
   dismissPortablePendingManualReplace,
@@ -78,6 +79,11 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     return canUseTransportGithubUpdate();
   }
 
+  /** 检查远端版本两端都能做；Web 宿主只是不能下载安装。 */
+  function canCheckGithubUpdate() {
+    return canUseTransportGithubUpdateCheck();
+  }
+
   const updateSuppressedBySkip = computed(() => {
     const latestVersion = String(
       currentUpdateState.value?.latestVersion || latestCheckResult.value?.latestVersion || "",
@@ -150,7 +156,10 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     updateDialogReleaseUrl.value = result.releaseUrl || "";
     updateDialogBody.value = buildCheckDialogBody(result);
     updateDialogKind.value = "info";
-    updateDialogPrimaryAction.value = result.hasUpdate ? "download" : "force";
+    // Web 宿主只能看结果与发行页，下载安装是桌面端的事
+    updateDialogPrimaryAction.value = canUseGithubUpdate()
+      ? (result.hasUpdate ? "download" : "force")
+      : null;
     updateProgressPercent.value = null;
     updateStage.value = null;
     updateDialogTitle.value = result.hasUpdate ? t("about.foundUpdate") : t("about.alreadyLatest");
@@ -340,7 +349,7 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function checkGithubUpdate(silent: boolean, respectCooldown = false) {
-    if (!canUseGithubUpdate()) return null;
+    if (!canCheckGithubUpdate()) return null;
     if (options.viewMode.value === "archives") return;
     if (checkingUpdate.value) return;
     checkingUpdateRequest.value = true;
@@ -355,7 +364,8 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       latestCheckResult.value = result;
       updateRuntimeKind.value = result.runtimeKind;
       updateDialogReleaseUrl.value = result.releaseUrl || "";
-      const latestState = await refreshGithubUpdateState();
+      // 更新状态（是否已下载、待重启）只存在桌面端，Web 端不读它
+      const latestState = canUseGithubUpdate() ? await refreshGithubUpdateState() : null;
       if (!result?.hasUpdate) {
         updateReadyToRestart.value = false;
         if (!silent) {
@@ -500,6 +510,11 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function triggerUpdateToLatest() {
+    // Web 宿主没有下载安装能力，点更新就等于检查一次并给结果
+    if (!canUseGithubUpdate()) {
+      await checkGithubUpdate(false);
+      return;
+    }
     if (updateReadyToRestart.value) {
       openPreparedUpdateDialog();
       return;

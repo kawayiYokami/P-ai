@@ -1251,6 +1251,24 @@ async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Val
         .map_err(|err| format!("Serialize delegate submit result failed: {err}"))
 }
 
+/// Web 宿主的更新检查：只读远端发行版本，不下载也不安装。
+/// 桌面命令 `check_github_update` 内嵌在窗口里，Web 走这条 bridge 用同一份核心。
+async fn ide_chat_github_update_check(state: &AppState, params: Value) -> Result<Value, String> {
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    }
+    .ok_or_else(|| "桌面端尚未就绪，暂时无法检查更新".to_string())?;
+    let update_method = params
+        .get("updateMethod")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let respect_cooldown = params.get("respectCooldown").and_then(Value::as_bool);
+    ide_chat_serialize(
+        check_github_update_inner(&app_handle, update_method, respect_cooldown).await?,
+    )
+}
+
 fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {
     let conversation_id = params
         .get("conversationId")

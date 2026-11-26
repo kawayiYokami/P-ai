@@ -178,6 +178,7 @@ const WEB_BRIDGE_NO_TIMEOUT_COMMANDS = new Set([
 
 const WEB_BRIDGE_COMMAND_TIMEOUT_MS: Record<string, number> = {
   check_github_update: WEB_BRIDGE_LONG_TIMEOUT_MS,
+  "githubUpdate.check": WEB_BRIDGE_LONG_TIMEOUT_MS,
   cleanup_storage_legacy_items: WEB_BRIDGE_VERY_LONG_TIMEOUT_MS,
   codex_get_rate_limits: WEB_BRIDGE_LONG_TIMEOUT_MS,
   codex_consume_rate_limit_reset_credit: WEB_BRIDGE_LONG_TIMEOUT_MS,
@@ -541,6 +542,11 @@ export function getTransportCapabilities(): TransportCapabilities {
 /** 应用更新仅依赖桌面宿主的原生更新能力，业务层无需自行探测运行时。 */
 export function canUseTransportGithubUpdate(): boolean {
   return isTauriRuntimeAvailable();
+}
+
+/** 检查远端是否有新版本：只读网络与版本号，Web/VS Code 端经 bridge 用同一份后端实现。 */
+export function canUseTransportGithubUpdateCheck(): boolean {
+  return true;
 }
 
 /** 本机依赖检测仅桌面宿主提供；Web/VS Code 无本机环境可查，业务层直接读语义能力。 */
@@ -1393,7 +1399,11 @@ export function getTransportGithubUpdateState<T>(): Promise<T> {
 }
 
 export function checkTransportGithubUpdate<T>(input: Record<string, unknown>): Promise<T> {
-  return invokeRequiredNativeTransport<T>("应用更新检查", "check_github_update", input);
+  if (isTauriRuntimeAvailable()) {
+    return invokeRequiredNativeTransport<T>("应用更新检查", "check_github_update", input);
+  }
+  // Web/VS Code 端没有本机安装器，但「有没有新版本」是后端算的，两端同一份实现。
+  return invokeTauri<T>("githubUpdate.check", input);
 }
 
 export function startTransportGithubUpdate(input: Record<string, unknown>): Promise<void> {
