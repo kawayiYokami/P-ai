@@ -961,6 +961,7 @@
             @open-delegate-detail="openDelegateArchiveDetail"
             @abort-delegate="abortDelegate"
             @assistant-link-click="handleAssistantLinkClick"
+            @open-file="openHomeFile"
             @timer-saved="refreshRunningTimerCount"
           />
         </div>

@@ -1,55 +1,43 @@
 <template>
   <aside v-bind="rootAttrs" class="w-full flex h-full min-h-0 flex-col bg-base-200">
-    <div ref="contentScroller" class="ecall-chat-scroll-container flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
+    <div ref="contentScroller" class="ecall-chat-scroll-container flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div v-if="errorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
         {{ errorText }}
       </div>
 
       <template v-if="activeTab === 'tools' && currentBatch">
-        <div class="flex min-h-full flex-col">
-          <div class="flex min-h-0 flex-1 flex-col py-2">
+        <DiffFlowView
+          class="min-h-0 flex-1"
+          :items="diffFlowItems"
+          @open-file="emit('openFile', $event)"
+        >
+          <!-- 非文件类工具调用：没有 diff 可铺，仍按工具名折叠在文件改动之后 -->
+          <div v-if="nonFileReviewGroups.length > 0" class="flex flex-col py-2">
             <CollapsibleGroup
-              v-for="group in reviewGroups"
+              v-for="group in nonFileReviewGroups"
               :key="group.key"
               :title="group.title"
-              :count="group.segments.length || group.items.length"
+              :count="group.items.length"
               :model-value="isToolAssessmentSectionCollapsed(group.key)"
               @update:model-value="toggleToolAssessmentSection(group.key)"
               @collapse-all="collapseAllToolAssessmentSections"
             >
               <div v-if="!isToolAssessmentSectionCollapsed(group.key)">
-                <template v-if="group.segments.length > 0">
-                  <div v-for="(segment, idx) in group.segments" :key="`${group.key}:segment:${idx}`" class="mx-1 mb-1">
-                    <TerminalApprovalPatchSample
-                      v-if="segment.diffLines.length > 0"
-                      :lines="segment.diffLines"
-                      :diff-only="true"
-                      :lang="resolveShikiLanguage(extensionFromPath(segment.path))"
-                      :title="segmentActionLabel(segment)"
-                      :collapsed="isSegmentCollapsed(group.key, idx)"
-                      class="mt-1 rounded-lg"
-                      @update:collapsed="setSegmentCollapsed(group.key, idx, $event)"
-                      @collapse-all="collapseAllSegmentsInGroup(group.key)"
-                    />
-                  </div>
-                </template>
-                <template v-else>
-                  <ToolAssessmentCard
-                    v-for="item in group.items"
-                    :key="`${group.key}:${item.callId}`"
-                    :item="item"
-                    :detail="detailMap[item.callId]"
-                    :loading="detailLoadingCallId === item.callId"
-                    :reviewing="reviewingCallId === item.callId"
-                    :is-dark="markdownIsDark"
-                    @load-detail="emit('loadItemDetail', $event)"
-                    @review="emit('reviewItem', $event)"
-                  />
-                </template>
+                <ToolAssessmentCard
+                  v-for="item in group.items"
+                  :key="`${group.key}:${item.callId}`"
+                  :item="item"
+                  :detail="detailMap[item.callId]"
+                  :loading="detailLoadingCallId === item.callId"
+                  :reviewing="reviewingCallId === item.callId"
+                  :is-dark="markdownIsDark"
+                  @load-detail="emit('loadItemDetail', $event)"
+                  @review="emit('reviewItem', $event)"
+                />
               </div>
             </CollapsibleGroup>
           </div>
-        </div>
+        </DiffFlowView>
       </template>
 
       <div v-else-if="activeTab === 'tools'" class="flex flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
@@ -194,7 +182,7 @@ import type { ArchiveBlockPage, BackgroundShellTaskSummary, ChatMessage, Convers
 import { toErrorMessage } from "../../../utils/error";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
 import type { ToolReviewBatchSummary, ToolReviewItemDetail, ToolReviewItemSummary, ToolReviewSegment } from "../composables/use-chat-tool-review";
-import { groupSegmentsByFile } from "../composables/tool-review-segments";
+import { groupSegmentsByFile, segmentDiffStats } from "../composables/tool-review-segments";
 import { formatConversationListTimeWithMinuteDetails } from "../utils/conversation-time";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolAssessmentCard from "./ToolAssessmentCard.vue";
@@ -202,7 +190,8 @@ import DelegateCard from "./DelegateCard.vue";
 import DelegateScheduleTimeline from "./DelegateScheduleTimeline.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
-import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
+import DiffFlowView from "./DiffFlowView.vue";
+import type { DiffFlowItem } from "./diff-flow-types";
 import { resolveShikiLanguage, extensionFromPath } from "../../file-reader/utils";
 import TimerListItem from "./TimerListItem.vue";
 import TimerCreateCard from "./dialogs/TimerCreateCard.vue";
@@ -242,6 +231,7 @@ const emit = defineEmits<{
   (e: "openDelegateDetail", status: ConversationDelegateStatusSummary): void;
   (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
   (e: "assistantLinkClick", event: MouseEvent): void;
+  (e: "openFile", path: string): void;
   (e: "timerSaved"): void;
 }>();
 
@@ -267,7 +257,6 @@ watch(delegateResultDialogRef, syncDelegateResultDialog);
 const delegateResultTitle = ref("");
 const rootAttrs = useAttrs();
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});
-const collapsedSegmentKeys = ref<Record<string, boolean>>({});
 const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   running: false,
   completed: true,
@@ -340,33 +329,6 @@ function collapseAllToolAssessmentSections() {
     next[section.key] = true;
     return next;
   }, { ...collapsedToolAssessmentSectionKeys.value } as Record<string, boolean>);
-}
-
-function segmentCollapseKey(groupKey: string, idx: number) {
-  return `${groupKey}:segment:${idx}`;
-}
-
-function isSegmentCollapsed(groupKey: string, idx: number) {
-  return !!collapsedSegmentKeys.value[segmentCollapseKey(groupKey, idx)];
-}
-
-function setSegmentCollapsed(groupKey: string, idx: number, value: boolean) {
-  const key = segmentCollapseKey(groupKey, idx);
-  if (!!collapsedSegmentKeys.value[key] === value) return;
-  collapsedSegmentKeys.value = {
-    ...collapsedSegmentKeys.value,
-    [key]: value,
-  };
-}
-
-function collapseAllSegmentsInGroup(groupKey: string) {
-  const group = reviewGroups.value.find((item) => item.key === groupKey);
-  if (!group) return;
-  const next = { ...collapsedSegmentKeys.value };
-  group.segments.forEach((_, idx) => {
-    next[segmentCollapseKey(groupKey, idx)] = true;
-  });
-  collapsedSegmentKeys.value = next;
 }
 
 function isDelegateSectionCollapsed(key: string) {
@@ -522,13 +484,31 @@ function sortByOrderIndex(left: ToolReviewItemSummary, right: ToolReviewItemSumm
   return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
 }
 
-function segmentActionLabel(segment: ToolReviewSegment) {
-  const action = String(segment.action || "").trim();
-  if (action === "add") return t("chat.toolReview.patchOperationAdd");
-  if (action === "delete") return t("chat.toolReview.patchOperationDelete");
-  if (action === "move") return t("chat.toolReview.patchOperationMove");
-  return t("chat.toolReview.patchOperationUpdate");
-}
+/**
+ * 有 diff 可铺的改动段：交给 DiffFlowView 平铺，一段一项、按工具调用顺序排。
+ * 不按文件聚合——同一文件改了几次就平铺几项，序号与实际改动顺序对得上。
+ */
+const diffFlowItems = computed<DiffFlowItem[]>(() =>
+  (props.segmentMap[props.currentBatchKey] ?? [])
+    .filter((segment) => (segment.diffLines ?? []).length > 0)
+    .map((segment, index) => {
+      const stats = segmentDiffStats(segment);
+      return {
+        key: `${index}:${segment.path}`,
+        path: formatPatchGroupTitle(segment.path),
+        added: stats.add,
+        removed: stats.remove,
+        lines: segment.diffLines,
+        lang: resolveShikiLanguage(extensionFromPath(segment.path ?? "")),
+        sourcePath: segment.path,
+      };
+    }),
+);
+
+/** 没有 diff 的工具调用：仍按工具名折叠在文件改动之后 */
+const nonFileReviewGroups = computed(() =>
+  reviewGroups.value.filter((group) => group.segments.length === 0),
+);
 
 function formatPatchGroupTitle(path: string) {
   const normalized = String(path || "").replace(/\\/g, "/").trim();

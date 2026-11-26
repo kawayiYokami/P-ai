@@ -101,6 +101,9 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("rich-block-embed", "ChatRichBlockEmbed", "代码块与图表", "chat/components/ChatRichBlockEmbedDemo.vue", () =>
         import("../chat/components/ChatRichBlockEmbedDemo.vue"),
       ),
+      entry("diff-flow", "DiffFlowView", "改动平铺", "chat/components/DiffFlowViewDemo.vue", () =>
+        import("../chat/components/DiffFlowViewDemo.vue"),
+      ),
       entry("markdown-view", "AppMarkdownRenderer", "Markdown 渲染", "chat/markdown/AppMarkdownRendererDemo.vue", () =>
         import("../chat/markdown/AppMarkdownRendererDemo.vue"),
       ),
