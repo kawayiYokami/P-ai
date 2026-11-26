@@ -866,7 +866,7 @@
         "viewList": "List view",
         "syntaxHint": "Type :{name}: in chat to send",
         "clickToRename": "Click to rename",
-        "hint": "Name stickers so the mood reads at a glance — happy, resigned, smug. In chat, :name: only resolves against the current agent's own library."
+        "hint": "Name stickers so the mood reads at a glance — happy, resigned, smug."
       },
       "capabilities": "Capabilities & Delegation",
       "residentSkills": "Resident Skills & Injection Order",
