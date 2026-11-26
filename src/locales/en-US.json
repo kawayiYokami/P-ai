@@ -793,7 +793,7 @@
       "backToProfile": "Back to agent",
       "injection": {
         "title": "Load order",
-        "hint": "Assembled in this order; skills are injected in full.",
+        "hint": "Forms the system prompt; skills are injected in full.",
         "total": "{count} blocks",
         "settings": "Persona settings",
         "locked": "Fixed",

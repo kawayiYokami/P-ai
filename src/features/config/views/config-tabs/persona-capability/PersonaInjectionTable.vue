@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 min-w-0 max-w-full">
     <!-- 随身技能与加载顺序分组卡片 -->
-    <ConfigCard flush class="shadow-xs min-w-0 max-w-full">
+    <ConfigCard :title="t('config.persona.injection.title')" flush class="shadow-xs min-w-0 max-w-full">
       <div class="divide-y divide-base-200/60">
         <!-- 首段固定：系统准则（可关闭，关闭后该人格不再注入全局准则） -->
       <div class="flex items-center gap-3 px-4 py-3 bg-base-200/20 min-w-0 max-w-full overflow-hidden">

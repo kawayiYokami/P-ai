@@ -793,7 +793,7 @@
       "backToProfile": "返回智能体",
       "injection": {
         "title": "加载顺序",
-        "hint": "按此顺序拼成系统提示词，技能全文注入。",
+        "hint": "拼成系统提示词，技能全文注入。",
         "total": "共 {count} 段",
         "settings": "人格设定",
         "locked": "固定",
