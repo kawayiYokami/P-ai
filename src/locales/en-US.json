@@ -1884,6 +1884,9 @@
     },
     "homePanel": {
       "title": "Preview",
+      "styleSwitch": "Tile wall style",
+      "tileStyle": "Tiles",
+      "gridStyle": "Grid",
       "gitChanges": "Git changes",
       "gitCommits": "Git commits",
       "noCommits": "No commits",

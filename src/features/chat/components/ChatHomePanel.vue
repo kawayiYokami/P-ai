@@ -1,6 +1,9 @@
 <template>
-  <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-base-200">
-    <OverlayScrollArea class="relative min-h-0 flex-1" scroller-class="ecall-chat-scroll-container min-h-0 h-full p-4">
+  <div
+    class="ecall-home-wall relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-base-200"
+    :data-tile-style="homeTileStyle"
+  >
+    <OverlayScrollArea class="relative min-h-0 flex-1" scroller-class="ecall-chat-scroll-container min-h-0 h-full">
       <HomeTileFlow v-if="hasAnyCard">
         <HomeKanbanCard
           v-if="kanbanVisible"
@@ -178,6 +181,7 @@ import HomeDelegateCard from "./chat-home/HomeDelegateCard.vue";
 import HomeTimerCard from "./chat-home/HomeTimerCard.vue";
 import HomeAutomationCard from "./chat-home/HomeAutomationCard.vue";
 import HomePlanCard, { type LatestPlanSummary } from "./chat-home/HomePlanCard.vue";
+import { useHomeTileStyle } from "../composables/use-home-tile-style";
 
 const props = withDefaults(defineProps<{
   conversationId?: string;
@@ -284,6 +288,9 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/** 磁贴墙的呈现样式：两态只差卡面底色与悬停色，形状不变 */
+const { homeTileStyle } = useHomeTileStyle();
 
 /**
  * 发起者人格头像：委托看 `sourceAgentId`，后台任务看 `agentId`。
@@ -411,5 +418,37 @@ onBeforeUnmount(() => {
 /* 磁贴墙的网格参数收在 chat-home/HomeTileFlow.vue 里；占几行几列由本组件算好后
    通过 colSpan / rowSpan 下发给各磁贴，磁贴自己不算尺寸。
    demo 页渲染同一套组件，不再各抄一份样式。 */
+
+/*
+ * 两套完整的样式参数，不只换颜色：间距、圆角、描边、格线、卡面与悬停色都跟着走。
+ * - 磁贴：旧样式——容器留边、卡间留缝、卡面用对比色、圆角描边
+ * - 网格：无缝直角——去掉留边与缝，卡面同墙色，只靠右下格线分区
+ */
+.ecall-home-wall[data-tile-style='tile'] {
+  --ecall-home-wall-pad: 1rem;
+  --ecall-home-gap-size: 1rem;
+  --ecall-home-card-bg: var(--color-base-100);
+  --ecall-home-card-bg-hover: color-mix(in oklab, var(--color-base-200) 70%, transparent);
+  --ecall-home-card-radius: var(--radius-box);
+  --ecall-home-card-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  /* 卡内次级面（胶囊、议题条）：始终取与卡面相反的那一档，悬停再推一格，
+     否则网格态下「卡面 base-200 + 块 base-200」会看不出有反应 */
+  --ecall-home-layer: color-mix(in oklab, var(--color-base-200) 55%, transparent);
+  --ecall-home-layer-hover: color-mix(in oklab, var(--color-base-200) 85%, transparent);
+}
+
+.ecall-home-wall[data-tile-style='grid'] {
+  --ecall-home-wall-pad: 0px;
+  --ecall-home-gap-size: 0px;
+  --ecall-home-card-bg: var(--color-base-200);
+  --ecall-home-card-bg-hover: var(--color-base-100);
+  --ecall-home-card-radius: 0px;
+  --ecall-home-card-shadow:
+    inset -1px 0 0 var(--color-base-300),
+    inset 0 -1px 0 var(--color-base-300);
+  --ecall-home-layer: color-mix(in oklab, var(--color-base-100) 70%, transparent);
+  --ecall-home-layer-hover: var(--color-base-100);
+}
+
 </style>
 

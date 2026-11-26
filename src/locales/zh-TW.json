@@ -2017,6 +2017,9 @@
     },
     "homePanel": {
       "title": "預覽",
+      "styleSwitch": "磁貼牆樣式",
+      "tileStyle": "磁貼",
+      "gridStyle": "網格",
       "gitChanges": "Git 變更",
       "gitCommits": "Git 提交",
       "noCommits": "尚無提交",

@@ -18,7 +18,7 @@
       <button
         v-if="interruptible"
         type="button"
-        class="btn btn-ghost btn-xs btn-circle -my-0.5 shrink-0 border border-base-300 bg-base-100 text-base-content/60 hover:text-error"
+        class="btn btn-ghost btn-xs btn-circle -my-0.5 shrink-0 ecall-home-chip border border-base-300 text-base-content/60 hover:text-error"
         :title="t('chat.homePanel.shellInterrupt')"
         :aria-label="t('chat.homePanel.shellInterrupt')"
         @click.stop="emit('interrupt')"
@@ -90,3 +90,16 @@ function formatDurationMs(value: number) {
   return `${seconds}秒`;
 }
 </script>
+
+<style scoped>
+
+/* 卡内次级面：底色取与卡面相反的那一档，悬停再推一格。
+   磁贴墙没下发变量时退回原来的 base-200 档，独立使用时外观不变。 */
+.ecall-home-chip {
+  background-color: var(--ecall-home-layer, color-mix(in oklab, var(--color-base-200) 90%, transparent));
+}
+
+.ecall-home-chip:hover {
+  background-color: var(--ecall-home-layer-hover, var(--color-base-300));
+}
+</style>

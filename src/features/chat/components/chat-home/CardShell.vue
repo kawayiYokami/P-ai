@@ -23,11 +23,11 @@
       >{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
     </span>
     <div
-      class="ecall-home-card flex h-full w-full min-w-0 flex-col gap-1 overflow-hidden rounded-box border border-base-content/10 bg-base-100 p-3.5 transition-all duration-150"
+      class="ecall-home-card flex h-full w-full min-w-0 flex-col gap-1 overflow-hidden p-3.5 transition-all duration-150"
       :class="[
         layout === 'tile' ? 'ecall-home-card-tile' : '',
         interactive
-          ? 'cursor-pointer hover:bg-base-200/70 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
+          ? 'ecall-home-card--interactive cursor-pointer active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/50'
           : '',
       ]"
       :role="interactive ? 'button' : undefined"
@@ -179,6 +179,22 @@ function handleSelect() {
 
 <style scoped>
 /* 宽度由所在网格列决定；占几行几列由宿主通过 colSpan / rowSpan 写入行内样式 */
+
+/* 无缝拼接后卡与卡之间没有缝隙，靠每格右边、下边各一条 1px 内线当网格线：
+   相邻两卡共用一条，跨列卡内部不会多出线。
+   线色与卡片标题栏的 border-base-300 同源，两处横线在视觉上是一档重量。 */
+.ecall-home-card {
+  /* 卡面、圆角、描边/格线全部由磁贴墙按样式态下发：
+     磁贴＝圆角加四周描边，网格＝直角无描边、只留右下格线。
+     描边也用 inset 阴影画，切换时不改盒尺寸、内容不跳。 */
+  background-color: var(--ecall-home-card-bg, var(--color-base-100));
+  border-radius: var(--ecall-home-card-radius, var(--radius-box));
+  box-shadow: var(--ecall-home-card-shadow, none);
+}
+
+.ecall-home-card--interactive:hover {
+  background-color: var(--ecall-home-card-bg-hover, var(--color-base-200));
+}
 
 .ecall-home-card-icon {
   display: grid;

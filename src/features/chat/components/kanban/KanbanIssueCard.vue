@@ -141,7 +141,7 @@ const { t } = useI18n();
 
 const densityClass = computed(() =>
   props.density === "tile"
-    ? "gap-1.5 p-2 bg-base-200/50 hover:bg-base-200/80"
+    ? "ecall-issue-tile gap-1.5 p-2"
     : "gap-1.5 p-2.5 bg-base-100 dark:bg-[color-mix(in_oklab,var(--color-base-100)_90%,white)]",
 );
 
@@ -177,3 +177,15 @@ function planFileName(path: string): string {
   return parts[parts.length - 1] || String(path || "");
 }
 </script>
+
+<style scoped>
+/* 磁贴密度的议题条：底色取与磁贴卡面相反的那一档，悬停再推一格。
+   磁贴墙没下发变量时退回原来的 base-200/50，看板页那套密度不受影响。 */
+.ecall-issue-tile {
+  background-color: var(--ecall-home-layer, color-mix(in oklab, var(--color-base-200) 50%, transparent));
+}
+
+.ecall-issue-tile:hover {
+  background-color: var(--ecall-home-layer-hover, color-mix(in oklab, var(--color-base-200) 80%, transparent));
+}
+</style>

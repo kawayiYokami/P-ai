@@ -2020,6 +2020,9 @@
     },
     "homePanel": {
       "title": "预览",
+      "styleSwitch": "磁贴墙样式",
+      "tileStyle": "磁贴",
+      "gridStyle": "网格",
       "gitChanges": "Git 更改",
       "gitCommits": "Git 提交",
       "noCommits": "暂无提交",

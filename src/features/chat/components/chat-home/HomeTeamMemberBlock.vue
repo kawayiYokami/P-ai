@@ -1,6 +1,6 @@
 <template>
   <section
-    class="ecall-home-team-block flex h-full min-w-0 flex-col rounded-box border border-base-content/10 bg-base-100 p-3"
+    class="ecall-home-team-block flex h-full min-w-0 flex-col p-3"
     :style="{ gridColumn: `span ${colSpan}`, gridRow: `span ${rowSpan}` }"
   >
     <header class="mb-2 flex shrink-0 items-center gap-2">
@@ -88,6 +88,9 @@ const { t } = useI18n();
 
 <style scoped>
 .ecall-home-team-block {
+  background-color: var(--ecall-home-card-bg, var(--color-base-100));
+  border-radius: var(--ecall-home-card-radius, var(--radius-box));
+  box-shadow: var(--ecall-home-card-shadow, none);
   /* 行高是量出来的：py-1.5（上下各 6px）+ 头像 h-5（20px，与文字行高同高）= 32px。
      两个值在这里定义，磁贴组件只读不写，避免宿主与组件各改一半。 */
   --ecall-team-member-row: 32px;

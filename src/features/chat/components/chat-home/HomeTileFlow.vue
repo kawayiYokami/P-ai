@@ -21,8 +21,8 @@
   /* 行高由宿主统一决定：环境卡四行（标题 + 变更/分支/最新提交）与队员状态表一行 3 人都在这一档内不裁切。
      10.25rem = 内容卡所需高度；磁贴内容再多也在卡内滚动，不许撑高这一行。 */
   --ecall-home-row: 10.25rem;
-  /* 卡片间距与圆角（--radius-box: 1rem）对齐 */
-  --ecall-home-gap: 1rem;
+  /* 间距与容器留白由磁贴墙按样式态下发：磁贴留缝留边，网格两者皆 0 */
+  --ecall-home-gap: var(--ecall-home-gap-size, 1rem);
   container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--ecall-home-tile), 1fr));
@@ -32,6 +32,7 @@
   grid-auto-rows: var(--ecall-home-row);
   grid-auto-flow: dense;
   gap: var(--ecall-home-gap);
+  padding: var(--ecall-home-wall-pad, 0);
   align-content: start;
 }
 

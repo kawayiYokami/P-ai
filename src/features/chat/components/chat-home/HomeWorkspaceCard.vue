@@ -15,7 +15,7 @@
     <button
       v-if="canToggleWorktree"
       type="button"
-      class="ecall-home-workspace-toggle absolute right-1.5 top-1.5 z-10 flex h-5 max-w-[80px] items-center gap-1 rounded-full border border-base-content/10 bg-base-200/90 px-1.5 text-caption font-medium text-base-content/70 shadow-2xs backdrop-blur-xs transition-all hover:border-base-content/25 hover:bg-base-300 hover:text-base-content active:scale-95"
+      class="ecall-home-workspace-toggle absolute right-1.5 top-1.5 z-10 flex h-5 max-w-[80px] items-center gap-1 ecall-home-chip rounded-full border border-base-content/10 px-1.5 text-caption font-medium text-base-content/70 shadow-2xs backdrop-blur-xs transition-all hover:border-base-content/25 hover:text-base-content active:scale-95"
       :title="switchTooltip"
       @click.stop="toggleTarget"
       @keydown.stop
@@ -49,7 +49,7 @@
         >
           <template #trigger="{ toggle }">
             <div
-              class="inline-flex max-w-full items-center rounded-full border border-base-content/10 bg-base-200/80 p-0.5 text-xs text-base-content/75 shadow-xs transition-colors hover:bg-base-200"
+              class="inline-flex max-w-full items-center ecall-home-chip rounded-full border border-base-content/10 p-0.5 text-xs text-base-content/75 shadow-xs transition-colors"
               :class="isWorktreeTarget ? 'hover:border-secondary/35' : 'hover:border-warning/35'"
             >
               <!-- 左侧直接以当前目标打开 -->
@@ -298,4 +298,16 @@ onBeforeUnmount(() => {
     display: none !important;
   }
 }
+
+
+/* 卡内次级面：底色取与卡面相反的那一档，悬停再推一格。
+   磁贴墙没下发变量时退回原来的 base-200 档，独立使用时外观不变。 */
+.ecall-home-chip {
+  background-color: var(--ecall-home-layer, color-mix(in oklab, var(--color-base-200) 90%, transparent));
+}
+
+.ecall-home-chip:hover {
+  background-color: var(--ecall-home-layer-hover, var(--color-base-300));
+}
+
 </style>

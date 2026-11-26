@@ -78,6 +78,7 @@ import {
   GitBranchPlusIcon,
   GitCommitHorizontalIcon,
   GitForkIcon,
+  Grid2x2Icon,
   GripIcon,
   HardDriveIcon,
   HelpCircleIcon,
@@ -262,6 +263,8 @@ export const APP_ICON_MAP = {
   "git-branch-plus": GitBranchPlusIcon,
   "git-commit-horizontal": GitCommitHorizontalIcon,
   "git-fork": GitForkIcon,
+  // 网格线：磁贴墙「网格态」的入口图标，与磁贴态的块状图标成对出现
+  "grid-lines": Grid2x2Icon,
   "grip": GripIcon,
   "hard-drive": HardDriveIcon,
   "help-circle": HelpCircleIcon,
