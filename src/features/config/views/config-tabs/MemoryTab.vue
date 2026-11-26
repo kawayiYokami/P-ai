@@ -74,174 +74,6 @@
         </div>
       </template>
 
-      <template #group-actions-chat-history>
-        <div v-if="chatHistoryStats" class="flex flex-wrap items-center justify-end gap-2 text-xs opacity-70">
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeAll') }} {{ chatHistoryStats.totalSlices }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeOrphan') }} {{ chatHistoryStats.skippedOrphanConversations }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeLocal') }} {{ chatHistoryStats.localConversationSlices }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeArchive') }} {{ chatHistoryStats.archiveSlices }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeContact') }} {{ chatHistoryStats.contactSlices }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeIndex') }} {{ formatBytes(chatHistoryStats.indexStorageBytes) }}</span>
-          <span class="badge badge-sm badge-ghost">{{ t('config.memory.badgeCache') }} {{ formatBytes(chatHistoryStats.cachedSliceBytes) }}</span>
-        </div>
-      </template>
-
-      <template #row-chat-history>
-        <div class="grid min-w-0 gap-3">
-          <div class="grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)_auto]">
-            <select v-model="chatHistoryAgentId" class="select select-bordered select-sm" :disabled="chatHistoryLoading">
-              <option value="">{{ t('config.memory.filterPersonaOptional') }}</option>
-              <option v-for="agent in personaOptions" :key="agent.id" :value="agent.id">
-                {{ agent.name || agent.id }}
-              </option>
-            </select>
-            <input
-              v-model.trim="chatHistoryQuery"
-              class="input input-bordered input-sm"
-              :placeholder="t('config.memory.chatHistorySearchPlaceholder')"
-              :disabled="chatHistoryLoading"
-              @keyup.enter="searchChatHistory"
-            />
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="chatHistoryLoading || !chatHistoryQuery"
-              @click="searchChatHistory"
-            >
-              <span v-if="chatHistoryLoading" class="loading loading-spinner loading-xs"></span>
-              {{ chatHistoryLoading ? t('config.memory.searching') : t('config.memory.searchChatHistory') }}
-            </button>
-          </div>
-
-          <div v-if="chatHistoryMessage" class="text-xs opacity-70">
-            {{ chatHistoryMessage }}
-          </div>
-
-          <div v-if="chatHistoryHits.length > 0" class="max-h-96 overflow-auto">
-            <div class="flex flex-col gap-2">
-              <div
-                v-for="hit in chatHistoryHits"
-                :key="hit.slice.id"
-                class="rounded-box border border-base-300 bg-base-200 p-3"
-              >
-                <div class="mb-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                  <span class="badge badge-sm badge-outline">{{ chatHistorySourceLabel(hit.slice.sourceKind) }}</span>
-                  <span>{{ hit.slice.sourceTitle || hit.slice.sourceId }}</span>
-                  <span>{{ formatMemoryTime(hit.slice.timeStart || hit.slice.timeEnd) }}</span>
-                  <span>BM25 {{ hit.bm25NormalizedScore.toFixed(3) }}</span>
-                </div>
-                <div class="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
-                  {{ hit.slice.content }}
-                </div>
-                <div class="mt-2 flex flex-wrap gap-1 text-xs opacity-70">
-                  <span v-for="speaker in hit.slice.speakers" :key="`${hit.slice.id}-${speaker}`" class="badge badge-sm badge-ghost">
-                    {{ speaker }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template #row-recall-diagnosis>
-        <div class="grid min-w-0 gap-3">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-xs opacity-60">{{ t('config.memory.recallDiagnosisHint') }}</span>
-            <div class="join">
-              <button
-                class="btn btn-sm join-item"
-                :class="recallMode === 'tool' ? 'btn-primary' : 'btn-ghost'"
-                @click="recallMode = 'tool'"
-              >
-                {{ t('config.memory.recallModeTool') }}
-              </button>
-              <button
-                class="btn btn-sm join-item"
-                :class="recallMode === 'rag' ? 'btn-primary' : 'btn-ghost'"
-                @click="recallMode = 'rag'"
-              >
-                {{ t('config.memory.recallModeRag') }}
-              </button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)_auto]">
-            <select v-model="recallAgentId" class="select select-bordered select-sm" :disabled="recallLoading">
-              <option value="">{{ t('config.memory.selectPersona') }}</option>
-              <option v-for="agent in personaOptions" :key="agent.id" :value="agent.id">
-                {{ agent.name || agent.id }}
-              </option>
-            </select>
-            <input
-              v-model.trim="recallQuery"
-              class="input input-bordered input-sm"
-              :placeholder="t('config.memory.recallQueryPlaceholder')"
-              :disabled="recallLoading"
-              @keyup.enter="searchRecall"
-            />
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="recallLoading || !recallAgentId || !recallQuery"
-              @click="searchRecall"
-            >
-              <span v-if="recallLoading" class="loading loading-spinner loading-xs"></span>
-              {{ recallLoading ? t('config.memory.searching') : t('config.memory.recallSearch') }}
-            </button>
-          </div>
-
-          <div v-if="recallMode === 'tool'" class="grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)_auto]">
-            <div class="text-xs opacity-60 md:text-right md:pt-2">{{ t('config.memory.recallTimeLabel') }}</div>
-            <input
-              v-model.trim="recallTime"
-              class="input input-bordered input-sm"
-              :placeholder="t('config.memory.recallTimePlaceholder')"
-              :disabled="recallLoading"
-            />
-            <button class="btn btn-sm bg-base-200" :disabled="recallLoading" @click="clearRecall">
-              {{ t('config.memory.clear') }}
-            </button>
-          </div>
-
-          <div v-if="recallMessage" class="text-xs opacity-70">
-            {{ recallMessage }}
-          </div>
-
-          <div v-if="recallResults.length > 0" class="max-h-96 overflow-auto">
-            <div class="flex flex-col gap-2">
-              <div
-                v-for="(memory, index) in recallResults"
-                :key="memory.id"
-                class="rounded-box border border-base-300 bg-base-200 p-3"
-              >
-                <div class="mb-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                  <span class="badge badge-sm badge-outline">#{{ index + 1 }}</span>
-                  <span v-if="memory.ownerAgentId" class="badge badge-sm badge-ghost">{{ ownerAgentName(memory.ownerAgentId) }}</span>
-                  <span class="badge badge-sm badge-ghost">{{ memory.memoryType }}</span>
-                  <span>BM25 {{ (memory.bm25Score ?? 0).toFixed(3) }}</span>
-                  <span>{{ t('config.memory.vectorScoreLabel') }} {{ (memory.vectorScore ?? 0).toFixed(3) }}</span>
-                  <span>{{ t('config.memory.rerankScoreLabel') }} {{ (memory.rerankScore ?? 0).toFixed(3) }}</span>
-                  <span class="text-primary font-medium">{{ t('config.memory.finalScoreLabel') }} {{ (memory.finalScore ?? 0).toFixed(3) }}</span>
-                </div>
-                <div class="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
-                  {{ memory.judgment }}
-                </div>
-                <div v-if="memory.reasoning" class="mt-1 text-xs opacity-60 whitespace-pre-wrap wrap-break-word">
-                  {{ memory.reasoning }}
-                </div>
-                <div v-if="memory.tags && memory.tags.length > 0" class="mt-2 flex flex-wrap gap-1">
-                  <span v-for="tag in memory.tags" :key="tag" class="badge badge-sm badge-ghost">{{ tag }}</span>
-                </div>
-                <progress
-                  class="progress progress-primary mt-2 h-1"
-                  :value="Math.min(100, (memory.finalScore ?? 0) * 100)"
-                  max="100"
-                ></progress>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-
       <template #group-actions-memory-list>
         <div class="join">
           <button class="btn btn-sm join-item btn-ghost" :disabled="loading" @click="refreshMemories" :title="t('sidebar.memoryRefresh')">
@@ -503,41 +335,6 @@ type PersonaLite = {
   name: string;
 };
 
-type ChatHistorySlice = {
-  id: string;
-  sourceKind: string;
-  sourceId: string;
-  sourceTitle: string;
-  segmentId: string;
-  sliceIndex: number;
-  content: string;
-  speakers: string[];
-  ownerAgentId: string;
-  timeStart: string;
-  timeEnd: string;
-  messageStartId: string;
-  messageEndId: string;
-};
-
-type ChatHistorySearchHit = {
-  slice: ChatHistorySlice;
-  bm25Score: number;
-  bm25NormalizedScore: number;
-};
-
-type ChatHistorySearchStats = {
-  totalSlices: number;
-  indexStorageBytes: number;
-  cachedSliceBytes: number;
-  indexedConversations: number;
-  skippedDelegateConversations: number;
-  skippedLiveBlocks: number;
-  skippedOrphanConversations: number;
-  localConversationSlices: number;
-  archiveSlices: number;
-  contactSlices: number;
-};
-
 const { t } = useI18n();
 const props = withDefaults(defineProps<{
   syncLocked?: boolean;
@@ -554,7 +351,6 @@ const emit = defineEmits<{
   (e: "sync-lock-change", value: boolean): void;
 }>();
 const MEMORY_VIEW_MODE_STORAGE_KEY = "easy_call.memory.view_mode.v1";
-const SHOW_DEV_MEMORY_DIAGNOSIS = import.meta.env.DEV;
 const DETAILED_MEMORY_PAGE_SIZE = 10;
 const COMPACT_MEMORY_PAGE_SIZE = 20;
 const PROFILE_ATTRIBUTE_TAGS = ["用户别名", "事实属性", "技能树", "关系图谱", "活跃项目", "用户要求"] as const;
@@ -576,30 +372,7 @@ const rerankLastPassedTestKey = ref("");
 const embeddingTesting = ref(false);
 const rerankTesting = ref(false);
 const apiConfigs = ref<ApiConfigLite[]>([]);
-const personaOptions = ref<PersonaLite[]>([]);
 const personaNameMap = ref<Record<string, string>>({});
-const chatHistoryAgentId = ref("");
-const chatHistoryQuery = ref("");
-const chatHistoryHits = ref<ChatHistorySearchHit[]>([]);
-const chatHistoryStats = ref<ChatHistorySearchStats | null>(null);
-const chatHistoryMessage = ref("");
-const chatHistoryLoading = ref(false);
-// 召回诊断（工具召回 / RAG 召换双模式，复刻对话真实召回链路）
-type RecallDiagnosisMemory = MemoryEntry & {
-  bm25Score: number;
-  bm25RawScore: number;
-  vectorScore: number;
-  rerankScore: number;
-  finalScore: number;
-};
-const recallMode = ref<"rag" | "tool">("rag");
-const recallAgentId = ref("");
-const recallQuery = ref("");
-const recallTime = ref("");
-const recallResults = ref<RecallDiagnosisMemory[]>([]);
-const recallLoading = ref(false);
-const recallMessage = ref("");
-const recallMeta = ref<{ total: number; offset: number; limit: number } | null>(null);
 const syncProgressDone = ref(0);
 const syncProgressTotal = ref(0);
 const syncProgressStatus = ref("idle");
@@ -713,20 +486,6 @@ const memoryTemplateGroups = computed<ConfigTemplateGroup[]>(() => ([
       { key: "rerank", items: [] },
     ],
   },
-  ...(SHOW_DEV_MEMORY_DIAGNOSIS
-    ? [
-        {
-          key: "chat-history",
-          title: t("config.memory.chatHistory"),
-          rows: [{ key: "chat-history", items: [] }],
-        },
-        {
-          key: "recall-diagnosis",
-          title: t("config.memory.recallDiagnosis"),
-          rows: [{ key: "recall-diagnosis", items: [] }],
-        },
-      ]
-    : []),
   {
     key: "memory-list",
     title: t("config.memory.list"),
@@ -808,19 +567,6 @@ function formatMemoryTime(iso: string): string {
   return `${year}-${month}-${day}`;
 }
 
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  const digits = size >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${size.toFixed(digits)} ${units[unitIndex]}`;
-}
-
 async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   loading.value = true;
   try {
@@ -885,112 +631,9 @@ async function searchMemories() {
   notify(t('config.memory.searchCompleted', { count: result.memories.length }), "success");
 }
 
-function chatHistorySourceLabel(sourceKind: string): string {
-  const labels: Record<string, string> = {
-    localConversation: t('config.memory.sourceLocal'),
-    archive: t('config.memory.sourceArchive'),
-    contact: t('config.memory.sourceContact'),
-  };
-  return labels[sourceKind] || sourceKind;
-}
-
-async function searchChatHistory() {
-  // 人格为可选筛选：不选即全库检索（主人手动翻库不受归属限制）。
-  const agentId = chatHistoryAgentId.value.trim();
-  const query = chatHistoryQuery.value.trim();
-  if (!query || chatHistoryLoading.value) return;
-  chatHistoryLoading.value = true;
-  chatHistoryMessage.value = t('sidebar.memorySearching');
-  try {
-    const result = await invokeTauri<{
-      hits: ChatHistorySearchHit[];
-      stats: ChatHistorySearchStats;
-      elapsedMs: number;
-    }>("search_chat_history_slices", {
-      input: {
-        agentId: agentId || null,
-        query,
-        limit: 30,
-      },
-    });
-    chatHistoryHits.value = result.hits;
-    chatHistoryStats.value = result.stats;
-    chatHistoryMessage.value = t('sidebar.memorySearchResult', { count: result.hits.length, ms: result.elapsedMs });
-  } catch (err) {
-    chatHistoryMessage.value = `${t('config.memory.chatHistorySearchFailed')}: ${String(err)}`;
-  } finally {
-    chatHistoryLoading.value = false;
-  }
-}
-
 async function clearSearch() {
   searchQuery.value = "";
   await refreshMemories();
-}
-
-// 召回诊断：工具召回 / RAG 召换双模式
-// 后端 search_memories_recall 复用对话真实召回链路(visible_for_agent + limit=7 + top*0.5 阈值),
-// 给定 (agentId, query) 输出与对话实际召回逐字一致的结果。
-async function searchRecall() {
-  const agentId = recallAgentId.value.trim();
-  const query = recallQuery.value.trim();
-  if (!agentId || !query || recallLoading.value) return;
-  recallLoading.value = true;
-  recallMessage.value = t("config.memory.recallSearching");
-  try {
-    const result = await invokeTauri<{
-      memories: Array<{
-        memory: MemoryEntry;
-        bm25Score: number;
-        bm25RawScore: number;
-        vectorScore: number;
-        rerankScore: number;
-        finalScore: number;
-      }>;
-      elapsedMs: number;
-      mode: string;
-      total: number;
-      offset: number;
-      limit: number;
-    }>("search_memories_recall", {
-      input: {
-        agentId,
-        query,
-        mode: recallMode.value,
-        time: recallMode.value === "tool" ? recallTime.value.trim() || null : null,
-        offset: 0,
-        limit: 7,
-      },
-    });
-    recallResults.value = result.memories.map((hit) => ({
-      ...hit.memory,
-      bm25Score: hit.bm25Score,
-      bm25RawScore: hit.bm25RawScore,
-      vectorScore: hit.vectorScore,
-      rerankScore: hit.rerankScore,
-      finalScore: hit.finalScore,
-    }));
-    recallMeta.value = { total: result.total, offset: result.offset, limit: result.limit };
-    recallMessage.value = t("config.memory.recallResult", {
-      count: result.memories.length,
-      total: result.total,
-      ms: result.elapsedMs,
-    });
-  } catch (err) {
-    recallResults.value = [];
-    recallMeta.value = null;
-    recallMessage.value = `${t("config.memory.recallFailed")}: ${String(err)}`;
-  } finally {
-    recallLoading.value = false;
-  }
-}
-
-function clearRecall() {
-  recallQuery.value = "";
-  recallTime.value = "";
-  recallResults.value = [];
-  recallMessage.value = "";
-  recallMeta.value = null;
 }
 
 async function handleMemoryImportDone(result: {
@@ -1158,7 +801,6 @@ async function loadApiConfigs() {
 async function loadPersonaNames() {
   const agents = await withLoading(() => invokeTauri<PersonaLite[]>("load_agents"));
   if (!agents) return;
-  personaOptions.value = agents.filter((agent) => String(agent.id || "").trim());
   const next: Record<string, string> = {};
   for (const agent of agents) {
     const id = String(agent.id || "").trim();
@@ -1167,12 +809,6 @@ async function loadPersonaNames() {
     next[id] = name || id;
   }
   personaNameMap.value = next;
-  if (!chatHistoryAgentId.value && personaOptions.value.length > 0) {
-    chatHistoryAgentId.value = personaOptions.value[0].id;
-  }
-  if (!recallAgentId.value && personaOptions.value.length > 0) {
-    recallAgentId.value = personaOptions.value[0].id;
-  }
 }
 
 async function loadBindings() {
