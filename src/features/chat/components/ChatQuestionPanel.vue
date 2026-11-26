@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../shared/components/AppIcon.vue";
+import AppMarkdownRenderer from "../markdown/AppMarkdownRenderer.vue";
+import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import DoubleDeckCard from "./input-panel/DoubleDeckCard.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
@@ -56,6 +58,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const { currentTheme } = useAppTheme();
+const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 const currentIndex = ref(0);
 const confirmStep = ref(false);
 const shakeOptionId = ref("");
@@ -465,9 +469,13 @@ function handleReject() {
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-semibold leading-6 whitespace-pre-wrap break-words">{{ currentItem.title }}</div>
-                <div v-if="currentItem.description" class="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-base-content/60">
-                  {{ currentItem.description }}
-                </div>
+                <AppMarkdownRenderer
+                  v-if="currentItem.description"
+                  class="ecall-markdown-content mt-1 text-xs leading-5 text-base-content/60"
+                  :text="currentItem.description"
+                  :is-dark="markdownIsDark"
+                  variant="document"
+                />
               </div>
               <label
                 v-if="canRememberWorkspaceForCurrent"
