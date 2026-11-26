@@ -2411,6 +2411,8 @@
       "reportUnavailable": "No code review reports are available yet.",
       "reportTitle": "Code review report",
       "pageLabel": "Page {current} / {total}",
+      "collapseAll": "Collapse all",
+      "expandAll": "Expand all",
       "commandPreview": "Terminal command",
       "viewChanges": "View changes",
       "view": "View",

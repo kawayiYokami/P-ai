@@ -1,25 +1,5 @@
 <template>
   <div ref="rootEl" class="diff-flow-root flex h-full min-h-0">
-    <!-- 改动序号导航：一格一次改动，点它跳到该段段首；滚动时跟着高亮 -->
-    <nav
-      v-if="items.length > 0"
-      class="flex w-9 shrink-0 flex-col overflow-y-auto [scrollbar-width:none]"
-      aria-label="改动索引"
-    >
-      <button
-        v-for="(item, index) in items"
-        :key="item.key"
-        type="button"
-        class="flex h-9 w-full shrink-0 items-center justify-center text-xs tabular-nums transition-colors"
-        :class="index === activeIndex
-          ? 'bg-primary text-primary-content'
-          : 'text-base-content/55 hover:bg-base-content/10 hover:text-base-content'"
-        :title="itemTitle(item)"
-        :aria-label="itemTitle(item)"
-        @click="scrollToItem(index)"
-      >{{ index + 1 }}</button>
-    </nav>
-
     <OverlayScrollArea
       class="min-h-0 min-w-0 flex-1"
       variant="code-dark"
@@ -36,9 +16,10 @@
             role="button"
             tabindex="0"
             :aria-expanded="!isCollapsed(item.key)"
-            :title="`${itemTitle(item)}（点击${isCollapsed(item.key) ? '展开' : '收起'}）`"
-            class="flex cursor-pointer select-none items-center gap-2 border-b border-base-content/5 bg-base-100 px-3 py-2 font-mono text-xs transition-colors hover:bg-base-300"
+            :title="`${itemTitle(item)}（点击${isCollapsed(item.key) ? '展开' : '收起'}，右键折叠/展开全部）`"
+            class="flex cursor-pointer select-none items-center gap-2 border-b border-base-content/5 bg-base-200 px-3 py-2 font-mono text-xs transition-colors hover:bg-base-300"
             @click="toggleCollapsed(item.key)"
+            @contextmenu.prevent="toggleAll"
             @keydown.enter.prevent="toggleCollapsed(item.key)"
             @keydown.space.prevent="toggleCollapsed(item.key)"
           >
@@ -75,7 +56,6 @@
               <TerminalApprovalPatchSample
                 :lines="item.lines"
                 :diff-only="true"
-                :lang="item.lang"
                 hide-header
                 embedded
               />
@@ -89,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import AppIcon from "../../shared/components/AppIcon.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
@@ -105,7 +85,6 @@ const emit = defineEmits<{
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
-const activeIndex = ref(0);
 /** 折叠状态按项 key 记，换批次时整体清空，免得上一个批次收起的项把新批次串住 */
 const collapsedKeys = ref<Record<string, boolean>>({});
 
@@ -116,6 +95,22 @@ function isCollapsed(key: string) {
 function toggleCollapsed(key: string) {
   collapsedKeys.value = { ...collapsedKeys.value, [key]: !collapsedKeys.value[key] };
 }
+
+/** 右键任一折叠标题：还有展开的就全部折起，全折了再右键就全部展开 */
+function toggleAll() {
+  if (allCollapsed.value) {
+    collapsedKeys.value = {};
+    return;
+  }
+  collapsedKeys.value = Object.fromEntries(props.items.map((item) => [item.key, true]));
+}
+
+/** 供宿主在页码旁放一个整体折叠开关 */
+const allCollapsed = computed(
+  () => props.items.length > 0 && props.items.every((item) => collapsedKeys.value[item.key]),
+);
+
+defineExpose({ toggleAll, allCollapsed });
 
 /** 拆成「文件名 + 目录」：文件名在前必须完整，目录在后可以截断 */
 const items = computed(() =>
@@ -134,58 +129,13 @@ function itemTitle(item: DiffFlowItem & { name: string }) {
   return `${item.name}  +${item.added} -${item.removed}`;
 }
 
-function currentScroller() {
-  return rootEl.value?.querySelector<HTMLElement>(".diff-flow-scroller") ?? null;
-}
-
-/** 改动段按渲染顺序就是列表子节点，直接按 DOM 顺序取，不用逐个挂 ref */
-function itemSections(): HTMLElement[] {
-  const list = currentScroller()?.querySelector<HTMLElement>(".diff-flow-list");
-  return list ? (Array.from(list.children) as HTMLElement[]) : [];
-}
-
-function scrollToItem(index: number) {
-  const scroller = currentScroller();
-  if (!scroller) return;
-  const el = itemSections()[index];
-  if (!el) return;
-  const top =
-    el.getBoundingClientRect().top -
-    scroller.getBoundingClientRect().top +
-    scroller.scrollTop;
-  scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-}
-
-function updateActive() {
-  const scroller = currentScroller();
-  if (!scroller) return;
-  const sections = itemSections();
-  // 判定线比视口顶低 4px：smooth 滚动落点会有亚像素误差，卡在 0 会让高亮抖回上一段
-  const base = scroller.getBoundingClientRect().top + 4;
-  let next = 0;
-  sections.forEach((el, index) => {
-    if (el.getBoundingClientRect().top <= base) next = index;
-  });
-  activeIndex.value = next;
-}
-
 watch(
   () => props.items,
   () => {
-    // 换批次后列表换了内容：折叠状态作废，滚动位置不会自己回去，重新按当前视口算一次高亮
+    // 换批次后列表换了内容：折叠状态作废
     collapsedKeys.value = {};
-    void nextTick(updateActive);
   },
 );
-
-onMounted(() => {
-  updateActive();
-  currentScroller()?.addEventListener("scroll", updateActive, { passive: true });
-});
-
-onBeforeUnmount(() => {
-  currentScroller()?.removeEventListener("scroll", updateActive);
-});
 </script>
 
 <style scoped>

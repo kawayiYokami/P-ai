@@ -2388,6 +2388,8 @@
       "reportUnavailable": "当前还没有代码审查报告。",
       "reportTitle": "代码审查报告",
       "pageLabel": "第 {current} / {total} 批",
+      "collapseAll": "折叠全部",
+      "expandAll": "展开全部",
       "commandPreview": "终端命令",
       "viewChanges": "查看更改",
       "view": "查看",

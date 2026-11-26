@@ -13,8 +13,6 @@ export type DiffFlowItem = {
   removed: number;
   /** 这一次改动段的原始 diff 行；多个 `@@` 段首尾相接，渲染器按 hunk 头自行接续行号 */
   lines: string[];
-  /** shiki 行级高亮用的语言 id */
-  lang?: string;
   /** 打开文件用的原始路径：`path` 可能被调用方压成省略形式，不能拿来读文件 */
   sourcePath?: string;
 };

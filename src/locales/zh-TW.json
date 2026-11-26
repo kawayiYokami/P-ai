@@ -2398,6 +2398,8 @@
       "reportUnavailable": "目前還沒有代碼審查報告。",
       "reportTitle": "代碼審查報告",
       "pageLabel": "第 {current} / {total} 批",
+      "collapseAll": "摺疊全部",
+      "expandAll": "展開全部",
       "commandPreview": "終端命令",
       "viewChanges": "查看更改",
       "view": "查看",

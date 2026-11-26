@@ -7,6 +7,7 @@
 
       <template v-if="activeTab === 'tools' && currentBatch">
         <DiffFlowView
+          ref="diffFlowRef"
           class="min-h-0 flex-1"
           :items="diffFlowItems"
           @open-file="emit('openFile', $event)"
@@ -112,30 +113,40 @@
       v-if="activeTab === 'tools' && currentBatch && props.batches.length > 1"
       class="shrink-0 border-t border-base-300 bg-base-200 px-4 py-3"
     >
-      <div class="join flex justify-center">
+      <div class="flex items-center justify-center gap-3">
         <button
           type="button"
-          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-          :disabled="!previousBatch"
-          @click="previousBatch && emit('selectBatch', previousBatch.batchKey)"
+          class="btn btn-sm bg-base-100 text-xs hover:bg-base-100"
+          :title="diffFlowRef?.allCollapsed ? t('chat.toolReview.expandAll') : t('chat.toolReview.collapseAll')"
+          @click="diffFlowRef?.toggleAll()"
         >
-          «
+          {{ diffFlowRef?.allCollapsed ? t("chat.toolReview.expandAll") : t("chat.toolReview.collapseAll") }}
         </button>
-        <button
-          type="button"
-          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-          @click.prevent
-        >
-          {{ t("chat.toolReview.pageLabel", { current: currentBatchIndex + 1, total: props.batches.length }) }}
-        </button>
-        <button
-          type="button"
-          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-          :disabled="!nextBatch"
-          @click="nextBatch && emit('selectBatch', nextBatch.batchKey)"
-        >
-          »
-        </button>
+        <div class="join">
+          <button
+            type="button"
+            class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+            :disabled="!previousBatch"
+            @click="previousBatch && emit('selectBatch', previousBatch.batchKey)"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+            @click.prevent
+          >
+            {{ t("chat.toolReview.pageLabel", { current: currentBatchIndex + 1, total: props.batches.length }) }}
+          </button>
+          <button
+            type="button"
+            class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+            :disabled="!nextBatch"
+            @click="nextBatch && emit('selectBatch', nextBatch.batchKey)"
+          >
+            »
+          </button>
+        </div>
       </div>
     </div>
     <FloatingScrollbar :target="contentScroller" />
@@ -192,7 +203,6 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import DiffFlowView from "./DiffFlowView.vue";
 import type { DiffFlowItem } from "./diff-flow-types";
-import { resolveShikiLanguage, extensionFromPath } from "../../file-reader/utils";
 import TimerListItem from "./TimerListItem.vue";
 import TimerCreateCard from "./dialogs/TimerCreateCard.vue";
 import FastRequestTurnsPanel from "./FastRequestTurnsPanel.vue";
@@ -237,6 +247,8 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n();
 const contentScroller = ref<HTMLElement | null>(null);
+/** 变更列表的折叠开关由 DiffFlowView 自己维护，这里只借它的整体切换按钮 */
+const diffFlowRef = ref<InstanceType<typeof DiffFlowView> | null>(null);
 const delegateResultDialogRef = ref<HTMLDialogElement | null>(null);
 const delegateResultDialogOpen = ref(false);
 
@@ -499,7 +511,6 @@ const diffFlowItems = computed<DiffFlowItem[]>(() =>
         added: stats.add,
         removed: stats.remove,
         lines: segment.diffLines,
-        lang: resolveShikiLanguage(extensionFromPath(segment.path ?? "")),
         sourcePath: segment.path,
       };
     }),

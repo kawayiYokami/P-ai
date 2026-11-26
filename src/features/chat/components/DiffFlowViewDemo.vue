@@ -32,7 +32,6 @@ const items: DiffFlowItem[] = [
     path: "easy_call_ai/src-tauri/src/features/chat/model_runtime/tools_and_builtin/tool_impls.rs",
     added: 16,
     removed: 16,
-    lang: "rust",
     lines: [
       "@@ -31,16 +31,16 @@",
       "-ProviderToolDefinition::new(",
@@ -74,7 +73,6 @@ const items: DiffFlowItem[] = [
     path: "easy_call_ai/src-tauri/src/features/chat/model_runtime/tools_and_builtin/builtin_automation.rs",
     added: 3,
     removed: 1,
-    lang: "rust",
     lines: [
       "@@ -212,4 +212,6 @@",
       "     let manifest = automation_read_config(&config_path)?;",
@@ -92,7 +90,6 @@ const items: DiffFlowItem[] = [
     path: "easy_call_ai/src-tauri/src/features/chat/model_runtime/tools_and_builtin/tool_impls.rs",
     added: 2,
     removed: 0,
-    lang: "rust",
     lines: [
       "@@ -78,3 +78,5 @@",
       "     let outcome = automation_reconcile_all(state)?;",
