@@ -1309,6 +1309,17 @@ async fn ide_chat_github_update_apply(state: &AppState) -> Result<Value, String>
     Ok(Value::Null)
 }
 
+/// Web 宿主的会话自动化任务清单：与桌面命令 `automation_list_tasks` 同源，不做任何加工。
+fn ide_chat_automation_list_tasks(state: &AppState, params: Value) -> Result<Value, String> {
+    let conversation_id = params
+        .get("conversationId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "缺少 conversationId".to_string())?;
+    ide_chat_serialize(conversation_automation_describe(state, conversation_id)?)
+}
+
 fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {
     let conversation_id = params
         .get("conversationId")

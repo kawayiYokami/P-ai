@@ -322,6 +322,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "delegate.delete" => ide_chat_delete_delegate_command(state, request.params),
         "conversation.deleteDelegate" => ide_chat_delete_delegate_command(state, request.params),
         "timer.list" => ide_chat_timer_list(state, request.params),
+        "automation_list_tasks" => ide_chat_automation_list_tasks(state, request.params),
         "githubUpdate.check" => ide_chat_github_update_check(state, request.params).await,
         "githubUpdate.state" => ide_chat_github_update_state(state),
         "githubUpdate.start" => ide_chat_github_update_start(state, request.params).await,
