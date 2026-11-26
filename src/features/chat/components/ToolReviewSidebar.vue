@@ -303,7 +303,7 @@ const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
   return sections.filter((section) => section.items.length > 0);
 });
 
-/** 监控面板按「下一次触发」排序，离得近的排前面 */
+/** 监控面板只列本会话的定时器，筛选在后端完成（timer.list 带 conversationId） */
 const sortedTimers = computed(() => timerEntries.value.slice().sort((left, right) => {
   const leftTime = Date.parse(String(left.nextRunAt || "").trim());
   const rightTime = Date.parse(String(right.nextRunAt || "").trim());
@@ -615,11 +615,14 @@ function workspaceDisplayName(workspace: ShellWorkspace, root: string, index: nu
   return inferWorkspaceName(level, root, index) || defaultWorkspaceNameFromPath(root) || root;
 }
 
+/** 只取本会话的定时器；筛选在后端做，切会话即换一份列表 */
 async function loadTimers() {
   timerLoading.value = true;
   timerErrorText.value = "";
   try {
-    timerEntries.value = await invokeTauri<TimerEntry[]>("timer.list", {});
+    timerEntries.value = await invokeTauri<TimerEntry[]>("timer.list", {
+      conversationId: String(props.activeConversationId || "").trim(),
+    });
   } catch (error) {
     timerErrorText.value = `${t("config.timer.listLoadFailed")}: ${toErrorMessage(error)}`;
   } finally {
@@ -687,10 +690,11 @@ onMounted(() => {
   });
 });
 
-// 定时器列表懒加载：切到 timers 标签才拉取，避免监控面板挂载时白读全局定时器
+// 定时器列表懒加载：切到 timers 标签才拉取，避免监控面板挂载时白读全局定时器；
+// 切换会话后本会话的定时器也变了，需要重新拉。
 watch(
-  () => props.activeTab,
-  (tab) => {
+  () => [props.activeTab, props.activeConversationId] as const,
+  ([tab]) => {
     if (tab === "timers") {
       void loadTimers();
     }

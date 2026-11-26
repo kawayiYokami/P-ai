@@ -3870,7 +3870,7 @@ async function refreshRunningTimerCount() {
   const seq = ++runningTimerRequestSeq;
   runningTimerRequestConversationId = conversationId;
   try {
-    const timers = await invokeTauri<TimerEntry[]>("timer.list", {});
+    const timers = await invokeTauri<TimerEntry[]>("timer.list", { conversationId: null });
     if (seq !== runningTimerRequestSeq || runningTimerRequestConversationId !== String(props.activeConversationId || "").trim()) return;
     const activeTimers = (Array.isArray(timers) ? timers : []).filter((timer) =>
       isTimerActive(timer)

@@ -343,3 +343,52 @@ fn timer_list_should_drop_timers_whose_conversation_is_gone() {
             .unwrap_or(&data_path),
     );
 }
+
+#[test]
+fn timer_list_should_only_return_requested_conversation() {
+    // 会话侧栏的定时器页只该看到本会话的定时器：
+    // 全局定时器没有会话归属，不属于任何会话侧栏。
+    let data_path = timer_test_sandbox_data_path("filter-by-conversation");
+
+    let global = timer_test_stored("1", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    let mut mine = timer_test_stored("2", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    mine.conversation_id = Some("conversation-a".to_string());
+    let mut other = timer_test_stored("3", "2026-03-01T01:00:00Z", Some("0 9 * * *"));
+    other.conversation_id = Some("conversation-b".to_string());
+
+    timer_store_write_records(&data_path, &global).expect("写入全局定时器");
+    timer_store_write_records(&data_path, &mine).expect("写入本会话定时器");
+    timer_store_write_records(&data_path, &other).expect("写入其他会话定时器");
+
+    let all = timer_store_list(&data_path).expect("读取定时器列表");
+    assert_eq!(all.len(), 3, "库里有三条");
+
+    let scoped = timer_store_filter_by_conversation(all.clone(), Some("conversation-a"));
+    assert_eq!(
+        scoped.iter().map(|timer| timer.id.as_str()).collect::<Vec<_>>(),
+        vec!["2"],
+        "只返回本会话那一条"
+    );
+    assert_eq!(
+        timer_store_filter_by_conversation(all.clone(), Some("  conversation-a  ")).len(),
+        1,
+        "会话 id 两端空白不影响匹配"
+    );
+    assert_eq!(
+        timer_store_filter_by_conversation(all.clone(), None).len(),
+        3,
+        "不传会话即全量，设置页与左栏总览依赖这个口径"
+    );
+    assert_eq!(
+        timer_store_filter_by_conversation(all, Some("")).len(),
+        3,
+        "空串按未指定处理"
+    );
+
+    let _ = fs::remove_dir_all(
+        data_path
+            .parent()
+            .and_then(|path| path.parent())
+            .unwrap_or(&data_path),
+    );
+}

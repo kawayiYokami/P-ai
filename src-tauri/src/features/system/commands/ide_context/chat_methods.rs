@@ -1251,8 +1251,16 @@ async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Val
         .map_err(|err| format!("Serialize delegate submit result failed: {err}"))
 }
 
-fn ide_chat_timer_list(state: &AppState) -> Result<Value, String> {
-    ide_chat_serialize(timer_list_timers_inner(state)?)
+fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {
+    let conversation_id = params
+        .get("conversationId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    ide_chat_serialize(timer_store_filter_by_conversation(
+        timer_list_timers_inner(state)?,
+        conversation_id,
+    ))
 }
 
 fn ide_chat_timer_create(state: &AppState, params: Value) -> Result<Value, String> {

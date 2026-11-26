@@ -168,7 +168,7 @@ function setMessage(text: string, isError = false) {
 async function loadTimers() {
   listLoading.value = true;
   try {
-    timers.value = await invokeTauri<TimerEntry[]>("timer.list", {});
+    timers.value = await invokeTauri<TimerEntry[]>("timer.list", { conversationId: null });
   } catch (error) {
     setMessage(`${t("config.timer.listLoadFailed")}: ${toErrorMessage(error)}`, true);
   } finally {

@@ -1,8 +1,12 @@
 // ==================== 定时器命令层 ====================
 
 #[tauri::command]
-fn timer_list_timers(state: State<'_, AppState>) -> Result<Vec<TimerRecord>, String> {
-    timer_list_timers_inner(state.inner())
+fn timer_list_timers(
+    conversation_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<TimerRecord>, String> {
+    let timers = timer_list_timers_inner(state.inner())?;
+    Ok(timer_store_filter_by_conversation(timers, conversation_id.as_deref()))
 }
 
 fn timer_list_timers_inner(state: &AppState) -> Result<Vec<TimerRecord>, String> {

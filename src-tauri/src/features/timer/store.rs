@@ -80,6 +80,29 @@ fn timer_store_filter_unknown_conversations(
         .collect()
 }
 
+/// 只保留属于指定会话的定时器；未指定会话时原样返回全量。
+/// 无会话归属的全局定时器不属于任何会话，按会话筛选时不会返回。
+fn timer_store_filter_by_conversation(
+    timers: Vec<TimerRecord>,
+    conversation_id: Option<&str>,
+) -> Vec<TimerRecord> {
+    let target = conversation_id.map(str::trim).unwrap_or_default();
+    if target.is_empty() {
+        return timers;
+    }
+    timers
+        .into_iter()
+        .filter(|timer| {
+            timer
+                .conversation_id
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                == target
+        })
+        .collect()
+}
+
 fn timer_store_get_record(
     data_path: &PathBuf,
     timer_id: &str,

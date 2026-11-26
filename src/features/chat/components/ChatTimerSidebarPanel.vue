@@ -171,7 +171,7 @@ async function loadTimers() {
   loading.value = true;
   errorText.value = "";
   try {
-    timers.value = await invokeTauri<TimerEntry[]>("timer.list", {});
+    timers.value = await invokeTauri<TimerEntry[]>("timer.list", { conversationId: null });
     console.info("[侧栏定时器列表] 完成", {
       total: timers.value.length,
       enabled: timers.value.filter((timer) => timer.enabled).length,
