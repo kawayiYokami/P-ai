@@ -1309,7 +1309,8 @@ async fn ide_chat_github_update_apply(state: &AppState) -> Result<Value, String>
     Ok(Value::Null)
 }
 
-fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {    let conversation_id = params
+fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {
+    let conversation_id = params
         .get("conversationId")
         .and_then(Value::as_str)
         .map(str::trim)
