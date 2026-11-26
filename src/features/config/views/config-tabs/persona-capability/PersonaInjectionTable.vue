@@ -22,7 +22,7 @@
           type="checkbox"
           class="toggle toggle-xs toggle-primary shrink-0"
           :checked="systemRulesEnabled"
-          :title="t('config.persona.injection.systemRulesToggle')"
+          :title="t('config.persona.injection.systemRulesToggle', { name: personaName })"
           @change="onSystemRulesToggle"
         />
       </div>
@@ -212,6 +212,9 @@ const residentNames = computed(() =>
     .map((item) => String(item || "").trim())
     .filter(Boolean),
 );
+
+// 文案里不写死「该人格」，统一显示当前人格名。
+const personaName = computed(() => String(props.persona?.name || "").trim());
 
 const promptSummary = computed(() => {
   const raw = String(props.persona?.systemPrompt || "").replace(/\s+/g, " ").trim();

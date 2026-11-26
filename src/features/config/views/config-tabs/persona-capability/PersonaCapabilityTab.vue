@@ -7,7 +7,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
           <div class="min-w-0 flex-1">
             <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateModelTitle") }}</div>
-            <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint") }}</div>
+            <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint", { name: personaName }) }}</div>
           </div>
           <SegmentedControl
             :model-value="delegateModelSelection"
@@ -53,7 +53,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
           <div class="min-w-0 flex-1">
             <div class="text-sm font-medium text-base-content">{{ t("config.persona.privateMemory") }}</div>
-            <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.privateMemoryHint") }}</div>
+            <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.privateMemoryHint", { name: personaName }) }}</div>
           </div>
           <SegmentedControl
             :model-value="!!persona.privateMemoryEnabled"
@@ -191,6 +191,9 @@ const { t } = useI18n();
 
 // 用户人格与系统人格没有「委托给谁」「记不记私有记忆」这些问题。
 const showAgentOnlySettings = computed(() => !props.persona.isBuiltInUser && !props.persona.isBuiltInSystem);
+
+// 文案里不写死「该人格」，统一显示当前人格名。
+const personaName = computed(() => String(props.persona?.name || "").trim());
 
 // ==================== 委托模型配置 ====================
 // 存储映射：跟随会话 = ["role:session"]，快速 = ["role:quick"]，自定义 = [具体 endpoint]
@@ -365,8 +368,8 @@ async function setPrivateMemoryMode(enabled: boolean) {
     const count = Math.max(0, Number(result.count || 0));
     privateMemoryCount.value = count;
     privateMemoryDialogMessage.value = count <= 0
-      ? t('config.persona.noPrivateMemorySafe')
-      : `${t('config.persona.hasPrivateMemory', { count: count.toLocaleString() })}\n\n${t('config.persona.mustExportFirstHint')}`;
+      ? t('config.persona.noPrivateMemorySafe', { name: personaName.value })
+      : `${t('config.persona.hasPrivateMemory', { name: personaName.value, count: count.toLocaleString() })}\n\n${t('config.persona.mustExportFirstHint')}`;
   } catch {
     privateMemoryCount.value = 0;
     privateMemoryDialogMessage.value = t('config.persona.countFailedButCanClose');
