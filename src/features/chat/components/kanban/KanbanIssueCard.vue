@@ -26,18 +26,33 @@
         :title="issue.planPath"
         @click.stop="emit('openPlan', issue.planPath)"
       >
-        <AppIcon name="file-text" class="size-3 shrink-0" aria-hidden="true" />
+        <AppIcon name="quill-write-02" class="size-3 shrink-0" aria-hidden="true" />
         <span class="truncate">{{ planFileName(issue.planPath) }}</span>
       </button>
     </div>
 
-    <!-- 中行：标题（最多 2 行） -->
+    <!-- 中行：标题（最多 2 行）。提示走 teleport 浮层：
+         卡片在列内的滚动容器里，daisyUI tooltip 的伪元素会被 overflow 裁掉 -->
     <div
-      class="line-clamp-2 text-xs font-medium leading-snug text-base-content/90"
-      :title="issue.title"
+      class="block w-full"
+      @mouseenter="handleTooltipEnter"
+      @mouseleave="tooltipVisible = false"
     >
-      {{ issue.title }}
+      <div class="line-clamp-2 text-xs font-medium leading-snug text-base-content/90">
+        {{ issue.title }}
+      </div>
     </div>
+
+    <teleport to="body">
+      <div
+        v-if="tooltipVisible"
+        class="pointer-events-none fixed z-[60] max-w-[16rem] rounded-box bg-neutral px-2 py-1 text-xs leading-snug text-neutral-content shadow-lg"
+        :style="tooltipStyle"
+      >
+        <div class="font-medium">{{ issue.title }}</div>
+        <div v-if="issue.note" class="mt-0.5 opacity-80">{{ issue.note }}</div>
+      </div>
+    </teleport>
 
     <!-- 备注是写给人格/工具看的信息（例如「用户在看板上确认通过」），不进界面 -->
 
@@ -100,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import {
@@ -139,10 +154,27 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+/** 标题悬停提示：走 teleport 到 body 的浮层，避免被列内滚动容器裁掉 */
+const tooltipVisible = ref(false);
+const tooltipAnchor = ref({ x: 0, y: 0 });
+
+const tooltipStyle = computed(() => ({
+  left: `${tooltipAnchor.value.x}px`,
+  top: `${tooltipAnchor.value.y - 8}px`,
+  transform: "translateY(-100%)",
+}));
+
+function handleTooltipEnter(event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+  if (!rect) return;
+  tooltipAnchor.value = { x: rect.left, y: rect.top };
+  tooltipVisible.value = true;
+}
+
 const densityClass = computed(() =>
   props.density === "tile"
     ? "ecall-issue-tile gap-1.5 p-2"
-    : "gap-1.5 p-2.5 bg-base-100 dark:bg-[color-mix(in_oklab,var(--color-base-100)_90%,white)]",
+    : "gap-1.5 p-2.5 bg-base-100",
 );
 
 /** 整卡点击：议题页里点卡片等同左下角那个引用箭头，把编号挂进输入框。

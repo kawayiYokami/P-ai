@@ -50,10 +50,11 @@ async function renderBoard(props: Partial<InstanceType<typeof KanbanBoard>["$pro
 }
 
 describe("KanbanBoard 独立组件", () => {
-  it("默认渲染极简顶栏（标题、统计、刷新）与泳道列，无嵌套方框套按钮", async () => {
-    const html = await renderBoard({ showBack: true, leaderName: "纳西妲" });
-    expect(html).toContain("议题看板");
-    expect(html).toContain("共 4 条");
+  it("看板本体不自绘标题条，只渲染泳道列", async () => {
+    const html = await renderBoard({ leaderName: "纳西妲" });
+    // 标签、计数、刷新由右面板通用标题栏承载，面板内不再出现第二条标题条
+    expect(html).not.toContain("议题看板");
+    expect(html).not.toContain("共 4 条");
     expect(html).toContain("演练：议题承载一次完整协作");
     expect(html).toContain("实现多端统一看板组件");
     // 确保没有手搓的嵌套方框边框

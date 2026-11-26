@@ -11,9 +11,6 @@
     :persona-avatar-url-map="personaAvatarUrlMap"
     :persona-name-map="personaNameMap"
     :team-members="teamMembers"
-    :show-back="true"
-    @back="emit('back')"
-    @refresh="emit('refresh')"
     @approve="emit('approve', $event)"
     @open-plan="emit('openPlan', $event)"
     @reference="emit('reference', $event)"
@@ -48,8 +45,6 @@ withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (e: "back"): void;
-  (e: "refresh"): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
   (e: "reference", issue: KanbanIssue): void;

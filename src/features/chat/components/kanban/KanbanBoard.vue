@@ -1,39 +1,6 @@
 <template>
-  <div class="flex h-full min-h-0 w-full flex-col bg-base-100 text-base-content select-none">
-    <!-- 顶栏：一条标签条，只有一个「议题」标签，返回与刷新挂在两端 -->
-    <PanelTabStrip
-      :tabs="boardTabs"
-      active-key="kanban-board"
-      :aria-label="t('chat.kanban.boardTitle')"
-    >
-      <template v-if="showBack" #leading>
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm btn-square shrink-0"
-          :title="t('chat.kanban.backToTiles')"
-          :aria-label="t('chat.kanban.backToTiles')"
-          @click="emit('back')"
-        >
-          <AppIcon name="layout-grid" class="size-4" aria-hidden="true" />
-        </button>
-      </template>
-
-      <template #actions>
-        <span class="shrink-0 px-1 text-xs tabular-nums text-base-content/45">
-          {{ t("chat.kanban.issueCount", { count: issues.length }) }}
-        </span>
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm btn-square shrink-0"
-          :title="t('chat.kanban.refresh')"
-          :aria-label="t('chat.kanban.refresh')"
-          :disabled="loading"
-          @click="emit('refresh')"
-        >
-          <AppIcon name="refresh-cw" class="size-4" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
-        </button>
-      </template>
-    </PanelTabStrip>
+  <div class="flex h-full min-h-0 w-full flex-col bg-base-200 text-base-content select-none">
+    <!-- 标签、计数与刷新都由右面板通用标题栏提供，这里不再自绘第二条标题条 -->
 
     <!-- 错误横条 -->
     <div v-if="errorText" class="shrink-0 bg-error/10 px-3 py-1.5 text-xs text-error">
@@ -57,7 +24,7 @@
         v-else
         orientation="horizontal"
         class="h-full w-full"
-        scroller-class="flex h-full w-full gap-3 p-3 min-w-full"
+        scroller-class="flex h-full w-full gap-6 p-4 min-w-full"
       >
         <KanbanBoardColumn
           v-for="col in activeColumns"
@@ -80,10 +47,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import AppIcon from "../../../shared/components/AppIcon.vue";
 import OverlayScrollArea from "../../../shared/components/OverlayScrollArea.vue";
-import PanelTabStrip from "../../../shared/components/PanelTabStrip.vue";
-import type { PanelTabStripItem } from "../../../shared/components/panel-tab-strip.types";
 import KanbanBoardColumn from "./KanbanBoardColumn.vue";
 import type { KanbanIssue, KanbanStageStatus } from "./kanban-types";
 import { KANBAN_STAGE_ORDER } from "../../composables/use-kanban-board";
@@ -93,8 +57,6 @@ const props = withDefaults(defineProps<{
   loading?: boolean;
   errorText?: string;
   approvingNumber?: number | null;
-  title?: string;
-  showBack?: boolean;
   leaderName?: string;
   leaderAvatarUrl?: string;
   avatarUrlMap?: Record<string, string>;
@@ -105,8 +67,6 @@ const props = withDefaults(defineProps<{
   loading: false,
   errorText: "",
   approvingNumber: null,
-  title: "",
-  showBack: false,
   leaderName: "",
   leaderAvatarUrl: "",
   avatarUrlMap: () => ({}),
@@ -116,26 +76,12 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (e: "back"): void;
-  (e: "refresh"): void;
   (e: "approve", number: number): void;
   (e: "openPlan", path: string): void;
   (e: "reference", issue: KanbanIssue): void;
 }>();
 
 const { t } = useI18n();
-
-/**
- * 顶栏只有一个标签：图标 + 议题。看板本身是一个板块，没有第二个页签，
- * 用标签条只是为了让这块和文件阅读器等面板的顶部形态一致。
- */
-const boardTabs = computed<PanelTabStripItem[]>(() => [
-  {
-    key: "kanban-board",
-    label: props.title || t("chat.kanban.boardTab"),
-    icon: "task-02",
-  },
-]);
 
 /**
  * 遵循项目既有看板核心规则：空分类不显示，泳道仅保留有实际议题的状态分类。

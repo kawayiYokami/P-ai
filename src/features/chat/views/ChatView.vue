@@ -838,6 +838,21 @@
                 <AppIcon name="folder-git" class="size-4" />
               </button>
             </template>
+            <template v-else-if="chatRightPanelMode === 'kanban'" #actions>
+              <span class="shrink-0 px-1 text-xs tabular-nums text-base-content/45">
+                {{ t("chat.kanban.issueCount", { count: kanbanIssues.length }) }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-square shrink-0"
+                :title="t('chat.kanban.refresh')"
+                :aria-label="t('chat.kanban.refresh')"
+                :disabled="kanbanLoading"
+                @click="reloadKanbanBoard"
+              >
+                <AppIcon name="refresh-cw" class="size-4" :class="kanbanLoading ? 'animate-spin' : ''" />
+              </button>
+            </template>
           </PanelTabStrip>
           <div class="min-h-0 flex-1 overflow-hidden">
           <ChatHomePanel
@@ -922,7 +937,7 @@
         <div v-else-if="chatRightPanelMode === 'teamMember'" class="flex h-full min-h-0 w-full flex-col bg-base-200">
           <slot name="team-member-panel" />
         </div>
-        <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-100">
+        <div v-else-if="chatRightPanelMode === 'kanban'" class="ecall-panel-enter flex h-full min-h-0 w-full flex-col bg-base-200">
           <KanbanBoardPanel
             :issues="kanbanIssues"
             :loading="kanbanLoading"
@@ -933,8 +948,6 @@
             :persona-avatar-url-map="personaAvatarUrlMap"
             :persona-name-map="personaNameMap"
             :team-members="teamMembers"
-            @back="selectChatRightPanelMode('home')"
-            @refresh="reloadKanbanBoard"
             @approve="approveKanbanIssue"
             @open-plan="openHomeFile"
             @reference="attachKanbanIssueReference"
@@ -1351,15 +1364,22 @@ const rightPanelHeaderTabs = computed<PanelTabStripItem[]>(() => {
   const mode = props.chatRightPanelMode;
   if (mode === "reader") return chatReaderPanelRef.value?.headerTabs || EMPTY_PANEL_TABS;
   if (mode === "monitor") return monitorPanelTabs.value;
+  if (mode === "kanban") return kanbanHeaderTabs.value;
   if (mode === "sideChat") return props.sideChatTabs || EMPTY_PANEL_TABS;
   if (mode === "teamMember") return props.teamMemberTabs || EMPTY_PANEL_TABS;
   return EMPTY_PANEL_TABS;
 });
 
+/** 议题页只有一个标签，与其他页面一样挂在右面板通用标题栏上，不在面板内自绘第二条 */
+const kanbanHeaderTabs = computed<PanelTabStripItem[]>(() => [
+  { key: "kanban-board", label: t("chat.kanban.boardTab"), icon: "task-02" },
+]);
+
 const rightPanelHeaderActiveKey = computed(() => {
   const mode = props.chatRightPanelMode;
   if (mode === "reader") return String(chatReaderPanelRef.value?.activePath || "");
   if (mode === "monitor") return String(props.chatMonitorPanelMode || "");
+  if (mode === "kanban") return "kanban-board";
   if (mode === "sideChat" || mode === "teamMember") return String(props.activeSideConversationId || "");
   return "";
 });
@@ -1373,6 +1393,7 @@ const rightPanelHeaderAriaLabel = computed(() => {
   const mode = props.chatRightPanelMode;
   if (mode === "reader") return t("fileReader.tabs");
   if (mode === "monitor") return t("chat.monitorPanelTab");
+  if (mode === "kanban") return t("chat.kanban.boardTitle");
   if (mode === "sideChat") return t("chat.sideChat.title");
   if (mode === "teamMember") return t("chat.teamMember.blockTitle");
   return t("chat.homePanel.title");
