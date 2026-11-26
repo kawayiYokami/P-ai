@@ -38,6 +38,7 @@ const BASELINE_KEYS = [
   "session-float-dock",
   "persona-capability",
   "persona-permission",
+  "persona-profile",
   "team-member-tiles",
   "delegates",
   "chat-home",
@@ -75,12 +76,20 @@ describe("组件库注册表", () => {
     expect(broken).toEqual([]);
   });
 
-  it("只有 persona 两项带 props", () => {
+  it("只有 persona 三项带 props", () => {
     const withProps = (GALLERY_ENTRIES as EntryWithProps[]).filter(
       (item) => item.props && Object.keys(item.props).length > 0,
     );
-    expect(withProps.map((item) => item.key).sort()).toEqual(["persona-capability", "persona-permission"]);
-    expect(withProps.map((item) => item.props?.view).sort()).toEqual(["permission", "persona"]);
+    expect(withProps.map((item) => item.key).sort()).toEqual([
+      "persona-capability",
+      "persona-permission",
+      "persona-profile",
+    ]);
+    expect(withProps.map((item) => item.props?.view).sort()).toEqual([
+      "capability",
+      "permission",
+      "persona",
+    ]);
   });
 
   it("每项都挂了分组，且能按 key 查到", () => {

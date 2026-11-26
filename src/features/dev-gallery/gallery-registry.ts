@@ -76,9 +76,11 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
       entry("skill-managed", "SkillPanel", "技能面板", "config/components/SkillTabDemo.vue", () =>
         import("../config/components/SkillTabDemo.vue"),
       ),
-      entry("persona-capability", "PersonaTab", "人格主页", "config/components/PersonaTabDemo.vue", () =>
+      entry("persona-profile", "PersonaTab", "人格页", "config/components/PersonaTabDemo.vue", () =>
         import("../config/components/PersonaTabDemo.vue"), { view: "persona" }),
-      entry("persona-permission", "PersonaPermission", "人格权限页", "config/components/PersonaTabDemo.vue", () =>
+      entry("persona-capability", "PersonaCapability", "能力页", "config/components/PersonaTabDemo.vue", () =>
+        import("../config/components/PersonaTabDemo.vue"), { view: "capability" }),
+      entry("persona-permission", "PersonaPermission", "权限页", "config/components/PersonaTabDemo.vue", () =>
         import("../config/components/PersonaTabDemo.vue"), { view: "permission" }),
     ],
   },
