@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-25T11:40:00.933Z",
-  "latestVersion": "v0.98.10",
+  "generatedAt": "2026-11-26T02:50:59.313Z",
+  "latestVersion": "v0.98.11",
   "releases": [
+    {
+      "version": "v0.98.11",
+      "path": "docs/changelog/releases/v0.98.11.md",
+      "summary": "首页磁贴墙新增「磁贴 / 网格」两种呈现，可从右面板主页按钮旁的箭头切换，选择会被记住：磁贴态留边留缝、圆角带描边，网格态无缝直角、只留格线"
+    },
     {
       "version": "v0.98.10",
       "path": "docs/changelog/releases/v0.98.10.md",
