@@ -392,6 +392,13 @@ pub(super) const CHAT_METADATA_SCHEMA_SQL_PREFIX: &str = "PRAGMA journal_mode=WA
          );
          CREATE INDEX IF NOT EXISTS idx_message_locator_recent ON message_locator(conversation_id, sequence DESC);
          CREATE INDEX IF NOT EXISTS idx_message_locator_block ON message_locator(conversation_id, block_id, byte_offset);
+         CREATE TABLE IF NOT EXISTS active_dispatches (
+           conversation_id TEXT PRIMARY KEY,
+           pending_queue_json TEXT NOT NULL DEFAULT '[]',
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           FOREIGN KEY(conversation_id) REFERENCES conversation_metadata(conversation_id) ON DELETE CASCADE
+         );
          CREATE TABLE IF NOT EXISTS active_plan_records (
            conversation_id TEXT NOT NULL,
            plan_id TEXT NOT NULL,

@@ -17869,4 +17869,5 @@
     }
 
     include!("automation_tests.rs");
+    include!("active_dispatch_tests.rs");
 

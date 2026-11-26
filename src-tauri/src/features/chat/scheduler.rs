@@ -242,6 +242,7 @@ const CHAT_CONCURRENCY_LIMIT: usize = 8;
 const GOAL_CONTINUE_DISPLAY_TEXT: &str = "继续完成目标";
 
 include!("scheduler/queue_management.rs");
+include!("scheduler/active_dispatch_sync.rs");
 include!("scheduler/stream_runtime.rs");
 pub(crate) fn trigger_chat_queue_processing(state: &AppState) {
     let state_clone = state.clone();
@@ -544,6 +545,9 @@ fn release_conversation_processing_claim(
 ) -> Result<(), String> {
     let mut claims = lock_conversation_processing_claims(state)?;
     claims.remove(conversation_id.trim());
+    drop(claims);
+    // 收口：这一刻队列里还剩什么由运行态自己写，空的就不留记录。
+    sync_active_dispatch(state, conversation_id);
     Ok(())
 }
 
@@ -585,6 +589,7 @@ fn claim_queued_conversation_batches(
     eligible.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
 
     let mut claimed_batches = Vec::<(String, Vec<ChatPendingEvent>)>::new();
+    let mut claimed_conversations = Vec::<String>::new();
     for (conversation_id, _) in eligible.into_iter().take(available_slots) {
         let slot = conversation_slot_mut(&mut slots, &conversation_id);
         // 出队发生在打断之后：这条消息是用户在停止之后仍然要发的，照常认领。
@@ -593,7 +598,15 @@ fn claim_queued_conversation_batches(
         };
         slot.last_activity_at = now_iso();
         claims.insert(conversation_id.clone());
+        claimed_conversations.push(conversation_id.clone());
         claimed_batches.push((conversation_id, vec![event]));
+    }
+    drop(slots);
+    drop(claims);
+    drop(_dequeue_guard);
+    // 认领即记：这一轮开始调度，队列里剩下什么由运行态自己写。
+    for conversation_id in claimed_conversations {
+        sync_active_dispatch(state, &conversation_id);
     }
     Ok(claimed_batches)
 }
@@ -2025,4 +2038,153 @@ fn complete_pending_chat_events_with_error(
         }
     }
     Ok(())
+}
+
+// ==================== 意外重启恢复 ====================
+
+/// 意外退出后用来续跑的系统引导语。固定英文，不改写、不本地化。
+const RECOVERY_SYSTEM_GUIDED_TEXT: &str = "System exited unexpectedly. Please continue.";
+
+/// 启动时把崩溃前挂着的调度拉起来。只在后台 worker 里跑，不占主线程。
+pub(crate) fn schedule_interrupted_dispatch_recovery(state: &AppState) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        recover_interrupted_active_dispatches(&state);
+    });
+}
+
+/// 读一遍运行态表：每条记录取出即删，还原队列，再塞一条系统引导消息激活会话。
+fn recover_interrupted_active_dispatches(state: &AppState) {
+    let records = match message_store::active_dispatch_list_all(&state.data_path) {
+        Ok(records) => records,
+        Err(err) => {
+            runtime_log_error(format!(
+                "[聊天调度] 恢复失败 任务=读取调度运行态 错误={err}"
+            ));
+            return;
+        }
+    };
+    if records.is_empty() {
+        return;
+    }
+    runtime_log_info(format!(
+        "[聊天调度] 开始 任务=意外重启恢复 会话数={}",
+        records.len()
+    ));
+    for record in records {
+        let conversation_id = record.conversation_id.trim().to_string();
+        if conversation_id.is_empty() {
+            continue;
+        }
+        // 取出即删：恢复只做一次，不留二次拉起的可能。
+        if let Err(err) = message_store::active_dispatch_remove(&state.data_path, &conversation_id) {
+            runtime_log_warn(format!(
+                "[聊天调度] 恢复 清除运行态失败 会话={conversation_id} 错误={err}"
+            ));
+        }
+        // 先发起调度：此刻内存队列还是空的，引导不会被排进队，而是直接开出这一轮。
+        // 这一轮一旦起来，会话就在跑，队列里的话取不出来，只能等它收口。
+        let Some(event) = build_recovery_system_guided_event(state, &conversation_id) else {
+            runtime_log_warn(format!(
+                "[聊天调度] 恢复 跳过 会话={conversation_id} 原因=会话不可用"
+            ));
+            continue;
+        };
+        match ingress_chat_event(state, event) {
+            Ok(ingress) => {
+                // 这一轮真正跑起来：引导直接开跑，由它把这轮带出来。
+                let direct = matches!(ingress, ChatEventIngress::Direct(_));
+                trigger_chat_event_after_ingress_with_delay(
+                    state,
+                    ingress,
+                    std::time::Duration::ZERO,
+                );
+                if direct {
+                    runtime_log_info(format!(
+                        "[聊天调度] 恢复 已发起调度 会话={conversation_id}"
+                    ));
+                } else {
+                    // 重启后内存是干净的，正常不会走到这里；真被排进队就如实记一笔。
+                    runtime_log_warn(format!(
+                        "[聊天调度] 恢复 引导被排进队列 会话={conversation_id}"
+                    ));
+                }
+            }
+            Err(err) => runtime_log_warn(format!(
+                "[聊天调度] 恢复 发起调度失败 会话={conversation_id} 错误={err}"
+            )),
+        }
+        // 再重新入队：崩溃前还排着的话放回队列，等这一轮收口后按平常的规矩出来。
+        match serde_json::from_str::<Vec<ChatPendingEvent>>(&record.pending_queue_json) {
+            Ok(events) if !events.is_empty() => {
+                match lock_conversation_runtime_slots(state) {
+                    Ok(mut slots) => {
+                        let slot = conversation_slot_mut(&mut slots, &conversation_id);
+                        let restored = events.len();
+                        for event in events {
+                            slot.pending_queue.push_back(event);
+                        }
+                        runtime_log_info(format!(
+                            "[聊天调度] 恢复 队列已还原 会话={conversation_id} 条数={restored}"
+                        ));
+                    }
+                    Err(err) => runtime_log_warn(format!(
+                        "[聊天调度] 恢复 还原队列失败 会话={conversation_id} 错误={err}"
+                    )),
+                }
+                // 队列动了就同步一次：这一轮中途再崩，还排着的话还能被接回来。
+                sync_active_dispatch(state, &conversation_id);
+            }
+            Ok(_) => {}
+            Err(err) => runtime_log_warn(format!(
+                "[聊天调度] 恢复 队列反序列化失败 会话={conversation_id} 错误={err}"
+            )),
+        }
+    }
+    trigger_chat_queue_processing(state);
+}
+
+/// 构造那条固定英文的系统引导消息：系统身份、引导模式、写完历史就激活助理。
+fn build_recovery_system_guided_event(
+    state: &AppState,
+    conversation_id: &str,
+) -> Option<ChatPendingEvent> {
+    let meta = conversation_service_v2()
+        .get_conversation_meta(state, conversation_id)
+        .ok()?;
+    let now = now_iso();
+    let message = ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now.clone(),
+        speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+        parts: vec![MessagePart::Text {
+            text: RECOVERY_SYSTEM_GUIDED_TEXT.to_string(),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: Some(serde_json::json!({ "messageKind": "unexpected_exit_recovery" })),
+        tool_call: None,
+        mcp_call: None,
+        meme_annotations: None,
+    };
+    Some(ChatPendingEvent {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.to_string(),
+        created_at: now,
+        created_at_ms: now_unix_ms(),
+        source: ChatEventSource::System,
+        queue_mode: ChatQueueMode::Guided,
+        messages: vec![message],
+        activate_assistant: true,
+        assistant_message_id: None,
+        session_info: ChatSessionInfo {
+            agent_id: meta.agent_id,
+        },
+        runtime_context: Some(runtime_context_new(
+            "system_message",
+            "unexpected_exit_recovery",
+        )),
+        sender_info: None,
+    })
 }

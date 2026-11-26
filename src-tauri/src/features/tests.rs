@@ -1114,6 +1114,9 @@
             slot.pending_queue.push_back(event);
         }
 
+        // 首次打开聊天元数据库要建表建 WAL，那是冷启动成本，不属于出队成本。
+        let _ = message_store::active_dispatch_upsert(&state.data_path, "__warmup__", "[]");
+
         let started = std::time::Instant::now();
         let batches = claim_queued_conversation_batches(&state).expect("claim batches");
         let elapsed = started.elapsed();

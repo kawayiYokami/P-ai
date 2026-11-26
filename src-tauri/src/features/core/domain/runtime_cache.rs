@@ -1661,6 +1661,10 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
     }
 
     refresh_cached_app_data_dirty(state);
+    // 调度运行态是另一条待写队列，退出时一起排空，别把它留在去抖窗口里。
+    if let Err(err) = flush_active_dispatches_blocking() {
+        runtime_log_warn(format!("[聊天调度] 退出排空运行态失败 错误={err}"));
+    }
     Ok(wrote_anything)
 }
 

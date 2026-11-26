@@ -130,17 +130,23 @@ pub(crate) fn recall_queue_event(
     let mut slots = lock_conversation_runtime_slots(state)?;
     let mut removed = None;
     let mut remaining_queue_len = 0usize;
-    for slot in slots.values_mut() {
+    let mut changed_conversation_id = None::<String>;
+    for (conversation_id, slot) in slots.iter_mut() {
         if let Some(pos) = slot.pending_queue.iter().position(|e| e.id == event_id) {
             if slot.pending_queue[pos].queue_mode == ChatQueueMode::Guided {
                 return Err("引导中的消息不能移出队列".to_string());
             }
             removed = slot.pending_queue.remove(pos);
             remaining_queue_len = slot.pending_queue.len();
+            changed_conversation_id = Some(conversation_id.clone());
             break;
         }
     }
     drop(slots);
+    drop(_dequeue_guard);
+    if let Some(conversation_id) = changed_conversation_id.as_deref() {
+        sync_active_dispatch(state, conversation_id);
+    }
     if removed.is_some() {
         runtime_log_info(format!(
             "[聊天] 队列消息退回输入框 队列长度={}",
@@ -192,7 +198,9 @@ pub(crate) fn mark_queue_event_guided_with_log(
         }
     }
     drop(slots);
-    if let Some(_conversation_id) = updated_conversation_id.as_deref() {
+    drop(_dequeue_guard);
+    if let Some(conversation_id) = updated_conversation_id.as_deref() {
+        sync_active_dispatch(state, conversation_id);
         if emit_log {
             runtime_log_info(format!(
                 "[聊天] 开始 任务=mark_queue_event_guided"
@@ -235,7 +243,9 @@ pub(crate) fn clear_conversation_queue(
         .map(|event| event.id.clone())
         .collect::<Vec<_>>();
     drop(slots);
+    drop(_dequeue_guard);
     if removed_count > 0 {
+        sync_active_dispatch(state, trimmed_conversation_id);
         runtime_log_info(format!(
             "[聊天] 清空会话队列 移除数={}",
             removed_count
@@ -296,6 +306,12 @@ fn claim_guided_queue_events_for_conversation(
             slot.state = MainSessionState::Idle;
         }
     }
+    // 认领即记：队列变了就同步一次，空了且有引导被取走就记空队列。
+    let record_key = trimmed_conversation_id.to_string();
+    drop(slots);
+    drop(claims);
+    drop(_dequeue_guard);
+    sync_active_dispatch(state, &record_key);
 
     Ok(guided_events)
 }
@@ -322,6 +338,11 @@ fn remove_queue_events_by_ids(
     let removed = before.saturating_sub(slot.pending_queue.len());
     if removed > 0 {
         slot.last_activity_at = now_iso();
+    }
+    drop(slots);
+    drop(_dequeue_guard);
+    if removed > 0 {
+        sync_active_dispatch(state, conversation_id);
     }
     Ok(removed)
 }
@@ -470,6 +491,47 @@ fn tool_loop_should_close_for_guided_queue(
 
 // ==================== 队列管理函数 ====================
 
+/// 调度运行态以内存为准：队列在内存里改，写盘由运行态自己按快照补上。
+///
+/// 调用方只管改内存、报一个会话 id，不拼 JSON、不碰表、不等磁盘。判据是
+/// 「正在跑」或「还有排队」——两者都不成立才删行。只在进调度与队列变动时调用；
+/// 执行过程（流式、工具、整理上下文）一律不碰。
+fn sync_active_dispatch(state: &AppState, conversation_id: &str) {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return;
+    }
+    let running = match lock_conversation_processing_claims(state) {
+        Ok(claims) => claims.contains(conversation_id),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天调度] 同步调度运行态失败 会话={conversation_id} 错误={err}"
+            ));
+            return;
+        }
+    };
+    let snapshot = match lock_conversation_runtime_slots(state) {
+        Ok(slots) => slots.get(conversation_id).map(|slot| {
+            (
+                slot.pending_queue.is_empty(),
+                serde_json::to_string(&slot.pending_queue).ok(),
+            )
+        }),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天调度] 同步调度运行态失败 会话={conversation_id} 错误={err}"
+            ));
+            return;
+        }
+    };
+    match snapshot {
+        Some((empty, Some(json))) if running || !empty => {
+            schedule_active_dispatch_persist(state, conversation_id, Some(json))
+        }
+        _ => schedule_active_dispatch_persist(state, conversation_id, None),
+    }
+}
+
 pub(crate) fn ingress_chat_event(
     state: &AppState,
     event: ChatPendingEvent,
@@ -489,17 +551,34 @@ pub(crate) fn ingress_chat_event(
     let mut claims = lock_conversation_processing_claims(state)?;
     let mut slots = lock_conversation_runtime_slots(state)?;
     let running_count = claims.len();
-    let slot = conversation_slot_mut(&mut slots, &event.conversation_id);
-    let blocked = slot.state != MainSessionState::Idle
-        || !slot.pending_queue.is_empty()
-        || conversation_running_slot_count(&claims, &event.conversation_id) > 0
-        || running_count >= CHAT_CONCURRENCY_LIMIT;
-    slot.last_activity_at = now_iso();
+    let blocked = {
+        let slot = conversation_slot_mut(&mut slots, &event.conversation_id);
+        let blocked = slot.state != MainSessionState::Idle
+            || !slot.pending_queue.is_empty()
+            || conversation_running_slot_count(&claims, &event.conversation_id) > 0
+            || running_count >= CHAT_CONCURRENCY_LIMIT;
+        slot.last_activity_at = now_iso();
+        blocked
+    };
     if blocked {
         let event_id = event.id.clone();
-        slot.pending_queue.push_back(event);
+        let conversation_id = event.conversation_id.clone();
+        {
+            let slot = conversation_slot_mut(&mut slots, &conversation_id);
+            slot.pending_queue.push_back(event);
+        }
+        drop(slots);
+        drop(claims);
+        drop(_dequeue_guard);
+        sync_active_dispatch(state, &conversation_id);
         return Ok(ChatEventIngress::Queued { event_id });
     }
-    claims.insert(event.conversation_id.clone());
+    let conversation_id = event.conversation_id.clone();
+    claims.insert(conversation_id.clone());
+    drop(slots);
+    drop(claims);
+    drop(_dequeue_guard);
+    // 直接开跑：这一轮已经在跑，队列通常是空的，把这一刻的现场记一行。
+    sync_active_dispatch(state, &conversation_id);
     Ok(ChatEventIngress::Direct(event))
 }

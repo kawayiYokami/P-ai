@@ -593,6 +593,8 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     )
     .await;
     let _ = sync_default_tray_icon(&app_handle);
+    // 意外重启恢复：崩溃前还挂着的调度在这里重新拉起。起独立 worker，不阻塞启动。
+    schedule_interrupted_dispatch_recovery(app_state.inner());
     if should_enable_devtools() {
         runtime_log_info(format!("[系统] 启动延迟 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools"));
     }
