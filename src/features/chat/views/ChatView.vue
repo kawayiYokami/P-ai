@@ -519,6 +519,8 @@
               </div>
             </div>
           </Transition>
+          <!-- 提问进行中就占掉输入框那一格：它在等用户回答，输入框留在下面只会两块并排。
+               这条链的结尾因此不能是无条件 v-else，要显式排除有会话提问的时候。 -->
           <ChatQuestionPanel
             v-if="conversationQuestionItems.length > 0"
             :key="conversationQuestionKey"
@@ -595,7 +597,7 @@
             </div>
           </div>
           <ChatComposerPanel
-            v-else ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
+            v-else-if="conversationQuestionItems.length === 0" ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
             :composer-scope="composerScope"
             :selected-message-count="selectedMessageBlocks.length"
             :chat-input="chatInput" :instruction-presets="instructionPresets" :mention-entries="mentionEntries"
