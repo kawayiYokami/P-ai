@@ -22,8 +22,8 @@ import { onMounted, ref } from "vue";
 import type { PermissionCatalog, PersonaProfile, SkillSummaryItem } from "../../../types/app";
 import PersonaTab from "../views/config-tabs/PersonaTab.vue";
 
-const props = withDefaults(defineProps<{ view?: "profile" | "permission" }>(), {
-  view: "profile",
+const props = withDefaults(defineProps<{ view?: "persona" | "capability" | "permission" }>(), {
+  view: "persona",
 });
 
 const tabRef = ref<InstanceType<typeof PersonaTab> | null>(null);
@@ -110,6 +110,6 @@ onMounted(() => {
   if (!tab) return;
   tab.previewSetCapabilityData(skills, catalog);
   tab.previewOpenPersona("default-agent");
-  if (props.view !== "profile") tab.previewSetDetailView(props.view);
+  if (props.view !== "persona") tab.previewSetDetailView(props.view);
 });
 </script>

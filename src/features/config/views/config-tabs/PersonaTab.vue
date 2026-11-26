@@ -39,16 +39,9 @@
     <!-- 二级详情与三级子视图内容 -->
     <div v-if="inDetailMode" class="min-w-0 max-w-full">
       <div v-if="selectedPersona" class="grid gap-5 min-w-0 max-w-full">
-        <!-- 子视图：人格表情库 -->
-        <PersonaMemesTab
-          v-if="detailView === 'memes'"
-          key="memes"
-          :persona="selectedPersona"
-        />
-
         <!-- 子视图：工具与技能权限 -->
         <PersonaPermissionView
-          v-else-if="detailView === 'permission'"
+          v-if="detailView === 'permission'"
           key="permission"
           :persona="selectedPersona"
           :catalog="permissionCatalog"
@@ -56,8 +49,19 @@
           :load-error="capabilityLoadError"
         />
 
-        <!-- 主资料视图：扁平流式设计，杜绝卡片套卡片 -->
-        <div v-else key="profile" class="space-y-6 min-w-0 max-w-full">
+        <!-- 子视图：能力（委托模型 / 上下文注入与随身技能 / 私有记忆） -->
+        <PersonaCapabilityTab
+          v-else-if="detailView === 'capability'"
+          key="capability"
+          :persona="selectedPersona"
+          :skills="capabilitySkills"
+          :api-configs="props.textCapableApiConfigs"
+          :saving="personaSaving"
+          @import-persona-memories="emit('importPersonaMemories', $event)"
+        />
+
+        <!-- 人格视图：身份看板 + 人设 + 表情贴纸 -->
+        <div v-else key="persona" class="space-y-6 min-w-0 max-w-full">
           <!-- 1. 核心身份看板：头像 + 姓名输入 + 标签 -->
           <ConfigCard flush>
             <div class="flex items-center gap-3.5 sm:gap-4 p-4">
@@ -130,119 +134,9 @@
             </template>
           </MarkdownEditor>
 
-          <!-- 委托模型 (对用户和系统角色隐藏) -->
-          <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
-            <ConfigCard :title="t('config.persona.delegateModelSettings')" flush>
-              <div class="divide-y divide-base-200/60">
-                <!-- 四选一 -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateModelTitle") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateModelHint") }}</div>
-                  </div>
-                  <SegmentedControl
-                    :model-value="delegateModelSelection"
-                    :options="delegateModelOptions"
-                    :disabled="personaSaving"
-                    :full-width="false"
-                    size="sm"
-                    class="shrink-0 self-start sm:self-auto"
-                    @change="setDelegateModelOption"
-                  />
-                </div>
+          <!-- 表情贴纸库：形象神态的延伸，跟着人格走，不再单独占一个 Tab -->
+          <PersonaMemesTab :persona="selectedPersona" />
 
-                <!-- 自定义模型选择 -->
-                <div v-if="delegateModelSelection === 'custom'" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.delegateCustomModel") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.delegateCustomModelHint") }}</div>
-                  </div>
-                  <ApiConfigPicker
-                    class="min-w-0 sm:w-72 shrink-0"
-                    variant="field"
-                    :model-value="delegateCustomModelId"
-                    :api-configs="props.textCapableApiConfigs"
-                    :disabled="personaSaving"
-                    @update:model-value="setDelegateCustomModel"
-                  />
-                </div>
-              </div>
-            </ConfigCard>
-          </div>
-
-          <!-- 随身技能与上下文顺序 -->
-          <PersonaInjectionTable
-            :persona="selectedPersona"
-            :skills="capabilitySkills"
-          />
-
-          <!-- 3. 记忆设置 (对用户和系统角色隐藏) -->
-          <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem" class="space-y-2">
-            <ConfigCard :title="t('config.persona.memorySettings')" flush>
-              <div class="divide-y divide-base-200/60">
-                <!-- 私有记忆开关 -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.privateMemory") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ t("config.persona.privateMemoryHint") }}</div>
-                  </div>
-                  <SegmentedControl
-                    :model-value="!!selectedPersona.privateMemoryEnabled"
-                    :options="privateMemoryModeOptions"
-                    :disabled="privateMemoryCounting || privateMemorySwitching"
-                    :full-width="false"
-                    size="sm"
-                    class="shrink-0 self-start sm:self-auto"
-                    @change="setPrivateMemoryMode"
-                  />
-                </div>
-
-                <!-- 回忆方式 -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 min-w-0">
-                  <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.memoryRecallMode") }}</div>
-                    <div class="mt-0.5 text-xs text-base-content/50 leading-relaxed">{{ memoryRecallModeHint }}</div>
-                  </div>
-                  <SegmentedControl
-                    :model-value="selectedPersonaMemoryRecallMode"
-                    :options="memoryRecallModeOptions"
-                    :disabled="memoryRecallModeSwitching"
-                    :full-width="false"
-                    size="sm"
-                    class="shrink-0 self-start sm:self-auto"
-                    @change="setMemoryRecallMode"
-                  />
-                </div>
-
-                <!-- 导入私有记忆 -->
-                <div class="flex items-center justify-between gap-3 p-3.5 sm:p-4">
-                  <div class="min-w-0">
-                    <div class="text-sm font-medium text-base-content">{{ t("config.persona.import") }}</div>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-sm min-h-[2rem] btn-ghost gap-1.5"
-                    @click="triggerPersonaMemoryImport"
-                  >
-                    <AppIcon name="upload" class="h-4 w-4" />
-                    <span>{{ t("config.persona.import") }}</span>
-                  </button>
-                </div>
-              </div>
-            </ConfigCard>
-
-            <div v-if="privateMemoryError" class="text-xs text-error px-1">
-              {{ privateMemoryError }}
-            </div>
-          </div>
-
-          <input
-            ref="personaMemoryImportInput"
-            type="file"
-            accept=".json,application/json"
-            class="hidden"
-            @change="onPersonaMemoryImportFile"
-          />
         </div>
       </div>
     </div>
@@ -391,69 +285,26 @@
     </form>
   </dialog>
 
-  <!-- 私有记忆关闭对话框 -->
-  <dialog ref="privateMemoryDialog" class="modal">
-    <div class="modal-box max-w-md">
-      <h3 class="text-sm font-semibold mb-2">{{ t('config.persona.closePrivateMemoryConfirm') }}</h3>
-      <div v-if="privateMemoryCounting" class="flex items-center gap-2 text-sm">
-        <span class="loading loading-spinner loading-sm"></span>
-        <span>{{ t('config.persona.countingMemory') }}</span>
-      </div>
-      <div v-else class="text-sm whitespace-pre-wrap leading-relaxed">{{ privateMemoryDialogMessage }}</div>
-      <div v-if="!privateMemoryCounting && privateMemoryCount > 0" class="mt-3 rounded-box border border-warning/40 bg-warning/10 p-2 text-sm">
-        <div class="font-medium">{{ t('config.persona.mustExportFirst') }}</div>
-        <div class="opacity-70 mt-1">{{ t('config.persona.exportedConfirmUnlock') }}</div>
-      </div>
-      <div v-if="!privateMemoryCounting && privateMemoryCount > 0" class="mt-3">
-        <button
-          class="btn btn-sm min-h-[2.25rem] btn-warning"
-          :disabled="privateMemoryExporting || privateMemoryExported"
-          @click="exportPrivateMemoriesBeforeDisable"
-        >
-          {{ privateMemoryExported ? t('config.persona.exported') : (privateMemoryExporting ? t('config.persona.exporting') : t('config.persona.exportPrivateMemory')) }}
-        </button>
-      </div>
-      <div class="modal-action">
-        <button class="btn btn-sm min-h-[2.25rem]" :disabled="privateMemoryCounting || privateMemoryExporting || privateMemorySwitching" @click="cancelDisablePrivateMemory">{{ t('common.cancel') }}</button>
-        <button
-          class="btn btn-sm min-h-[2.25rem] btn-primary"
-          :disabled="privateMemoryCounting || privateMemoryExporting || privateMemorySwitching || (privateMemoryCount > 0 && !privateMemoryExported)"
-          @click="confirmDisablePrivateMemory"
-        >
-          {{ t('common.confirm') }}
-        </button>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="cancelDisablePrivateMemory">close</button>
-    </form>
-  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import AppIcon from "../../../shared/components/AppIcon.vue";
 import type {
   ApiConfigItem,
-  MemoryRecallMode,
   PermissionCatalog,
   PersonaProfile,
   SkillSummaryItem,
 } from "../../../../types/app";
-import {
-  exportTransportAgentPrivateMemories,
-  invokeTauri,
-} from "../../../../services/tauri-api";
-import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
+import { invokeTauri } from "../../../../services/tauri-api";
 import ConfigCard from "../../components/ConfigCard.vue";
-import SegmentedControl from "../../components/SegmentedControl.vue";
 import SettingsPageShell from "../../components/SettingsPageShell.vue";
 import type { SettingsBreadcrumbBadge, SettingsBreadcrumbItem } from "../../components/settings-breadcrumb-types";
 import type { UnderlineTabItem } from "../../../shared/components/underline-tabs-types";
 import MarkdownEditor from "../../components/MarkdownEditor.vue";
 import InlineMarkdownText from "../../../chat/markdown/InlineMarkdownText.vue";
-import PersonaInjectionTable from "./persona-capability/PersonaInjectionTable.vue";
+import PersonaCapabilityTab from "./persona-capability/PersonaCapabilityTab.vue";
 import PersonaMemesTab from "./persona-capability/PersonaMemesTab.vue";
 import PersonaPermissionView from "./persona-capability/PersonaPermissionView.vue";
 import { normalizePermissionCatalog } from "../../utils/permission-tree";
@@ -496,9 +347,9 @@ const { t } = useI18n();
 
 const inDetailMode = ref(false);
 
-// 二级详情视图：基础（默认）/ 权限控制 / 表情
-type PersonaDetailView = "profile" | "permission" | "memes";
-const detailView = ref<PersonaDetailView>("profile");
+// 二级详情视图：人格（默认）/ 能力 / 权限
+type PersonaDetailView = "persona" | "capability" | "permission";
+const detailView = ref<PersonaDetailView>("persona");
 
 const capabilitySkills = ref<SkillSummaryItem[]>([]);
 const permissionCatalog = ref<PermissionCatalog>({ builtinTools: [], skills: [], mcpTools: [] });
@@ -533,7 +384,7 @@ async function loadCapabilityData() {
 
 function backToList() {
   inDetailMode.value = false;
-  detailView.value = "profile";
+  detailView.value = "persona";
 }
 
 // 预览/测试用：允许外部（demo 页）注入能力数据并直接进入详情，不改变正式运行路径。
@@ -564,23 +415,23 @@ defineExpose({
 const detailSubMenuOptions = computed(() => {
   return [
     {
-      value: "profile" as const,
-      label: t("config.persona.profile"),
+      value: "persona" as const,
+      label: t("config.persona.tabPersona"),
+    },
+    {
+      value: "capability" as const,
+      label: t("config.persona.tabCapability"),
     },
     {
       value: "permission" as const,
       label: t("config.persona.permission.title"),
-    },
-    {
-      value: "memes" as const,
-      label: t("config.persona.memes.tab"),
     },
   ];
 });
 
 function onSubMenuTabChange(val: PersonaDetailView) {
   detailView.value = val;
-  if (val === "profile" || val === "permission") {
+  if (val === "capability" || val === "permission") {
     void loadCapabilityData();
   }
 }
@@ -694,7 +545,7 @@ function confirmDelete() {
 
 function enterPersona(persona: PersonaProfile) {
   emit("update:personaEditorId", persona.id);
-  detailView.value = "profile";
+  detailView.value = "persona";
   inDetailMode.value = true;
   void loadCapabilityData();
 }
@@ -702,117 +553,9 @@ function enterPersona(persona: PersonaProfile) {
 function onAddPersonaClick() {
   activeCategoryTab.value = "custom";
   emit("addPersona");
-  detailView.value = "profile";
+  detailView.value = "persona";
   inDetailMode.value = true;
 }
-
-const privateMemoryModeOptions = computed(() => [
-  { value: false, label: t("config.persona.global") },
-  { value: true, label: t("config.persona.private") },
-]);
-
-const memoryRecallModeOptions = computed(() => [
-  { value: "auto" as MemoryRecallMode, label: t("config.persona.memoryRecallAuto") },
-  { value: "manual" as MemoryRecallMode, label: t("config.persona.memoryRecallManual") },
-  { value: "off" as MemoryRecallMode, label: t("config.persona.memoryRecallOff") },
-]);
-
-// ==================== 委托模型配置 ====================
-// 存储映射：跟随会话 = ["role:session"]，快速 = ["role:quick"]，自定义 = [具体 endpoint]
-// 专家模型已改为隐形兜底，不再作为委托模型的可选项；存量 role:expert 按「跟随会话」解释。
-const DELEGATE_MODEL_ROLE_SESSION = "role:session";
-const DELEGATE_MODEL_ROLE_EXPERT = "role:expert";
-const DELEGATE_MODEL_ROLE_QUICK = "role:quick";
-
-type DelegateModelOption = "follow_session" | "quick" | "custom";
-
-const delegateModelOptions = computed(() => [
-  { value: "follow_session" as DelegateModelOption, label: t("config.persona.delegateModelFollowSession") },
-  { value: "quick" as DelegateModelOption, label: t("config.persona.delegateModelQuick") },
-  { value: "custom" as DelegateModelOption, label: t("config.persona.delegateModelCustom") },
-]);
-
-function delegateModelRawId(): string {
-  const ids = Array.isArray(props.selectedPersona?.apiConfigIds) ? props.selectedPersona.apiConfigIds : [];
-  return String(ids[0] || "").trim();
-}
-
-function delegateModelOptionFromStorage(): DelegateModelOption {
-  const rawId = delegateModelRawId();
-  // 未配置时默认跟随会话
-  if (!rawId) return "follow_session";
-  if (rawId === DELEGATE_MODEL_ROLE_SESSION) return "follow_session";
-  // 存量 role:expert 与后端语义一致地按跟随会话展示，下次保存即固化
-  if (rawId === DELEGATE_MODEL_ROLE_EXPERT) return "follow_session";
-  if (rawId === DELEGATE_MODEL_ROLE_QUICK) return "quick";
-  return "custom";
-}
-
-// UI 当前选中项：与存储解耦，避免「点自定义无模型时被存储值顶回」
-const delegateModelSelection = ref<DelegateModelOption>(delegateModelOptionFromStorage());
-
-watch(
-  () => props.selectedPersona?.id,
-  () => {
-    delegateModelSelection.value = delegateModelOptionFromStorage();
-  },
-);
-
-const delegateCustomModelId = computed(() => {
-  const rawId = delegateModelRawId();
-  if (!rawId || rawId.startsWith("role:")) return "";
-  return rawId;
-});
-
-function writeDelegateModel(rawId: string) {
-  const persona = props.selectedPersona;
-  if (!persona) return;
-  if (rawId) {
-    persona.apiConfigIds = [rawId];
-  } else {
-    persona.apiConfigIds = [];
-  }
-}
-
-function setDelegateModelOption(option: DelegateModelOption) {
-  delegateModelSelection.value = option;
-  switch (option) {
-    case "follow_session":
-      // 跟随会话：显式写 role:session 哨兵，与存储映射注释保持一致
-      writeDelegateModel(DELEGATE_MODEL_ROLE_SESSION);
-      break;
-    case "quick":
-      writeDelegateModel(DELEGATE_MODEL_ROLE_QUICK);
-      break;
-    case "custom": {
-      // 进入自定义：保留已有自定义模型；没有则只切 UI 选项，不写回专家
-      const current = delegateCustomModelId.value;
-      if (current) {
-        writeDelegateModel(current);
-      }
-      break;
-    }
-  }
-}
-
-function setDelegateCustomModel(modelId: string) {
-  const trimmed = String(modelId || "").trim();
-  if (trimmed) {
-    writeDelegateModel(trimmed);
-  }
-}
-
-const personaMemoryImportInput = ref<HTMLInputElement | null>(null);
-const privateMemoryDialog = ref<HTMLDialogElement | null>(null);
-const privateMemoryCounting = ref(false);
-const privateMemorySwitching = ref(false);
-const memoryRecallModeSwitching = ref(false);
-const privateMemoryExporting = ref(false);
-const privateMemoryDialogMessage = ref("");
-const privateMemoryError = ref("");
-const privateMemoryCount = ref(0);
-const privateMemoryExported = ref(false);
-const pendingDisableAgentId = ref("");
 
 const selectedPersonaIsPreset = computed(
   () => isPresetPersona(props.selectedPersona),
@@ -831,27 +574,7 @@ const personaBreadcrumb = computed<SettingsBreadcrumbItem[]>(() => {
   ];
 });
 
-const selectedPersonaMemoryRecallMode = computed(() =>
-  normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode),
-);
-
-const memoryRecallModeHint = computed(() => {
-  if (selectedPersonaMemoryRecallMode.value === "manual") {
-    return t("config.persona.memoryRecallModeHintManual");
-  }
-  if (selectedPersonaMemoryRecallMode.value === "off") {
-    return t("config.persona.memoryRecallModeHintOff");
-  }
-  return t("config.persona.memoryRecallModeHintAuto");
-});
-
 type PersonaDefaultSeed = Pick<PersonaProfile, "systemPrompt">;
-
-function normalizeMemoryRecallMode(value: unknown): MemoryRecallMode {
-  const raw = String(value || "").trim();
-  if (raw === "manual" || raw === "off") return raw;
-  return "auto";
-}
 
 function personaSelectRank(persona: PersonaProfile): number {
   if (persona.isBuiltInUser) return 0;
@@ -905,137 +628,5 @@ function restoreSelectedPersonaPreset() {
   const defaults = personaDefaultSeed(target);
   if (!target || !defaults) return;
   target.systemPrompt = defaults.systemPrompt;
-}
-
-function triggerPersonaMemoryImport() {
-  if (!personaMemoryImportInput.value) return;
-  personaMemoryImportInput.value.value = "";
-  personaMemoryImportInput.value.click();
-}
-
-function onPersonaMemoryImportFile(event: Event) {
-  const input = event.target as HTMLInputElement | null;
-  const file = input?.files?.[0];
-  if (!file) return;
-  const agentId = props.selectedPersona?.id;
-  if (!agentId) return;
-  emit("importPersonaMemories", { agentId, file });
-}
-
-async function setPrivateMemoryMode(enabled: boolean) {
-  const agentId = props.selectedPersona?.id;
-  if (!agentId) return;
-  const current = !!props.selectedPersona?.privateMemoryEnabled;
-  if (current === enabled) return;
-  privateMemoryError.value = "";
-  if (enabled) {
-    privateMemorySwitching.value = true;
-    try {
-      await invokeTauri("set_agent_private_memory_enabled", {
-        input: { agentId, enabled: true },
-      });
-      if (props.selectedPersona) props.selectedPersona.privateMemoryEnabled = true;
-    } catch (error) {
-      privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
-    } finally {
-      privateMemorySwitching.value = false;
-    }
-    return;
-  }
-  pendingDisableAgentId.value = agentId;
-  privateMemoryDialogMessage.value = "";
-  privateMemoryCount.value = 0;
-  privateMemoryExported.value = false;
-  privateMemoryCounting.value = true;
-  privateMemoryDialog.value?.showModal();
-  try {
-    const result = await invokeTauri<{ count: number }>("get_agent_private_memory_count", {
-      input: { agentId },
-    });
-    const count = Math.max(0, Number(result.count || 0));
-    privateMemoryCount.value = count;
-    privateMemoryDialogMessage.value = count <= 0
-      ? t('config.persona.noPrivateMemorySafe')
-      : `${t('config.persona.hasPrivateMemory', { count: count.toLocaleString() })}\n\n${t('config.persona.mustExportFirstHint')}`;
-  } catch {
-    privateMemoryCount.value = 0;
-    privateMemoryDialogMessage.value = t('config.persona.countFailedButCanClose');
-  } finally {
-    privateMemoryCounting.value = false;
-  }
-}
-
-async function setMemoryRecallMode(mode: MemoryRecallMode) {
-  const agentId = props.selectedPersona?.id;
-  if (!agentId) return;
-  const nextMode = normalizeMemoryRecallMode(mode);
-  const current = normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode);
-  if (current === nextMode) return;
-  privateMemoryError.value = "";
-  memoryRecallModeSwitching.value = true;
-  try {
-    const result = await invokeTauri<{ agentId: string; mode: MemoryRecallMode }>("set_agent_memory_recall_mode", {
-      input: { agentId, mode: nextMode },
-    });
-    if (props.selectedPersona) {
-      props.selectedPersona.memoryRecallMode = normalizeMemoryRecallMode(result.mode);
-    }
-  } catch (error) {
-    privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
-  } finally {
-    memoryRecallModeSwitching.value = false;
-  }
-}
-
-function cancelDisablePrivateMemory() {
-  pendingDisableAgentId.value = "";
-  privateMemoryCount.value = 0;
-  privateMemoryExported.value = false;
-  privateMemoryExporting.value = false;
-  privateMemoryDialog.value?.close();
-}
-
-async function exportPrivateMemoriesBeforeDisable() {
-  const agentId = pendingDisableAgentId.value;
-  if (!agentId || privateMemoryCount.value <= 0) return;
-  privateMemoryError.value = "";
-  privateMemoryExporting.value = true;
-  try {
-    const result = await exportTransportAgentPrivateMemories<{ count: number; path: string }>({ agentId });
-    privateMemoryExported.value = true;
-    privateMemoryDialogMessage.value = `${t('config.persona.exportSuccess', { count: result.count.toLocaleString() })}\n${t('config.persona.exportSuccessPathHint', { path: result.path })}`;
-  } catch (error) {
-    privateMemoryExported.value = false;
-    privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
-  } finally {
-    privateMemoryExporting.value = false;
-  }
-}
-
-async function confirmDisablePrivateMemory() {
-  const agentId = pendingDisableAgentId.value;
-  if (!agentId) {
-    privateMemoryDialog.value?.close();
-    return;
-  }
-  privateMemoryError.value = "";
-  privateMemorySwitching.value = true;
-  try {
-    await invokeTauri("disable_agent_private_memory", {
-      input: { agentId },
-    });
-    const persona = props.personas.find((p) => p.id === agentId);
-    if (persona && !persona.isBuiltInUser && !persona.isBuiltInSystem) {
-      persona.privateMemoryEnabled = false;
-    }
-    pendingDisableAgentId.value = "";
-    privateMemoryCount.value = 0;
-    privateMemoryExported.value = false;
-    privateMemoryDialog.value?.close();
-  } catch (error) {
-    privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
-  } finally {
-    privateMemorySwitching.value = false;
-  }
 }
 </script>

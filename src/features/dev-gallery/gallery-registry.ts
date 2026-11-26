@@ -77,7 +77,7 @@ export const GALLERY_GROUPS: GalleryGroup[] = [
         import("../config/components/SkillTabDemo.vue"),
       ),
       entry("persona-capability", "PersonaTab", "人格主页", "config/components/PersonaTabDemo.vue", () =>
-        import("../config/components/PersonaTabDemo.vue"), { view: "profile" }),
+        import("../config/components/PersonaTabDemo.vue"), { view: "persona" }),
       entry("persona-permission", "PersonaPermission", "人格权限页", "config/components/PersonaTabDemo.vue", () =>
         import("../config/components/PersonaTabDemo.vue"), { view: "permission" }),
     ],

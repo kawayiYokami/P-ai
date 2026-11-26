@@ -846,7 +846,6 @@
         "summaryBlacklistEmpty": "Blacklist: nothing excluded"
       },
       "memes": {
-        "tab": "Stickers",
         "title": "Sticker Library",
         "summary": "{count} stickers",
         "add": "Add sticker",
@@ -872,7 +871,8 @@
       "capabilities": "Capabilities & Delegation",
       "residentSkills": "Resident Skills & Injection Order",
       "residentSkillsDesc": "{count} resident skills · Prompt first",
-      "profile": "Basic",
+      "tabPersona": "Persona",
+      "tabCapability": "Capability",
       "skillsTab": "Skills",
       "settings": "Persona Settings",
       "userTag": "User",

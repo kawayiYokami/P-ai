@@ -846,7 +846,6 @@
         "summaryBlacklistEmpty": "黑名單：未排除任何項目"
       },
       "memes": {
-        "tab": "表情",
         "title": "表情庫",
         "summary": "{count} 個表情",
         "add": "新增表情",
@@ -872,7 +871,8 @@
       "capabilities": "能力與協同",
       "residentSkills": "隨身技能與載入順序",
       "residentSkillsDesc": "{count} 個隨身技能 · 提示詞首位",
-      "profile": "基礎",
+      "tabPersona": "人格",
+      "tabCapability": "能力",
       "skillsTab": "隨身技能",
       "settings": "人格設定",
       "userTag": "用戶",

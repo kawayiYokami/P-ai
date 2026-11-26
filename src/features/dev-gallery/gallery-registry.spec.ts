@@ -80,7 +80,7 @@ describe("组件库注册表", () => {
       (item) => item.props && Object.keys(item.props).length > 0,
     );
     expect(withProps.map((item) => item.key).sort()).toEqual(["persona-capability", "persona-permission"]);
-    expect(withProps.map((item) => item.props?.view).sort()).toEqual(["permission", "profile"]);
+    expect(withProps.map((item) => item.props?.view).sort()).toEqual(["permission", "persona"]);
   });
 
   it("每项都挂了分组，且能按 key 查到", () => {
