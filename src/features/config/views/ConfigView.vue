@@ -533,6 +533,7 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
       { tab: "mcp", icon: "puzzle", labelKey: "config.tabs.mcp" },
       { tab: "skill", icon: "code", labelKey: "config.tabs.skill" },
       { tab: "catalog", icon: "store", labelKey: "config.tabs.catalog" },
+      { tab: "memory", icon: "database", labelKey: "config.tabs.memory" },
     ],
   },
   {
@@ -549,7 +550,6 @@ const CONFIG_NAV_GROUPS: ConfigNavGroup[] = [
     collapsible: true,
     defaultCollapsed: true,
     items: [
-      { tab: "memory", icon: "database", labelKey: "config.tabs.memory" },
       { tab: "timer", icon: "clock", labelKey: "config.tabs.timer" },
       { tab: "usage", icon: "scroll-text", labelKey: "config.tabs.usage" },
     ],
