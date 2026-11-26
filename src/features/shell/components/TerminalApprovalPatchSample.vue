@@ -75,13 +75,20 @@ const isDark = computed(() => isDarkAppTheme(currentTheme.value));
 
 function getPatchLineNumbers(hunkLine: string) {
   const match = hunkLine.match(/^@@\s+-([0-9]+)(?:,[0-9]+)?\s+\+([0-9]+)(?:,[0-9]+)?\s+@@/);
-  if (!match) {
+  if (match) {
+    return {
+      oldLine: Number.parseInt(match[1], 10),
+      newLine: Number.parseInt(match[2], 10),
+    };
+  }
+  // 工具侧生成的伪格式：`@@ lines 30-51 @@` / `@@ line 30 @@`。
+  // 它只给一个范围，新旧行号同起点；不认这种头行号会全部从空白数起。
+  const pseudo = hunkLine.match(/^@@\s+lines?\s+([0-9]+)/i);
+  if (!pseudo) {
     return null;
   }
-  return {
-    oldLine: Number.parseInt(match[1], 10),
-    newLine: Number.parseInt(match[2], 10),
-  };
+  const start = Number.parseInt(pseudo[1], 10);
+  return Number.isFinite(start) ? { oldLine: start, newLine: start } : null;
 }
 
 const parsedLines = computed<ParsedLine[]>(() => {

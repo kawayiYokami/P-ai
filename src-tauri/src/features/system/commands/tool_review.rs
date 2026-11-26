@@ -751,6 +751,91 @@ fn tool_review_prefixed_preview_lines(prefix: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
+/// 工具回执是 `tool_value_readable_text` 排好的固定文本，不是 JSON。
+/// 形状固定：`changed:` 顶格、数组项是缩进 2 的单独 `-`、条目字段缩进 4、
+/// `lineRanges` 里的 `start/end` 缩进 8。这里按这个形状把 `changed` 数组读回来。
+fn tool_review_changed_from_readable_text(text: &str) -> Vec<Value> {
+    let mut entries = Vec::<Value>::new();
+    let mut current: Option<serde_json::Map<String, Value>> = None;
+    let mut ranges = Vec::<Value>::new();
+    let mut pending_start: Option<u64> = None;
+    let mut in_ranges = false;
+    let mut in_changed = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
+        if !in_changed {
+            if trimmed == "changed:" {
+                in_changed = true;
+            }
+            continue;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        // `changed` 数组之后第一个顶格键（cwd 之类）表示数组结束
+        if indent == 0 {
+            break;
+        }
+        if indent == 2 && trimmed == "-" {
+            if let Some(mut entry) = current.take() {
+                if !ranges.is_empty() {
+                    entry.insert("lineRanges".to_string(), Value::Array(std::mem::take(&mut ranges)));
+                }
+                entries.push(Value::Object(entry));
+            }
+            current = Some(serde_json::Map::new());
+            ranges.clear();
+            pending_start = None;
+            in_ranges = false;
+            continue;
+        }
+        let Some(entry) = current.as_mut() else {
+            continue;
+        };
+        if indent == 4 {
+            if trimmed == "lineRanges:" {
+                in_ranges = true;
+                continue;
+            }
+            in_ranges = false;
+            if let Some((key, value)) = trimmed.split_once(": ") {
+                entry.insert(key.to_string(), Value::String(value.to_string()));
+            }
+            continue;
+        }
+        if in_ranges && indent >= 8 {
+            if let Some(value) = trimmed.strip_prefix("start: ") {
+                pending_start = value.trim().parse::<u64>().ok();
+                continue;
+            }
+            if let Some(value) = trimmed.strip_prefix("end: ") {
+                if let (Some(start), Ok(end)) = (pending_start.take(), value.trim().parse::<u64>()) {
+                    ranges.push(serde_json::json!({ "start": start, "end": end }));
+                }
+            }
+        }
+    }
+    if let Some(mut entry) = current.take() {
+        if !ranges.is_empty() {
+            entry.insert("lineRanges".to_string(), Value::Array(ranges));
+        }
+        entries.push(Value::Object(entry));
+    }
+    entries
+}
+
+/// 取一条工具调用结果里的 `changed` 数组：结构化结果拿不到时，按回执固定文本的形状读回来。
+fn tool_review_changed_entries(item: &ToolReviewCollectedItem) -> Vec<Value> {
+    item.result_value
+        .as_ref()
+        .and_then(|value| value.get("changed"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| tool_review_changed_from_readable_text(&item.result_text))
+}
+
 fn tool_review_patch_line_ranges_from_changed_entry(entry: &Value) -> Vec<(usize, usize)> {
     entry
         .get("lineRanges")
@@ -867,18 +952,14 @@ fn tool_review_single_edit_preview(tool_name: &str, args: &Value, changed_entry:
 fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, String) {
     match item.tool_name.as_str() {
         "apply_patch" | "write" | "delete" | "update" | "move" => {
-            let changed_entries = item
-                .result_value
-                .as_ref()
-                .and_then(|value| value.get("changed"))
-                .and_then(Value::as_array);
-            if let Some(preview) = tool_review_patch_operations_preview(&item.args_value, changed_entries.map(|items| items.as_slice())) {
+            let changed_entries = tool_review_changed_entries(item);
+            if let Some(preview) = tool_review_patch_operations_preview(&item.args_value, Some(changed_entries.as_slice())) {
                 return ("patch".to_string(), preview);
             }
             if let Some(preview) = tool_review_single_edit_preview(
                 &item.tool_name,
                 &item.args_value,
-                changed_entries.and_then(|entries| entries.first()),
+                changed_entries.first(),
             ) {
                 return ("patch".to_string(), preview);
             }
@@ -935,11 +1016,7 @@ fn tool_review_segments_for_apply_patch(item: &ToolReviewCollectedItem) -> Vec<T
     let Some(operations) = item.args_value.get("operations").and_then(Value::as_array) else {
         return segments;
     };
-    let changed_entries = item
-        .result_value
-        .as_ref()
-        .and_then(|value| value.get("changed"))
-        .and_then(Value::as_array);
+    let changed_entries = tool_review_changed_entries(item);
     for (index, operation) in operations.iter().enumerate() {
         let action = tool_review_json_string_field(operation, "action").unwrap_or("").to_string();
         let path = tool_review_json_string_field(operation, "path")
@@ -953,7 +1030,7 @@ fn tool_review_segments_for_apply_patch(item: &ToolReviewCollectedItem) -> Vec<T
             .or_else(|| tool_review_json_string_field(operation, "newString"))
             .unwrap_or("");
         let content = tool_review_json_string_field(operation, "content").unwrap_or("");
-        let changed_entry = changed_entries.and_then(|entries| entries.get(index));
+        let changed_entry = changed_entries.get(index);
         match action.as_str() {
             "add" => {
                 let new_count = content.lines().count();
@@ -1016,12 +1093,8 @@ fn tool_review_segments_for_single_edit(item: &ToolReviewCollectedItem) -> Vec<T
         .or_else(|| tool_review_json_string_field(&item.args_value, "to"))
         .unwrap_or("")
         .to_string();
-    let changed_entry = item
-        .result_value
-        .as_ref()
-        .and_then(|value| value.get("changed"))
-        .and_then(Value::as_array)
-        .and_then(|entries| entries.first());
+    let changed_entries = tool_review_changed_entries(item);
+    let changed_entry = changed_entries.first();
     match tool_name {
         "write" => {
             let content = tool_review_json_string_field(&item.args_value, "content").unwrap_or("");
@@ -2889,6 +2962,47 @@ mod tool_review_tests {
         assert_eq!(segments[0].path, "src/lib.ts");
         assert_eq!(segments[0].diff_lines[0], "@@ -3,1 +3,1 @@");
         assert_eq!(segments[1].diff_lines[0], "@@ -8,1 +8,1 @@");
+    }
+
+    #[test]
+    fn tool_review_segments_read_line_ranges_from_readable_receipt() {
+        // 真实回执形状：工具结果被 tool_value_readable_text 排成固定文本，不是 JSON。
+        // 行号必须从 lineRanges 取，取不到就会退回 `@@ -1,...`，diff 行号整体从 1 开始。
+        let receipt = concat!(
+            "backupRecordPath: C:\\Users\\sheng\\AppData\\Roaming\\easycall\\p-ai\\temp\\apply_patch\\records\\59ce907d.json\n",
+            "changed:\n",
+            "  -\n",
+            "    op: update\n",
+            "    path: E:\\github\\easy_call_ai\\.pai\\temp\\文件工具测试.txt\n",
+            "    matchCount: 1\n",
+            "    lineRanges:\n",
+            "      -\n",
+            "        start: 2\n",
+            "        end: 2\n",
+            "cwd: E:\\github\\easy_call_ai",
+        );
+        let item = ToolReviewCollectedItem {
+            batch_key: "batch-1".to_string(),
+            call_id: "call-1".to_string(),
+            message_id: "message-1".to_string(),
+            finished_at: None,
+            tool_name: "update".to_string(),
+            order_index: 0,
+            args_text: String::new(),
+            args_value: serde_json::json!({
+                "path": "E:\\github\\easy_call_ai\\.pai\\temp\\文件工具测试.txt",
+                "old_string": "第二行：用于测试读写更改工具",
+                "new_string": "第二行：已被 update 修改\n第三行：新增的一行"
+            }),
+            result_text: receipt.to_string(),
+            result_value: None,
+            review_value: None,
+        };
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].diff_lines[0], "@@ -2,1 +2,2 @@");
     }
 
     #[test]
