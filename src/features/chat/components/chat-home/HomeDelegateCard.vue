@@ -10,19 +10,16 @@
   >
     <template #leading>
       <div class="flex min-w-0 flex-1 items-center gap-1.5">
+        <span class="flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <AppIcon name="call-02" class="size-3.5" />
+        </span>
         <img
           v-if="starterAvatarUrl"
           :src="starterAvatarUrl"
           :alt="starterDisplayName"
           :title="starterDisplayName"
-          class="size-4 shrink-0 rounded-full object-cover ring-1 ring-base-content/10"
+          class="size-5 shrink-0 rounded-full object-cover ring-1 ring-base-content/10"
         />
-        <span
-          v-else
-          class="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
-        >
-          <AppIcon name="network" class="size-2.5" />
-        </span>
         <span class="truncate text-xs font-semibold text-base-content/80" :title="starterDisplayName">
           {{ starterDisplayName }}
         </span>

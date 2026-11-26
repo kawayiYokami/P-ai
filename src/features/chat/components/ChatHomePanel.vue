@@ -94,6 +94,8 @@
           :tool-call-count="delegate.toolCallCount"
           :token-count="delegate.tokenCount"
           :last-tool-name="delegate.lastToolName"
+          :col-span="2"
+          :row-span="1"
           pulsing
           :starter-avatar-url="starterAvatarUrl(delegate.sourceAgentId)"
           :starter-name="starterName(delegate.sourceAgentId)"
@@ -104,6 +106,8 @@
           :key="`finished-delegate-${latestFinishedDelegate.delegateId}`"
           :title="latestFinishedDelegate.title || latestFinishedDelegate.delegateId"
           :meta-label="finishedDelegateMeta"
+          :col-span="2"
+          :row-span="1"
           :elapsed-ms="latestFinishedDelegate.elapsedMs"
           :tool-call-count="latestFinishedDelegate.toolCallCount"
           :token-count="latestFinishedDelegate.tokenCount"
