@@ -37,7 +37,8 @@ describe("buildContactLogDisplayItem", () => {
   it("保留未知异常日志的通用展示", () => {
     const item = buildContactLogDisplayItem({ timestamp: "now", level: "error", message: "未知错误" }, t);
     expect(item?.kind).toBe("config.remoteIm.logKindSystem");
-    expect(item?.title).toBe("config.remoteIm.logAbnormalTitle");
+    expect(item?.title).toBe("");
+    expect(item?.summary).toBe("未知错误");
   });
 
   it("在场切换解析出状态转换、原因与预计离场", () => {

@@ -35,7 +35,7 @@
       />
     </div>
 
-    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-[11px] leading-4">{{ reportText }}</pre>
+    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-caption leading-4">{{ reportText }}</pre>
     <p class="text-xs text-base-content/60">
       <span class="font-medium text-base-content/80">验的是：</span>底部百分比读数是否与当前缩放一致——非整数倍按取整显示、
       读数 100% 时按钮必须禁用、点按钮是否复位到 100%。真实 ChatImagePreviewDialog，zoom 由外部喂（等同真实链路的

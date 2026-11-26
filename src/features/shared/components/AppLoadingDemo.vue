@@ -11,13 +11,13 @@
           :key="row.key"
           class="flex items-center gap-3 border-b border-base-300/50 py-1"
         >
-          <span class="w-24 shrink-0 text-[10px] text-base-content/45">{{ row.label }}</span>
+          <span class="w-24 shrink-0 text-micro text-base-content/45">{{ row.label }}</span>
           <div :ref="(el) => setRowRef(row.key, el)" class="flex items-center gap-2" :class="row.textClass">
             <span>搜索中</span>
             <span v-if="row.kind === 'daisy'" class="loading loading-spinner" :class="row.sizeClass"></span>
             <AppLoading v-else-if="row.kind === 'app'" :size="row.appSize" />
           </div>
-          <span class="ml-auto shrink-0 font-mono text-[10px] text-base-content/50">
+          <span class="ml-auto shrink-0 font-mono text-micro text-base-content/50">
             {{ heights[row.key] ?? '-' }} px
           </span>
         </div>
@@ -32,10 +32,10 @@
             <span class="loading loading-spinner" :class="pair.daisy"></span>
             <AppLoading :size="pair.app" />
           </div>
-          <span class="font-mono text-[10px] text-base-content/50">
+          <span class="font-mono text-micro text-base-content/50">
             {{ boxSizes[pair.daisy] ?? '-' }}
           </span>
-          <span class="text-[10px] text-base-content/45">{{ pair.daisy }} ｜ {{ pair.app }}</span>
+          <span class="text-micro text-base-content/45">{{ pair.daisy }} ｜ {{ pair.app }}</span>
         </div>
       </div>
     </section>
@@ -61,7 +61,7 @@
           class="flex items-center gap-3"
           :class="pair.textClass"
         >
-          <span class="w-24 shrink-0 text-[10px] text-base-content/45">{{ pair.daisy }}</span>
+          <span class="w-24 shrink-0 text-micro text-base-content/45">{{ pair.daisy }}</span>
           <span class="flex items-center gap-2">
             <span class="loading loading-spinner" :class="pair.daisy"></span>
             daisy

@@ -28,7 +28,7 @@
       />
     </div>
 
-    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-[11px] leading-4">{{ reportText }}</pre>
+    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-caption leading-4">{{ reportText }}</pre>
     <p class="text-xs text-base-content/60">
       <span class="font-medium text-base-content/80">验的是：</span>换行模式下虚拟块的布局总高是否等于真实总高、末尾内容能否
       一次滚到、按行号跳转的落点是否还偏。真实 FileReaderPanel，只把 Tauri 文件读取命令换成内存里的

@@ -24,6 +24,12 @@ const sandboxMessagingPaths = new Set([
   resolve(sourceRoot, "features", "chat", "components", "InteractiveHtmlSandbox.vue"),
   resolve(sourceRoot, "features", "chat", "utils", "sandbox-html-builder.ts"),
 ]);
+// demo 页要在离屏渲染里让真实组件拿到数据，必须在组件 setup 之前把 Tauri IPC 顶成内存桩；
+// 这是 demo 的渲染手段，不是业务代码在探测运行平台，并且桩只在 demo 自己的 setup 里安装。
+const demoRuntimeProbePaths = new Set([
+  resolve(sourceRoot, "features", "config", "components", "SkillTabDemo.vue"),
+  resolve(sourceRoot, "features", "file-reader", "components", "FileReaderPanelDemo.vue"),
+]);
 const capabilityConsumerPaths = new Set([
   resolve(sourceRoot, "ConfigWindowApp.vue"),
   resolve(sourceRoot, "features", "chat", "components", "dialogs", "ChatImagePreviewDialog.vue"),
@@ -162,8 +168,10 @@ describe("统一传输边界", () => {
         [/addEventListener\s*\(\s*["']message["']/, "direct host message listener"],
       ];
       const isSandboxMessagingPath = sandboxMessagingPaths.has(path);
+      const isDemoRuntimeProbePath = demoRuntimeProbePaths.has(path);
       for (const [pattern, label] of checks) {
         if (isSandboxMessagingPath && label === "direct host message listener") continue;
+        if (isDemoRuntimeProbePath && label === "runtime probe") continue;
         if (pattern.test(text)) violations.push(`${relativePath}: ${label}`);
       }
       if (

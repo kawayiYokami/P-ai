@@ -28,7 +28,8 @@ describe("ui size appearance", () => {
     expect(normalizeUiSizeScale("extraLarge")).toBe(150);
     expect(normalizeUiSizeScale(74)).toBe(75);
     expect(normalizeUiSizeScale(151)).toBe(150);
-    expect(normalizeUiSizeScale(112.6)).toBe(113);
+    expect(normalizeUiSizeScale(112.6)).toBe(125);
+    expect(normalizeUiSizeScale(112)).toBe(100);
     expect(normalizeUiSizeScale(null)).toBe(100);
     expect(normalizeUiSizeScale(" ")).toBe(100);
     expect(normalizeUiSizeScale("invalid")).toBe(100);
@@ -36,40 +37,40 @@ describe("ui size appearance", () => {
 
   it("derives every typography and control token from the selected scale", () => {
     expect(uiSizeTokensFor(75)).toMatchObject({
-      textMicro: "6.75px",
-      textCaption: "8.25px",
-      textXs: "9px",
-      textSm: "10.5px",
-      textBase: "12px",
-      text2Xl: "18px",
-      sizeField: "3.12px",
-      border: "0.75px",
+      textMicro: "10px",
+      textCaption: "11px",
+      textXs: "12px",
+      textSm: "13px",
+      textBase: "14px",
+      text2Xl: "22px",
+      sizeField: "4px",
+      border: "1px",
     });
     expect(uiSizeTokensFor(125)).toMatchObject({
-      textMicro: "11.25px",
-      textCaption: "13.75px",
-      textXs: "15px",
-      textSm: "17.5px",
-      textBase: "20px",
-      text2Xl: "30px",
-      markdownHeading1: "20.4px",
-      markdownHeading2: "19.6px",
-      markdownHeading3: "18.8px",
-      markdownHeading4: "18px",
-      markdownDocumentHeading1: "30px",
-      markdownDocumentHeading2: "25.6px",
-      markdownDocumentHeading3: "22.4px",
-      markdownDocumentHeading4: "20.4px",
-      sizeField: "5.2px",
-      border: "1.25px",
+      textMicro: "12px",
+      textCaption: "13px",
+      textXs: "14px",
+      textSm: "16px",
+      textBase: "18px",
+      text2Xl: "28px",
+      markdownHeading1: "18px",
+      markdownHeading2: "17px",
+      markdownHeading3: "16px",
+      markdownHeading4: "15px",
+      markdownDocumentHeading1: "28px",
+      markdownDocumentHeading2: "24px",
+      markdownDocumentHeading3: "20px",
+      markdownDocumentHeading4: "18px",
+      sizeField: "5px",
+      border: "1px",
     });
   });
 
-  it("steps ui size by 10% and clamps within the supported range", () => {
+  it("steps ui size preset by preset and clamps within the supported range", () => {
     const { setUiSizeScale, uiSizeScale } = useUiSizeAppearance();
     setUiSizeScale(UI_SIZE_DEFAULT_SCALE);
-    expect(stepUiSizeScale(1)).toBe(110);
-    expect(uiSizeScale.value).toBe(110);
+    expect(stepUiSizeScale(1)).toBe(125);
+    expect(uiSizeScale.value).toBe(125);
     expect(stepUiSizeScale(-1)).toBe(100);
     setUiSizeScale(UI_SIZE_MIN_SCALE);
     expect(stepUiSizeScale(-1)).toBe(UI_SIZE_MIN_SCALE);
@@ -79,7 +80,7 @@ describe("ui size appearance", () => {
     expect(stepUiSizeScale(1)).toBe(UI_SIZE_MAX_SCALE);
   });
 
-  it("shows the current scale percentage hint when stepping", () => {
+  it("shows the current preset label when stepping", () => {
     const elements = new Map<string, {
       id: string;
       textContent: string;
@@ -144,7 +145,7 @@ describe("ui size appearance", () => {
       setUiSizeScale(100);
       stepUiSizeScale(1);
       const hint = elements.get("easy-call-ui-size-hint");
-      expect(hint?.textContent).toBe("110%");
+      expect(hint?.textContent).toBe("大");
       expect(hint?.getAttribute("role")).toBe("status");
     } finally {
       if (previousDocument === undefined) {

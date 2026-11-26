@@ -53,7 +53,7 @@
       </span>
     </div>
 
-    <div class="mt-auto flex items-center justify-between gap-1 border-t border-base-content/5 pt-1.5 text-[11px] text-base-content/45">
+    <div class="mt-auto flex items-center justify-between gap-1 border-t border-base-content/5 pt-1.5 text-caption text-base-content/45">
       <div class="flex min-w-0 items-center gap-1.5 font-mono">
         <span v-if="toolCallCount > 0" class="flex items-center gap-0.5 shrink-0" :title="`${toolCallCount} 次工具调用`">
           <AppIcon name="wrench" class="size-3 text-base-content/40" aria-hidden="true" />

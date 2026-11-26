@@ -11,7 +11,7 @@
         class="flex min-w-0 flex-col items-center gap-1.5 rounded-lg border border-base-300/70 bg-base-200/40 px-1.5 py-2"
       >
         <AppIcon :name="name" class="h-6 w-6" />
-        <span class="w-full truncate text-center font-mono text-[10px] leading-tight text-base-content/60" :title="name">{{ name }}</span>
+        <span class="w-full truncate text-center font-mono text-micro leading-tight text-base-content/60" :title="name">{{ name }}</span>
       </div>
     </div>
     <p v-if="!filteredNames.length" class="py-6 text-center text-xs text-base-content/50">

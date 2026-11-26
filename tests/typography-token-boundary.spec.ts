@@ -10,6 +10,13 @@ const TEXT_ARBITRARY_PX = /text-\[\s*\d+px\s*\]/;
 // 行内硬写 font-size: *px 同样绕过令牌，导出与样式都必须走 var(--app-text-*) 或 uiSizeTokensFor
 const FONT_SIZE_HARD_PX = /font-size\s*:\s*\d+(\.\d+)?px/;
 
+// 这些文件里带着「供沙箱 iframe 演示的内嵌页源码」字符串：那是被演示的独立文档，
+// 拿不到宿主的 --app-text-* 变量（srcdoc 是隔离文档，没有根变量），px 必须写死。
+// 只豁免 font-size 这一项，text-[*px] 仍照常禁止——两处都在同一份内嵌 HTML 的 <style> 里。
+const INLINE_SANDBOX_HTML_PATHS = new Set([
+  "src/features/file-reader/components/FileReaderPreviewDemo.vue",
+]);
+
 function collectFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -25,10 +32,15 @@ function collectFiles(dir: string): string[] {
   return out;
 }
 
-function findViolations(pattern: RegExp): Array<{ file: string; line: number; text: string }> {
+function findViolations(
+  pattern: RegExp,
+  exemptPaths: Set<string> = new Set(),
+): Array<{ file: string; line: number; text: string }> {
   const files = collectFiles(srcRoot);
   const violations: Array<{ file: string; line: number; text: string }> = [];
   for (const file of files) {
+    const relativeFile = relative(process.cwd(), file).replace(/\\/g, "/");
+    if (exemptPaths.has(relativeFile)) continue;
     const content = readFileSync(file, "utf8");
     const lines = content.split("\n");
     lines.forEach((raw, idx) => {
@@ -39,7 +51,7 @@ function findViolations(pattern: RegExp): Array<{ file: string; line: number; te
         // 但 font-size: var(--app-text-base-size, 16px) 的 16px 夹在 var() 内，pattern 本身不会命中
         // 此处仅排除 style.css 中 --app-text-* 的定义行里的 scaledPx 数字干扰，pattern 不会误判，无需额外过滤
         violations.push({
-          file: relative(process.cwd(), file).replace(/\\/g, "/"),
+          file: relativeFile,
           line: idx + 1,
           text: raw.trim().slice(0, 200),
         });
@@ -61,7 +73,7 @@ describe("排版令牌边界", () => {
   });
 
   it("禁止 font-size: *px 硬写，必须走 var(--app-text-*) 或 uiSizeTokensFor", () => {
-    const violations = findViolations(FONT_SIZE_HARD_PX);
+    const violations = findViolations(FONT_SIZE_HARD_PX, INLINE_SANDBOX_HTML_PATHS);
     // 过滤：style.css 中 font-size: var(...) 且回退含 px 的情况已被上面的 var() 排除，剩余即为硬写
     // 若未来需要在 CSS 中新增硬写，需先在 use-ui-size-appearance.ts 增加令牌
     expect(

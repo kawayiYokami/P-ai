@@ -30,7 +30,7 @@
             />
             <div
               v-else-if="memberInitials(member)"
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/80 text-[10px] font-semibold text-primary-content"
+              class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/80 text-micro font-semibold text-primary-content"
             >
               {{ memberInitials(member) }}
             </div>

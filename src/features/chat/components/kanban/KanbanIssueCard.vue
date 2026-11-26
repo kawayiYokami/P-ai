@@ -55,7 +55,7 @@
         </button>
         <div class="avatar size-4 shrink-0">
           <div
-            class="flex size-4 items-center justify-center overflow-hidden rounded-full font-bold text-[9px] text-white"
+            class="flex size-4 items-center justify-center overflow-hidden rounded-full font-bold text-micro text-white"
             :style="avatarContainerStyle"
           >
             <img

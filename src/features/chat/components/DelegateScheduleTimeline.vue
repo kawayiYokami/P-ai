@@ -59,7 +59,7 @@
             <span class="tabular-nums">{{ displayRequestCount }} 步</span>
             <template v-if="runModelName">
               <span class="text-base-content/20">·</span>
-              <span class="inline-flex items-center gap-1 font-mono text-[11px] text-base-content/70 max-w-[200px] truncate" :title="runModelName">
+              <span class="inline-flex items-center gap-1 font-mono text-caption text-base-content/70 max-w-[200px] truncate" :title="runModelName">
                 <AppIcon name="cpu" class="h-3.5 w-3.5 opacity-60 shrink-0" />
                 <span class="truncate">{{ runModelName }}</span>
               </span>
@@ -70,7 +70,7 @@
 
       <!-- 2. 思考与工具活动流：与消息内共用同一套渲染 -->
       <section v-if="activityItems.length > 0" class="space-y-2 min-w-0 w-full">
-        <div class="text-[11px] font-medium text-base-content/50 px-0.5">执行过程</div>
+        <div class="text-caption font-medium text-base-content/50 px-0.5">执行过程</div>
         <ActivityTimeline :items="activityItems" :dark="markdownIsDark" :state="timelineState" />
       </section>
 

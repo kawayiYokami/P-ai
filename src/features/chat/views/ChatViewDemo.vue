@@ -22,7 +22,7 @@
       <ChatView v-bind="chatViewProps" />
     </div>
 
-    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-[11px] leading-4">{{ reportText }}</pre>
+    <pre class="demo-measure max-h-40 overflow-auto rounded bg-base-200 p-2 text-caption leading-4">{{ reportText }}</pre>
     <p class="text-xs text-base-content/60">
       <span class="font-medium text-base-content/80">验的是：</span>虚拟列表补上 startMargin 后，<code>scrollToIndex</code>
       的落点是否贴合滚动容器顶部（普通会话、草稿会话、宽度变化后各一组）。
