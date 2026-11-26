@@ -1269,8 +1269,47 @@ async fn ide_chat_github_update_check(state: &AppState, params: Value) -> Result
     )
 }
 
-fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {
-    let conversation_id = params
+fn ide_chat_app_handle(state: &AppState) -> Result<AppHandle, String> {
+    match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    }
+    .ok_or_else(|| "桌面端尚未就绪，暂时无法操作应用更新".to_string())
+}
+
+/// Web 宿主的更新状态：与桌面命令 `get_github_update_state` 同源。
+fn ide_chat_github_update_state(state: &AppState) -> Result<Value, String> {
+    let app_handle = ide_chat_app_handle(state)?;
+    ide_chat_serialize(get_github_update_state(app_handle)?)
+}
+
+/// Web 宿主的更新下载：下载与替换都在后端执行，与桌面命令同一份实现。
+/// 进度仍由 `easy-call:update-status` 广播推送给 Web 客户端。
+async fn ide_chat_github_update_start(state: &AppState, params: Value) -> Result<Value, String> {
+    let app_handle = ide_chat_app_handle(state)?;
+    let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
+    let update_method = params
+        .get("updateMethod")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    start_github_update(app_handle, force, update_method).await?;
+    Ok(Value::Null)
+}
+
+/// Web 宿主的更新取消。
+async fn ide_chat_github_update_cancel() -> Result<Value, String> {
+    cancel_github_update().await?;
+    Ok(Value::Null)
+}
+
+/// Web 宿主的安装并重启：执行后应用进程会重启，Web 连接随之中断。
+async fn ide_chat_github_update_apply(state: &AppState) -> Result<Value, String> {
+    let app_handle = ide_chat_app_handle(state)?;
+    apply_prepared_github_update(app_handle).await?;
+    Ok(Value::Null)
+}
+
+fn ide_chat_timer_list(state: &AppState, params: Value) -> Result<Value, String> {    let conversation_id = params
         .get("conversationId")
         .and_then(Value::as_str)
         .map(str::trim)

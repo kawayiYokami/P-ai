@@ -3291,7 +3291,8 @@
     "applyUpdateFailedStatus": "更新失敗：{error}",
     "portablePendingTitle": "更新已下載，等待手動替換",
     "portablePendingIntro": "因為權限問題無法完成自動更新，請手動替換。",
-    "portablePendingHint": "已為你保留更新檔案，點擊下方打開目錄後手動完成替換即可。"
+    "portablePendingHint": "已為你保留更新檔案，點擊下方打開目錄後手動完成替換即可。",
+    "webRestartDisconnectHint": "更新完成後程式會重啟，目前頁面與後端的連線會中斷，請重新整理頁面或重新開啟後繼續使用。"
   },
   "fileReader": {
     "openFile": "開啟檔案",

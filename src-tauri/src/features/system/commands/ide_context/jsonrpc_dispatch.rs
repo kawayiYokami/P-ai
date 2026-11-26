@@ -58,11 +58,6 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "show_archives_window"
             | "open_runtime_logs_window"
             | "sync_tray_icon"
-            | "get_github_update_state"
-            | "check_github_update"
-            | "start_github_update"
-            | "cancel_github_update"
-            | "apply_prepared_github_update"
             | "get_portable_pending_manual_replace"
             | "dismiss_portable_pending_manual_replace"
             | "retry_portable_pending_manual_replace"
@@ -328,6 +323,10 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.deleteDelegate" => ide_chat_delete_delegate_command(state, request.params),
         "timer.list" => ide_chat_timer_list(state, request.params),
         "githubUpdate.check" => ide_chat_github_update_check(state, request.params).await,
+        "githubUpdate.state" => ide_chat_github_update_state(state),
+        "githubUpdate.start" => ide_chat_github_update_start(state, request.params).await,
+        "githubUpdate.cancel" => ide_chat_github_update_cancel().await,
+        "githubUpdate.apply" => ide_chat_github_update_apply(state).await,
         "timer.create" => ide_chat_timer_create(state, request.params),
         "timer.update" => ide_chat_timer_update(state, request.params),
         "timer.delete" => ide_chat_timer_delete(state, request.params),
@@ -1067,11 +1066,6 @@ mod web_native_capability_tests {
             "demo_restart_app",
             "show_main_window",
             "sync_tray_icon",
-            "get_github_update_state",
-            "check_github_update",
-            "start_github_update",
-            "cancel_github_update",
-            "apply_prepared_github_update",
             "export_memories_to_path",
             "export_agent_private_memories",
             "bind_active_chat_view_stream",
@@ -1121,6 +1115,11 @@ mod web_native_capability_tests {
             "mcp_list_servers",
             "set_github_update_method",
             "set_skipped_github_update_version",
+            "get_github_update_state",
+            "check_github_update",
+            "start_github_update",
+            "cancel_github_update",
+            "apply_prepared_github_update",
             "list_recent_llm_round_logs",
             "get_usage_overview",
             "refresh_usage_overview",

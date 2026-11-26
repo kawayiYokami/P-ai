@@ -160,6 +160,8 @@ const WEB_BRIDGE_LONG_TIMEOUT_MS = 5 * 60 * 1000;
 const WEB_BRIDGE_VERY_LONG_TIMEOUT_MS = 30 * 60 * 1000;
 const WEB_BRIDGE_NO_TIMEOUT_COMMANDS = new Set([
   "apply_prepared_github_update",
+  "githubUpdate.apply",
+  "githubUpdate.start",
   "configMigration.apply",
   "cancel_github_update",
   "configMigration.export",
@@ -539,9 +541,9 @@ export function getTransportCapabilities(): TransportCapabilities {
   };
 }
 
-/** 应用更新仅依赖桌面宿主的原生更新能力，业务层无需自行探测运行时。 */
+/** 应用更新由后端执行下载与替换，桌面与 Web/VS Code 宿主走同一份后端实现。 */
 export function canUseTransportGithubUpdate(): boolean {
-  return isTauriRuntimeAvailable();
+  return true;
 }
 
 /** 检查远端是否有新版本：只读网络与版本号，Web/VS Code 端经 bridge 用同一份后端实现。 */
@@ -1395,7 +1397,10 @@ export function captureTransportDesktop<T>(): Promise<T> {
 }
 
 export function getTransportGithubUpdateState<T>(): Promise<T> {
-  return invokeRequiredNativeTransport<T>("应用更新状态", "get_github_update_state");
+  if (isTauriRuntimeAvailable()) {
+    return invokeRequiredNativeTransport<T>("应用更新状态", "get_github_update_state");
+  }
+  return invokeTauri<T>("githubUpdate.state");
 }
 
 export function checkTransportGithubUpdate<T>(input: Record<string, unknown>): Promise<T> {
@@ -1407,15 +1412,24 @@ export function checkTransportGithubUpdate<T>(input: Record<string, unknown>): P
 }
 
 export function startTransportGithubUpdate(input: Record<string, unknown>): Promise<void> {
-  return invokeRequiredNativeTransport<void>("应用更新下载", "start_github_update", input);
+  if (isTauriRuntimeAvailable()) {
+    return invokeRequiredNativeTransport<void>("应用更新下载", "start_github_update", input);
+  }
+  return invokeTauri<void>("githubUpdate.start", input);
 }
 
 export function cancelTransportGithubUpdate(): Promise<void> {
-  return invokeRequiredNativeTransport<void>("应用更新取消", "cancel_github_update");
+  if (isTauriRuntimeAvailable()) {
+    return invokeRequiredNativeTransport<void>("应用更新取消", "cancel_github_update");
+  }
+  return invokeTauri<void>("githubUpdate.cancel");
 }
 
 export function applyPreparedTransportGithubUpdate(): Promise<void> {
-  return invokeRequiredNativeTransport<void>("应用更新安装", "apply_prepared_github_update");
+  if (isTauriRuntimeAvailable()) {
+    return invokeRequiredNativeTransport<void>("应用更新安装", "apply_prepared_github_update");
+  }
+  return invokeTauri<void>("githubUpdate.apply");
 }
 
 export type PortablePendingManualReplace = {
@@ -1878,11 +1892,6 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "list_genai_chat_adapters",
   "open_runtime_logs_window",
   "sync_tray_icon",
-  "get_github_update_state",
-  "check_github_update",
-  "start_github_update",
-  "cancel_github_update",
-  "apply_prepared_github_update",
   "get_portable_pending_manual_replace",
   "dismiss_portable_pending_manual_replace",
   "retry_portable_pending_manual_replace",

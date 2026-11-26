@@ -3298,7 +3298,8 @@
     "applyUpdateFailedStatus": "Update failed: {error}",
     "portablePendingTitle": "Update downloaded, manual replace pending",
     "portablePendingIntro": "Auto update failed due to permission issue, please replace manually.",
-    "portablePendingHint": "Update files are kept. Click open folder below to complete replacement manually."
+    "portablePendingHint": "Update files are kept. Click open folder below to complete replacement manually.",
+    "webRestartDisconnectHint": "The app restarts after the update, so this page will lose its connection to the backend. Refresh the page or open it again to continue."
   },
   "fileReader": {
     "openFile": "Open file",

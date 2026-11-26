@@ -10,6 +10,7 @@ import {
   getPortablePendingManualReplace,
   getTransportGithubUpdateState,
   invokeTauri,
+  isDesktopTauriHost,
   onTransportNotification,
   openPortablePendingDir,
   openTransportExternalUrl,
@@ -53,6 +54,12 @@ function isCancellableUpdateStage(stage: string | null | undefined) {
   return ["checking", "downloading", "verifying", "preparing", "replacing"].includes(String(stage || ""));
 }
 
+/** 更新触发的后端重启会切断 Web 连接，此时请求以断连错误结束属于预期结果。 */
+function isUpdateConnectionDroppedError(error: unknown) {
+  const message = String((error as { message?: unknown })?.message || error || "");
+  return message.includes("连接已断开") || message.includes("PAI 未运行") || message.includes("请求超时");
+}
+
 export function useGithubUpdate(options: UseGithubUpdateOptions) {
   const checkingUpdateRequest = ref(false);
   const updateInProgress = ref(false);
@@ -73,13 +80,12 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   const updateUiMode = ref<"foreground" | "background" | null>(null);
   const skippedVersion = computed(() => normalizeSkippedVersion(options.skippedVersion.value));
 
-  // 应用更新依赖桌面端原生能力。聊天页也会在 Web/VS Code 宿主复用，
-  // 这些宿主不应尝试调用原生更新命令。
+  // 应用更新由后端执行下载与替换，桌面与 Web/VS Code 宿主走同一份实现。
   function canUseGithubUpdate() {
     return canUseTransportGithubUpdate();
   }
 
-  /** 检查远端版本两端都能做；Web 宿主只是不能下载安装。 */
+  /** 检查远端版本两端都能做。 */
   function canCheckGithubUpdate() {
     return canUseTransportGithubUpdateCheck();
   }
@@ -156,10 +162,8 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     updateDialogReleaseUrl.value = result.releaseUrl || "";
     updateDialogBody.value = buildCheckDialogBody(result);
     updateDialogKind.value = "info";
-    // Web 宿主只能看结果与发行页，下载安装是桌面端的事
-    updateDialogPrimaryAction.value = canUseGithubUpdate()
-      ? (result.hasUpdate ? "download" : "force")
-      : null;
+    // 下载与安装都由后端执行，两端给出同一组操作
+    updateDialogPrimaryAction.value = result.hasUpdate ? "download" : "force";
     updateProgressPercent.value = null;
     updateStage.value = null;
     updateDialogTitle.value = result.hasUpdate ? t("about.foundUpdate") : t("about.alreadyLatest");
@@ -191,12 +195,18 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       lines.push(t("about.releaseNotes"));
       lines.push(releaseNotes);
     }
-    updateDialogBody.value = lines.join("\n");
+    updateDialogBody.value = withWebRestartHint(lines.join("\n"));
     updateDialogOpen.value = true;
   }
 
   function envVersionFallback() {
     return latestCheckResult.value?.currentVersion || currentUpdateState.value?.currentVersion || "";
+  }
+
+  /** Web/VS Code 宿主跑在浏览器里，更新会重启后端进程，当前页面连接必然断开。 */
+  function withWebRestartHint(body: string) {
+    if (isDesktopTauriHost()) return body;
+    return `${body}\n\n${t("about.webRestartDisconnectHint")}`;
   }
 
   function currentUpdateMethod(): GithubUpdateMethod {
@@ -302,7 +312,7 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       }
       updateDialogKind.value = "info";
       updateDialogTitle.value = t("about.updateDownloaded");
-      updateDialogBody.value = payload.message;
+      updateDialogBody.value = withWebRestartHint(String(payload.message || ""));
       updateDialogPrimaryAction.value = "restart";
       updateProgressPercent.value = 100;
       return;
@@ -364,8 +374,8 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       latestCheckResult.value = result;
       updateRuntimeKind.value = result.runtimeKind;
       updateDialogReleaseUrl.value = result.releaseUrl || "";
-      // 更新状态（是否已下载、待重启）只存在桌面端，Web 端不读它
-      const latestState = canUseGithubUpdate() ? await refreshGithubUpdateState() : null;
+      // 更新状态（是否已下载、待重启）由后端统一维护，两端同一份
+      const latestState = await refreshGithubUpdateState();
       if (!result?.hasUpdate) {
         updateReadyToRestart.value = false;
         if (!silent) {
@@ -396,7 +406,6 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function startGithubUpdate(force: boolean, silent: boolean) {
-    if (!canUseGithubUpdate()) return;
     if (checkingUpdate.value) return;
     updateInProgress.value = true;
     updateCancelPending.value = false;
@@ -441,7 +450,6 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function cancelGithubUpdate() {
-    if (!canUseGithubUpdate()) return;
     if (!updateInProgress.value || updateCancelPending.value || !isCancellableUpdateStage(updateStage.value)) return;
     updateCancelPending.value = true;
     options.status.value = t("about.cancellingUpdate");
@@ -455,7 +463,6 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function applyPreparedGithubUpdate() {
-    if (!canUseGithubUpdate()) return;
     if (checkingUpdate.value) return;
     updateInProgress.value = true;
     updateCancelPending.value = false;
@@ -465,12 +472,26 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     updateDialogKind.value = "info";
     updateDialogPrimaryAction.value = null;
     updateDialogTitle.value = t("about.updateAndRestartTitle");
-    updateDialogBody.value = t("about.applyingUpdate");
+    updateDialogBody.value = withWebRestartHint(t("about.applyingUpdate"));
     updateProgressPercent.value = null;
     options.status.value = t("about.applyingUpdate");
     try {
       await applyPreparedTransportGithubUpdate();
     } catch (error) {
+      if (!isDesktopTauriHost() && isUpdateConnectionDroppedError(error)) {
+        // 后端已在重启，页面连接被切断是预期行为，不能当成更新失败
+        updateInProgress.value = false;
+        updateCancelPending.value = false;
+        updateStage.value = "completed";
+        updateUiMode.value = null;
+        updateDialogKind.value = "info";
+        updateDialogTitle.value = t("about.updateCompleted");
+        updateDialogBody.value = t("about.webRestartDisconnectHint");
+        updateDialogPrimaryAction.value = null;
+        updateProgressPercent.value = 100;
+        options.status.value = t("about.webRestartDisconnectHint");
+        return;
+      }
       updateInProgress.value = false;
       updateCancelPending.value = false;
       updateStage.value = null;
@@ -510,11 +531,6 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   }
 
   async function triggerUpdateToLatest() {
-    // Web 宿主没有下载安装能力，点更新就等于检查一次并给结果
-    if (!canUseGithubUpdate()) {
-      await checkGithubUpdate(false);
-      return;
-    }
     if (updateReadyToRestart.value) {
       openPreparedUpdateDialog();
       return;
@@ -529,7 +545,13 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
       openPreparedUpdateDialog();
       return;
     }
-    await refreshGithubUpdateState();
+    const state = await refreshGithubUpdateState();
+    if (updateReadyToRestart.value || state?.hasVisibleUpdate) {
+      openPreparedUpdateDialog();
+      return;
+    }
+    // 状态里没有可更新版本时也要给出结果，不能让点击静默结束
+    await checkGithubUpdate(false);
   }
 
   const portablePending = ref<PortablePendingManualReplace | null>(null);
