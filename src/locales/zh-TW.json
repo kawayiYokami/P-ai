@@ -2345,7 +2345,7 @@
       "title": "工具評估",
       "empty": "目前還沒有可評估的終端或補丁改動。",
       "resultsTab": "代碼審查",
-      "toolsTab": "工具",
+      "toolsTab": "變更",
       "delegatesTab": "委託",
       "timersTab": "定時器",
       "overviewDelegates": "當前委託",

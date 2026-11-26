@@ -2358,7 +2358,7 @@
       "title": "Tool Assessment",
       "empty": "No terminal or patch changes are available for assessment yet.",
       "resultsTab": "Code review",
-      "toolsTab": "Tools",
+      "toolsTab": "Changes",
       "delegatesTab": "Delegates",
       "timersTab": "Timers",
       "overviewDelegates": "Current delegates",

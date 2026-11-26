@@ -2335,7 +2335,7 @@
       "title": "工具评估",
       "empty": "当前还没有可评估的终端或补丁改动。",
       "resultsTab": "代码审查",
-      "toolsTab": "工具",
+      "toolsTab": "变更",
       "delegatesTab": "委托",
       "timersTab": "定时器",
       "overviewDelegates": "当前委托",

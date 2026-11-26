@@ -3,14 +3,14 @@
     <!-- 改动序号导航：一格一次改动，点它跳到该段段首；滚动时跟着高亮 -->
     <nav
       v-if="items.length > 0"
-      class="flex w-7 shrink-0 flex-col overflow-y-auto [scrollbar-width:none]"
+      class="flex w-9 shrink-0 flex-col overflow-y-auto [scrollbar-width:none]"
       aria-label="改动索引"
     >
       <button
         v-for="(item, index) in items"
         :key="item.key"
         type="button"
-        class="flex h-7 w-full shrink-0 items-center justify-center text-xs tabular-nums transition-colors"
+        class="flex h-9 w-full shrink-0 items-center justify-center text-xs tabular-nums transition-colors"
         :class="index === activeIndex
           ? 'bg-primary text-primary-content'
           : 'text-base-content/55 hover:bg-base-content/10 hover:text-base-content'"
@@ -37,7 +37,7 @@
             tabindex="0"
             :aria-expanded="!isCollapsed(item.key)"
             :title="`${itemTitle(item)}（点击${isCollapsed(item.key) ? '展开' : '收起'}）`"
-            class="flex cursor-pointer select-none items-center gap-2 bg-base-100/50 px-3 py-2 font-mono text-xs transition-colors hover:bg-base-100/70"
+            class="flex cursor-pointer select-none items-center gap-2 border-b border-base-content/5 bg-base-100 px-3 py-2 font-mono text-xs transition-colors hover:bg-base-300"
             @click="toggleCollapsed(item.key)"
             @keydown.enter.prevent="toggleCollapsed(item.key)"
             @keydown.space.prevent="toggleCollapsed(item.key)"

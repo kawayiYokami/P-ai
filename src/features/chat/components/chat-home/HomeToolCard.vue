@@ -3,7 +3,7 @@
     :col-span="colSpan"
     :row-span="rowSpan"
     tone="info"
-    icon="wrench"
+    icon="file-diff"
     :label="t('chat.homePanel.toolLabel')"
     interactive
     @select="emit('open')"

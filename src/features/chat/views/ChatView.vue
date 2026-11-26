@@ -1342,7 +1342,7 @@ type ToolReviewSidebarTab = "tools" | "delegates" | "timers" | "fastRequests";
 const monitorPanelTabs = computed<Array<{ key: ChatMonitorPanelMode; label: string; icon: AppIconName; closeable: false }>>(() => [
   { key: "delegate", label: t("chat.toolReview.delegatesTab"), icon: "network", closeable: false },
   { key: "timers", label: t("chat.toolReview.timersTab"), icon: "clock", closeable: false },
-  { key: "tools", label: t("chat.toolReview.toolsTab"), icon: "wrench", closeable: false },
+  { key: "tools", label: t("chat.toolReview.toolsTab"), icon: "file-diff", closeable: false },
   { key: "fastRequests", label: t("chat.toolReview.overviewOthers"), icon: "inbox", closeable: false },
 ]);
 
