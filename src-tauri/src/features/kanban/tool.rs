@@ -27,7 +27,7 @@ pub(crate) struct KanbanUpsertRequest {
 pub(crate) fn kanban_list_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         KANBAN_LIST_TOOL_NAME,
-        "查队伍议题看板。",
+        "查队伍议题看板。议题是会话级的：只列出本会话名下的议题，编号在会话内递增；不同会话里同号议题互不相干。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -52,7 +52,7 @@ pub(crate) fn kanban_list_provider_tool_definition() -> ProviderToolDefinition {
 pub(crate) fn kanban_upsert_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         KANBAN_UPSERT_TOOL_NAME,
-        "新建或修改队伍议题。",
+        "新建或修改队伍议题。议题是会话级的：只能新建或修改本会话的议题，别的会话的议题看不到也改不了。",
         serde_json::json!({
             "type": "object",
             "properties": {
