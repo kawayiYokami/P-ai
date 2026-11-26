@@ -1748,6 +1748,7 @@ function applyConversationQuestionItems(
 
 function handleConversationQuestionSubmit(
   answers: Array<{ id: string; optionId: string; label: string; comment: string; customText?: string }>,
+  supplement?: string,
 ) {
   const conversationId = String(props.activeConversationId || "").trim();
   if (!conversationId || conversationQuestionSubmitting.value) return;
@@ -1755,7 +1756,7 @@ function handleConversationQuestionSubmit(
   if (payload.length === 0) return;
   // 正文在前端拼好、消息立刻发出：不排在后端写操作的往返之后。
   // 发出去的是一条普通用户消息，走的就是手打那条 sendChat 通道。
-  const text = buildConversationQuestionAnswerText(conversationQuestions.value, answers);
+  const text = buildConversationQuestionAnswerText(conversationQuestions.value, answers, supplement);
   if (!text) return;
   conversationQuestionSubmitting.value = true;
   emit("sendChat", { text });

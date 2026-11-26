@@ -511,17 +511,19 @@
             <template #right>
               <!-- 问题图标：有待答问题时高亮，点一下在提问卡与普通输入之间切换。
                    它留在同一张输入卡右下角，所以收起后仍然看得见还有题没答。 -->
+              <!-- 问题图标：只在「普通输入 + 有待答问题」时出现，点一下把输入卡切成提问卡。
+                   提问卡展开时这里不出按钮——收起只有右上角那一个入口，
+                   同一件事不该在底部再放第二个。 -->
               <button
-                v-if="questionActive"
+                v-if="questionActive && !questionExpanded"
                 type="button"
-                class="btn btn-sm btn-circle shrink-0 transition-transform duration-150 ease-out active:scale-90"
-                :class="questionExpanded ? 'btn-warning' : 'text-warning btn-ghost'"
-                :title="questionExpanded ? t('chat.questionPanel.collapse') : t('chat.questionPanel.expand')"
+                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-info text-info-content transition-transform duration-150 ease-out active:scale-90"
+                :title="t('chat.questionPanel.expand')"
                 @pointerdown.prevent
                 @mousedown.prevent
                 @click="emit('toggleQuestion')"
               >
-                <AppIcon name="help-circle" class="h-4 w-4" />
+                <AppIcon name="help-circle" class="h-4 w-4" aria-hidden="true" />
               </button>
               <template v-if="!questionExpanded">
               <EcallDropdown

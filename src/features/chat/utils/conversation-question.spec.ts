@@ -134,6 +134,15 @@ describe("buildConversationQuestionAnswerText", () => {
     expect(buildConversationQuestionAnswerText([], [{ id: "1", optionId: "0" }])).toBe("");
     expect(buildConversationQuestionAnswerText(views, [])).toBe("");
   });
+
+  it("补充说明拼在正文末尾，只有空白时不拼", () => {
+    expect(
+      buildConversationQuestionAnswerText(views, [{ id: "2", optionId: "0" }], "  另外记得跑一遍测试  "),
+    ).toBe("【用哪个分支？】\n→ main\n\n【补充】\n→ 另外记得跑一遍测试");
+    expect(
+      buildConversationQuestionAnswerText(views, [{ id: "2", optionId: "0" }], "   "),
+    ).toBe("【用哪个分支？】\n→ main");
+  });
 });
 
 describe("pruneConversationQuestionAnswers", () => {

@@ -180,8 +180,8 @@ const demoQuestionMode = ref<"off" | "expanded" | "collapsed">("expanded");
 const demoQuestionAnswers = ref<Record<string, QuestionAnswer>>({});
 const demoQuestionItems: QuestionItem[] = [
   {
-    id: "1",
-    title: "发布前要不要先补一条回归测试？",
+    id: "4",
+    title: "#4 提问卡测试：这次选哪个？",
     description: "改动已经全绿，但这次动的是**提问卡容器**内部的内容形态。",
     options: [
       { id: "yes", label: "先补测试", kind: "direct" },
@@ -189,11 +189,11 @@ const demoQuestionItems: QuestionItem[] = [
     ],
   },
   {
-    id: "2",
-    title: "用哪个分支发布？",
+    id: "5",
+    title: "#5 **加粗标题**：你偏好哪种 **渲染风格**？",
     options: [
-      { id: "main", label: "main", kind: "direct" },
-      { id: "release", label: "release", kind: "direct" },
+      { id: "a", label: "`代码选项` A", kind: "direct" },
+      { id: "b", label: "`代码选项` B", kind: "direct" },
     ],
   },
 ];

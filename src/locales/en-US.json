@@ -2590,7 +2590,13 @@
       "customAnswerEmpty": "Your own answer cannot be empty",
       "optionRequiredEmpty": "Fill in the required note",
       "sending": "Sending...",
-      "sendSelected": "Send {count} questions"
+      "overviewAnswers": "Preview",
+      "notNow": "Answer later",
+      "editAnswer": "Change",
+      "sendAnswers": "Send",
+      "submitAnswers": "Submit {count} answers",
+      "supplementLabel": "Additional notes",
+      "supplementPlaceholder": "Anything to add? (optional, sent along with your answers)"
     }
   },
   "memory": {

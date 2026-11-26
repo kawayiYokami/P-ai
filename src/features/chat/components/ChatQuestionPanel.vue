@@ -32,7 +32,7 @@ const props = withDefaults(
     /**
      * 提交节奏。
      * - `all`：全部答完再一起提交（终端审批），行为与历史一致。
-     * - `manual`：选项只记录为已选，点右下角「发送 N 题」才把这批已选题一起发出去；
+     * - `manual`：选项只记录为已选，点右下角「发送回答」才把这批已选题一起发出去；
      *   未选的题跳过不拦截，发出的题从列表消失，剩下的可以接着选（会话提问工具）。
      */
     submitMode?: "all" | "manual";
@@ -46,7 +46,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, QuestionAnswer>];
-  submit: [answers: QuestionSubmitPayloadItem[]];
+  /** 第二个参数是预览页的「补充」：随答案一起交出去，由调用方拼进消息正文。 */
+  submit: [answers: QuestionSubmitPayloadItem[], supplement?: string];
   reject: [number: number];
   cancel: [];
   /** 收起：容器由输入卡提供，收起动作交给父级决定是否换回普通输入。 */
@@ -59,6 +60,15 @@ const { currentTheme } = useAppTheme();
 const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 const currentIndex = ref(0);
 const confirmStep = ref(false);
+/**
+ * 会话提问的答案预览页（手动发送模式才有）。
+ * 与 `confirmStep` 分开：那个是终端审批的「全部答完、一起确认」，要求每道题都答；
+ * 这个只列已回答的题，未答的留在题号条上，提交时也只交已答的那批。
+ */
+const previewStep = ref(false);
+/** 预览页底部的补充说明：随答案一起提交，拼在消息正文末尾。 */
+const supplementText = ref("");
+const SUPPLEMENT_MAX_CHARS = 500;
 const shakeOptionId = ref("");
 const optionDrafts = ref<Record<string, string>>({});
 const optionInputEls = ref<Record<string, HTMLInputElement | null>>({});
@@ -82,11 +92,18 @@ const customAnswerText = computed(() => {
   const item = currentItem.value;
   return item ? String(answersMap.value[item.id]?.customText ?? "").trim() : "";
 });
-/** 已选且填好的题目条数：发送按钮的文案与可用态都看它。 */
+/** 已选且填好的题目条数：发送按钮的可用态看它。 */
 const selectedCount = computed(() => countAnsweredQuestions(props.items, answersMap.value));
 
 const allAnswered = computed(() =>
   total.value > 0 && props.items.every((item) => !!answersMap.value[item.id]),
+);
+
+/** 预览页要列的条目：只取已回答的题，顺序跟题号一致。 */
+const answeredEntries = computed(() =>
+  props.items
+    .map((item, index) => ({ item, index, answer: answersMap.value[item.id] }))
+    .filter((entry) => !!entry.answer),
 );
 
 const currentOptions = computed<QuestionOption[]>(() => {
@@ -161,7 +178,7 @@ function handleStartCustomAnswer() {
 
 /**
  * 把自己写的内容记为这一题的答案。与点选项一致：这里只勾选，
- * 真正提交要等右下角「发送 N 题」；空内容不记，只抖一下提示。
+ * 真正提交要等右下角「发送回答」；空内容不记，只抖一下提示。
  */
 function handleCustomAnswerConfirm() {
   const item = currentItem.value;
@@ -243,11 +260,47 @@ function optionBtnClass(opt: QuestionOption): string {
   return selected ? "btn-primary" : "btn-primary btn-soft";
 }
 
+/** 这一题选的是拒绝类的答案（审批流里的 deny / 拒绝执行）。 */
+function isDenyAnswer(itemId: string): boolean {
+  const answer = answersMap.value[itemId];
+  const label = String(answer?.label ?? "");
+  const optionId = String(answer?.optionId ?? "");
+  return label.includes("拒绝") || optionId === "deny";
+}
+
+/**
+ * 题号格子上的编号：后端给的题目编号就是会话提问的 id，直接用它；
+ * 终端审批的 id 是 requestId，才退回按位置编号。
+ */
+function questionNavLabel(item: QuestionItem, index: number): string {
+  const id = String(item.id ?? "").trim();
+  return /^[1-9]\d*$/.test(id) ? id : String(index + 1);
+}
+
+/** 题干里后端自带的前缀题号（`#4`）摘掉：序号由序号徽标表达，正文里不再写井号。 */
+function displayTitle(item: QuestionItem): string {
+  return String(item.title ?? "").replace(/^#\s*\d+\s*[、.．:]?\s*/u, "");
+}
+
+/** 一题的答案正文：自己写的优先，其次选项文字。 */
+function answerText(entry: { answer?: QuestionAnswer }): string {
+  return String(entry.answer?.customText || entry.answer?.label || "");
+}
+
+/** 题号格子的三态：当前题主色实心、已答绿底、未答只剩描边。 */
+function questionNavClass(index: number, itemId: string): string {
+  const isCurrent = index === currentIndex.value && !confirmStep.value && !previewStep.value;
+  if (isCurrent) return "border-primary bg-primary text-primary-content";
+  if (answersMap.value[itemId]) return "border-success/40 bg-success/15 text-success";
+  return "border-base-content/25 bg-transparent text-base-content/60 hover:border-base-content/40 hover:text-base-content";
+}
+
 function goTo(index: number) {
   if (total.value === 0) return;
   const clamped = Math.max(0, Math.min(index, total.value - 1));
   currentIndex.value = clamped;
   confirmStep.value = false;
+  previewStep.value = false;
   shakeOptionId.value = "";
   nextTick(() => {});
 }
@@ -298,13 +351,34 @@ function handleOptionSelect(option: QuestionOption) {
   advanceAfterAnswer(next);
 }
 
-/** 手动发送：把这批已选题一次性交出去，未选的题不参与也不拦截。 */
-function handleSubmitSelected() {
+/** 打开答案预览页：多题时用来核对全部答案、写补充。 */
+function handleOpenPreview() {
+  if (props.submitting || selectedCount.value === 0) return;
+  shakeOptionId.value = "";
+  previewStep.value = true;
+}
+
+/** 预览页提交：只交已答的题，补充说明随答案一起交给调用方。 */
+function handleSubmitFromPreview() {
   if (props.submitting) return;
   const payload = buildSelectedQuestionSubmitPayload(props.items, answersMap.value);
   if (!payload) return;
+  const supplement = supplementText.value.trim();
   // 发完停留剩下的第一题（全发完就是空态），不跨轮记忆位置。
   currentIndex.value = 0;
+  previewStep.value = false;
+  confirmStep.value = false;
+  supplementText.value = "";
+  emit("submit", payload, supplement || undefined);
+}
+
+/** 直接发送：从答题页跳过预览，把这批已答的题一次交出去（不带补充）。 */
+function handleSendAnswers() {
+  if (props.submitting) return;
+  const payload = buildSelectedQuestionSubmitPayload(props.items, answersMap.value);
+  if (!payload) return;
+  currentIndex.value = 0;
+  previewStep.value = false;
   confirmStep.value = false;
   emit("submit", payload);
 }
@@ -330,234 +404,292 @@ function handleReject() {
 </script>
 
 <template>
-  <!-- 提问内容：输入卡容器（InputPanelDock / DoubleDeckCard）内部的一种内容形态，
-       不自带卡片与外框，只渲染题干、描述、选项与操作。 -->
-  <div class="w-full">
-    <div v-if="total === 0" class="px-2 py-8 text-center text-sm text-base-content/50">
+  <!-- 提问内容：输入卡容器内部的一种内容形态，不自带卡片与外框。
+       整块只有一个 flex 列，间距统一由 gap 控制，不再逐块写 padding。 -->
+  <div class="flex w-full flex-col gap-2 p-2">
+    <div v-if="total === 0" class="py-6 text-center text-sm text-base-content/50">
       {{ t("chat.questionPanel.empty") }}
     </div>
 
-    <template v-else>
-      <!-- 前提内容（patch / 单行命令）与多题确认列表：题干上方的同一块内容区 -->
-      <div v-if="confirmStep || (currentItem && hasPreviewText)" class="space-y-3 px-2 pb-1">
-          <!-- confirm overview: N>1 all answered -->
-          <ul v-if="confirmStep" class="flex flex-col gap-2">
-            <li
-              v-for="(item, idx) in items"
-              :key="item.id"
-              class="flex cursor-pointer items-start justify-between gap-3 rounded-box border border-base-300 bg-base-100/80 px-3 py-2.5 hover:border-base-300"
-              @click="goTo(idx)"
-            >
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="badge badge-ghost badge-sm">{{ idx + 1 }}</span>
-                  <span class="truncate text-sm">{{ item.title }}</span>
-                </div>
-                <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                  <span class="badge badge-sm" :class="answersMap[item.id]?.label.includes('拒绝') || answersMap[item.id]?.optionId === 'deny' ? 'badge-error badge-outline' : 'badge-success badge-outline'">
-                    {{ answersMap[item.id]?.label ?? answersMap[item.id]?.optionId }}
-                  </span>
-                  <span
-                    v-if="answersMap[item.id]?.comment"
-                    class="line-clamp-2 text-xs text-base-content/60"
-                  >
-                    {{ answersMap[item.id]?.comment }}
-                  </span>
-                </div>
-              </div>
-            </li>
-          </ul>
-
-          <!-- 前提内容：直接铺在底座上，用项目统一滚动区 -->
-          <OverlayScrollArea
-            v-else-if="currentItem && hasPreviewText"
-            scroller-class="max-h-36 overscroll-contain"
-          >
-            <TerminalApprovalPatchSample
-              v-if="isPreviewPatch"
-              :lines="previewLines"
-              :diff-only="false"
-              :show-prefixes="true"
-              :collapsed="false"
-              :hide-header="true"
-              :embedded="true"
+    <!-- ========== 预览：核对与提交 ========== -->
+    <template v-else-if="previewStep">
+      <ul class="flex flex-col gap-3">
+        <li
+          v-for="entry in answeredEntries"
+          :key="entry.item.id"
+          class="flex cursor-pointer flex-col gap-1.5"
+          @click="goTo(entry.index)"
+        >
+          <div class="flex items-center gap-2">
+            <span class="badge badge-sm min-w-5 shrink-0 rounded-full border-0 bg-base-content/10 font-semibold text-base-content/70">
+              {{ questionNavLabel(entry.item, entry.index) }}
+            </span>
+            <AppMarkdownRenderer
+              class="ecall-markdown-content min-w-0 flex-1 truncate text-sm font-medium leading-6"
+              :text="displayTitle(entry.item)"
+              :is-dark="markdownIsDark"
+              variant="document"
             />
-            <pre v-else class="whitespace-pre-wrap break-words text-xs leading-5 text-base-content/70">{{ currentItem.previewText }}</pre>
-          </OverlayScrollArea>
-      </div>
-
-      <!-- header: 题号切换条。两种节奏都渲染：它的职责是挑题，不是走向导。 -->
-          <nav v-if="!isSingle" class="flex flex-wrap items-center gap-1 px-2 pb-1 text-xs" aria-label="breadcrumb">
-            <template v-for="(item, idx) in items" :key="item.id">
-              <button
-                type="button"
-                class="rounded px-1.5 py-0.5 transition"
-                :class="[
-                  idx === currentIndex && !confirmStep ? 'bg-primary text-primary-content' : answersMap[item.id] ? 'bg-success text-success-content font-medium' : 'text-base-content/45 hover:bg-base-200',
-                  confirmStep ? (answersMap[item.id] ? 'bg-success text-success-content font-medium' : 'text-base-content/45') : '',
-                ]"
-                @click="goTo(idx)"
-              >
-                {{ idx + 1 }}
-              </button>
-              <span v-if="idx < items.length - 1" class="text-base-content/25">/</span>
-            </template>
-            <span v-if="confirmStep" class="ml-1 text-base-content/35">· {{ t("chat.questionPanel.confirmSuffix") }}</span>
-          </nav>
-
-          <div v-if="confirmStep" class="flex justify-end gap-2 px-2 py-1">
-            <button type="button" class="btn btn-ghost btn-sm" :disabled="submitting" @click="confirmStep = false">
-              {{ t("chat.questionPanel.backToEdit") }}
-            </button>
-            <button type="button" class="btn btn-primary btn-sm" :disabled="submitting || !allAnswered" @click="handleSubmitAll()">
-              {{ submitting ? t("chat.questionPanel.submitting") : t("chat.questionPanel.confirmSubmit", { count: total }) }}
-            </button>
           </div>
-
-          <div v-else-if="currentItem" class="space-y-2 px-2 py-1">
-            <!-- 题干：QuestionItem.title（审批 summary）+ description（审批 message/reason），目录全权随题干进面卡 -->
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="text-sm font-semibold leading-6 whitespace-pre-wrap break-words">{{ currentItem.title }}</div>
-                <AppMarkdownRenderer
-                  v-if="currentItem.description"
-                  class="ecall-markdown-content mt-1 text-xs leading-5 text-base-content/60"
-                  :text="currentItem.description"
-                  :is-dark="markdownIsDark"
-                  variant="document"
-                />
-              </div>
-              <label
-                v-if="canRememberWorkspaceForCurrent"
-                class="flex shrink-0 cursor-pointer items-center gap-2 btn btn-ghost font-normal"
-                :class="submitting ? 'pointer-events-none opacity-60' : ''"
-                :title="workspaceLabelForCurrent || t('terminalApproval.rememberWorkspace')"
-              >
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm"
-                  :disabled="submitting"
-                  @change="handleWorkspaceRemember"
-                >
-                <span>{{ t("terminalApproval.rememberWorkspace") }}</span>
-              </label>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs h-5 min-h-0 shrink-0 gap-1 px-1.5 text-xs font-normal text-base-content/50 hover:text-base-content"
-                :title="t('chat.questionPanel.collapseHint')"
-                @click="emit('collapse')"
-              >
-                {{ t("chat.questionPanel.collapse") }}
-                <AppIcon name="chevron-down" class="h-3 w-3" aria-hidden="true" />
-              </button>
+          <div class="rounded-lg bg-base-100 px-4 py-2">
+            <AppMarkdownRenderer
+              class="ecall-markdown-content text-sm leading-6"
+              :text="answerText(entry)"
+              :is-dark="markdownIsDark"
+              variant="document"
+            />
+            <div v-if="entry.answer?.comment" class="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-base-content/60">
+              {{ entry.answer?.comment }}
             </div>
-          <template
-            v-for="opt in [...currentOptions].sort((a, b) => {
-              const aDeny = a.kind === 'withInput' && a.inputRequired ? 1 : 0;
-              const bDeny = b.kind === 'withInput' && b.inputRequired ? 1 : 0;
-              return aDeny - bDeny;
-            })"
-            :key="opt.id"
+          </div>
+        </li>
+      </ul>
+
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs font-medium text-base-content/70">{{ t("chat.questionPanel.supplementLabel") }}</span>
+        <textarea
+          v-model="supplementText"
+          rows="2"
+          :maxlength="SUPPLEMENT_MAX_CHARS"
+          class="textarea textarea-bordered textarea-sm w-full resize-none"
+          :placeholder="t('chat.questionPanel.supplementPlaceholder')"
+        />
+      </label>
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="submitting" @click="previewStep = false">
+          {{ t("chat.questionPanel.backToEdit") }}
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" :disabled="submitting" @click="handleSubmitFromPreview">
+          {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.submitAnswers", { count: selectedCount }) }}
+        </button>
+      </div>
+    </template>
+
+    <!-- ========== 答题 ========== -->
+    <template v-else>
+      <!-- 终端审批：全部答完后在这里做最终确认 -->
+      <template v-if="confirmStep">
+        <ul class="flex flex-col gap-2">
+          <li
+            v-for="(item, idx) in items"
+            :key="item.id"
+            class="flex cursor-pointer flex-col gap-1"
+            @click="goTo(idx)"
           >
+            <div class="flex items-center gap-2">
+              <span class="badge badge-sm min-w-5 shrink-0 rounded-full border-0 bg-base-300 font-semibold">
+                {{ questionNavLabel(item, idx) }}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-sm">{{ displayTitle(item) }}</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5 pl-7">
+              <span class="badge badge-sm" :class="isDenyAnswer(item.id) ? 'badge-error badge-outline' : 'badge-success badge-outline'">
+                {{ answersMap[item.id]?.label ?? answersMap[item.id]?.optionId }}
+              </span>
+              <span v-if="answersMap[item.id]?.comment" class="line-clamp-2 text-xs text-base-content/60">
+                {{ answersMap[item.id]?.comment }}
+              </span>
+            </div>
+          </li>
+        </ul>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="submitting" @click="confirmStep = false">
+            {{ t("chat.questionPanel.backToEdit") }}
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="submitting || !allAnswered" @click="handleSubmitAll()">
+            {{ submitting ? t("chat.questionPanel.submitting") : t("chat.questionPanel.confirmSubmit", { count: total }) }}
+          </button>
+        </div>
+      </template>
+
+      <!-- 单题作答 -->
+      <template v-else-if="currentItem">
+        <div class="flex items-start gap-2">
+          <AppMarkdownRenderer
+            class="ecall-markdown-content min-w-0 flex-1 text-sm font-semibold leading-6"
+            :text="displayTitle(currentItem)"
+            :is-dark="markdownIsDark"
+            variant="document"
+          />
+          <label
+            v-if="canRememberWorkspaceForCurrent"
+            class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-base-content/70"
+            :class="submitting ? 'pointer-events-none opacity-60' : ''"
+            :title="workspaceLabelForCurrent || t('terminalApproval.rememberWorkspace')"
+          >
+            <input type="checkbox" class="checkbox checkbox-xs" :disabled="submitting" @change="handleWorkspaceRemember">
+            <span>{{ t("terminalApproval.rememberWorkspace") }}</span>
+          </label>
+          <button
+            v-if="isManualSubmit"
+            type="button"
+            class="btn btn-ghost btn-sm shrink-0 px-2 font-normal text-base-content/50 hover:text-base-content"
+            :disabled="submitting"
+            @click="handleReject"
+          >
+            {{ t("chat.questionPanel.reject") }}
+          </button>
+        </div>
+
+        <AppMarkdownRenderer
+          v-if="currentItem.description"
+          class="ecall-markdown-content text-xs leading-5 text-base-content/60"
+          :text="currentItem.description"
+          :is-dark="markdownIsDark"
+          variant="document"
+        />
+
+        <OverlayScrollArea v-if="hasPreviewText" scroller-class="max-h-36 overscroll-contain">
+          <TerminalApprovalPatchSample
+            v-if="isPreviewPatch"
+            :lines="previewLines"
+            :diff-only="false"
+            :show-prefixes="true"
+            :collapsed="false"
+            :hide-header="true"
+            :embedded="true"
+          />
+          <pre v-else class="whitespace-pre-wrap break-words text-xs leading-5 text-base-content/70">{{ currentItem.previewText }}</pre>
+        </OverlayScrollArea>
+
+        <!-- 选项：一题一组按钮，选中那条实心带勾 -->
+        <template
+          v-for="opt in [...currentOptions].sort((a, b) => {
+            const aDeny = a.kind === 'withInput' && a.inputRequired ? 1 : 0;
+            const bDeny = b.kind === 'withInput' && b.inputRequired ? 1 : 0;
+            return aDeny - bDeny;
+          })"
+          :key="opt.id"
+        >
+          <button
+            v-if="opt.kind === 'direct'"
+            type="button"
+            class="btn btn-sm ecall-question-option w-full justify-start gap-2 whitespace-normal px-3 text-left font-normal leading-5"
+            :class="optionBtnClass(opt)"
+            :disabled="submitting"
+            @click="handleOptionSelect(opt)"
+          >
+            <AppIcon v-if="selectedOptionIdForCurrent === opt.id" name="check" class="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span class="min-w-0 flex-1">{{ opt.label }}</span>
+          </button>
+          <div v-else class="join w-full">
+            <input
+              :ref="(el) => setInputEl(opt.id, el)"
+              :value="getDraft(currentItem!.id, opt.id)"
+              type="text"
+              :placeholder="opt.placeholder ?? (opt.inputRequired ? t('chat.questionPanel.optionPlaceholderRequired') : t('chat.questionPanel.optionPlaceholderOptional'))"
+              class="input input-bordered input-sm join-item min-w-0 flex-1"
+              :class="shakeOptionId === opt.id ? 'input-error animate-[shake_0.42s_ease]' : ''"
+              @input="setDraft(currentItem!.id, opt.id, ($event.target as HTMLInputElement).value)"
+              @keydown.enter.prevent="handleOptionSelect(opt)"
+            >
             <button
-              v-if="opt.kind === 'direct'"
               type="button"
-              class="btn btn-sm ecall-question-option w-full justify-center"
+              class="btn btn-sm ecall-question-option join-item shrink-0 gap-1.5 px-3 font-normal"
               :class="optionBtnClass(opt)"
               :disabled="submitting"
               @click="handleOptionSelect(opt)"
             >
+              <AppIcon v-if="selectedOptionIdForCurrent === opt.id" name="check" class="h-4 w-4 shrink-0" aria-hidden="true" />
               {{ opt.label }}
             </button>
-            <div v-else class="join w-full">
-              <input
-                :ref="(el) => setInputEl(opt.id, el)"
-                :value="getDraft(currentItem!.id, opt.id)"
-                type="text"
-                :placeholder="opt.placeholder ?? (opt.inputRequired ? t('chat.questionPanel.optionPlaceholderRequired') : t('chat.questionPanel.optionPlaceholderOptional'))"
-                class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
-                :class="shakeOptionId === opt.id ? 'input-error animate-[shake_0.42s_ease]' : ''"
-                @input="setDraft(currentItem!.id, opt.id, ($event.target as HTMLInputElement).value)"
-                @keydown.enter.prevent="handleOptionSelect(opt)"
-              >
-              <button
-                type="button"
-                class="btn btn-sm ecall-question-option join-item shrink-0"
-                :class="optionBtnClass(opt)"
-                :disabled="submitting"
-                @click="handleOptionSelect(opt)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </template>
-          <!-- 其他：自己写答案。只在会话提问出现，终端审批那套的选项是批准/拒绝执行，不改 -->
-          <div v-if="isManualSubmit" class="w-full">
-            <button
-              v-if="customAnswerText && !customAnswerEditing"
-              type="button"
-              class="btn btn-sm ecall-question-option w-full min-w-0 justify-center btn-primary"
-              :title="customAnswerText"
-              :disabled="submitting"
-              @click="handleStartCustomAnswer"
-            >
-              <span class="truncate">{{ customAnswerText }}</span>
-            </button>
-            <button
-              v-else-if="!customAnswerEditing"
-              type="button"
-              class="btn btn-sm ecall-question-option w-full justify-center btn-primary btn-soft"
-              :disabled="submitting"
-              @click="handleStartCustomAnswer"
-            >
-              {{ t("chat.questionPanel.customAnswer") }}
-            </button>
-            <div v-else class="join w-full">
-              <input
-                :ref="setCustomAnswerInputEl"
-                :value="getCustomAnswerDraft(currentItem!.id)"
-                type="text"
-                :maxlength="CUSTOM_ANSWER_MAX_CHARS"
-                :placeholder="t('chat.questionPanel.customAnswerPlaceholder')"
-                class="input input-bordered input-sm join-item min-w-0 flex-1 text-sm"
-                :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
-                @input="setCustomAnswerDraft(currentItem!.id, ($event.target as HTMLInputElement).value)"
-                @keydown.enter.prevent="handleCustomAnswerConfirm"
-              >
-              <button
-                type="button"
-                class="btn btn-sm ecall-question-option join-item shrink-0 btn-primary"
-                :disabled="submitting"
-                @click="handleCustomAnswerConfirm"
-              >
-                {{ t("chat.questionPanel.confirm") }}
-              </button>
-            </div>
           </div>
-          <div v-if="shakeOptionId" class="text-xs text-error">
-            {{ shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? t("chat.questionPanel.customAnswerEmpty") : t("chat.questionPanel.optionRequiredEmpty") }}
-          </div>
-          </div>
+        </template>
 
-          <!-- 手动发送：放弃此问题在左下角、发送在右下角，未选时发送是灰态，位置不跳 -->
-          <div v-if="isManualSubmit" class="flex items-center justify-between gap-2 px-2 pb-1 pt-2">
+        <!-- 其他：自己写答案。只在会话提问出现，终端审批的选项是批准/拒绝执行，不改 -->
+        <template v-if="isManualSubmit">
+          <button
+            v-if="customAnswerText && !customAnswerEditing"
+            type="button"
+            class="btn btn-sm ecall-question-option w-full min-w-0 justify-center gap-1.5 px-3 font-normal btn-primary"
+            :title="customAnswerText"
+            :disabled="submitting"
+            @click="handleStartCustomAnswer"
+          >
+            <span class="truncate">{{ customAnswerText }}</span>
+          </button>
+          <button
+            v-else-if="!customAnswerEditing"
+            type="button"
+            class="btn btn-sm ecall-question-option w-full justify-start gap-2 px-3 text-left font-normal btn-primary btn-soft"
+            :disabled="submitting"
+            @click="handleStartCustomAnswer"
+          >
+            {{ t("chat.questionPanel.customAnswer") }}
+          </button>
+          <div v-else class="join w-full">
+            <input
+              :ref="setCustomAnswerInputEl"
+              :value="getCustomAnswerDraft(currentItem!.id)"
+              type="text"
+              :maxlength="CUSTOM_ANSWER_MAX_CHARS"
+              :placeholder="t('chat.questionPanel.customAnswerPlaceholder')"
+              class="input input-bordered input-sm join-item min-w-0 flex-1"
+              :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
+              @input="setCustomAnswerDraft(currentItem!.id, ($event.target as HTMLInputElement).value)"
+              @keydown.enter.prevent="handleCustomAnswerConfirm"
+            >
             <button
               type="button"
-              class="btn btn-ghost btn-sm font-normal text-base-content/60 hover:text-base-content"
+              class="btn btn-sm ecall-question-option join-item shrink-0 px-3 font-normal btn-primary"
               :disabled="submitting"
-              @click="handleReject"
+              @click="handleCustomAnswerConfirm"
             >
-              {{ t("chat.questionPanel.reject") }}
+              {{ t("chat.questionPanel.confirm") }}
+            </button>
+          </div>
+        </template>
+
+        <div v-if="shakeOptionId" class="text-xs text-error">
+          {{ shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? t("chat.questionPanel.customAnswerEmpty") : t("chat.questionPanel.optionRequiredEmpty") }}
+        </div>
+
+        <!-- 答案列表与底部操作之间拉一条分隔线 -->
+        <div class="divider divider-sm my-0"></div>
+
+        <!-- 底部一行：页码靠左，暂不回答与发送在右 -->
+        <div v-if="isManualSubmit || !isSingle" class="flex items-center justify-between gap-2">
+          <nav v-if="!isSingle" class="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-1.5" aria-label="breadcrumb">
+            <button
+              v-for="(item, idx) in items"
+              :key="item.id"
+              type="button"
+              class="btn btn-sm btn-square font-medium"
+              :class="questionNavClass(idx, item.id)"
+              @click="goTo(idx)"
+            >
+              {{ questionNavLabel(item, idx) }}
+            </button>
+          </nav>
+          <div v-if="isManualSubmit" class="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              :title="t('chat.questionPanel.collapseHint')"
+              @click="emit('collapse')"
+            >
+              {{ t("chat.questionPanel.notNow") }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              :disabled="submitting || selectedCount <= 1"
+              @click="handleOpenPreview"
+            >
+              {{ t("chat.questionPanel.overviewAnswers") }}
             </button>
             <button
               type="button"
               class="btn btn-primary btn-sm"
               :disabled="submitting || selectedCount === 0"
-              @click="handleSubmitSelected"
+              @click="handleSendAnswers"
             >
-              {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.sendSelected", { count: selectedCount }) }}
+              {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.sendAnswers") }}
             </button>
           </div>
+        </div>
+      </template>
     </template>
   </div>
 </template>
@@ -569,6 +701,17 @@ function handleReject() {
    不动全局 btn 样式；只作用于 soft 态，选中后的实心 primary 仍用 primary-content。 */
 .ecall-question-option.btn-soft {
   color: color-mix(in oklab, var(--color-primary) 70%, var(--color-base-content));
+}
+
+/* 提问卡里的 markdown 只当文字用：document 变体给段落 1em 上下外边距，
+   一个单行答案会被顶出 28px 空白，整块卡被撑得又高又散。这里把它归零，
+   只有连续段落之间留一点行距。 */
+:deep(.ecall-markdown-content .ecall-md-paragraph) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+:deep(.ecall-markdown-content .ecall-md-paragraph + .ecall-md-paragraph) {
+  margin-top: 0.4em;
 }
 
 @keyframes shake {

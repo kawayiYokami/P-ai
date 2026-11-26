@@ -166,6 +166,7 @@ export function buildConversationQuestionAnswerPayload(
 export function buildConversationQuestionAnswerText(
   items: ConversationQuestionView[],
   answers: Array<{ id: string; optionId: string; customText?: string }>,
+  supplement?: string,
 ): string {
   const byNumber = new Map<number, ConversationQuestionView>();
   for (const item of Array.isArray(items) ? items : []) {
@@ -200,5 +201,9 @@ export function buildConversationQuestionAnswerText(
     });
   }
   blocks.sort((left, right) => left.number - right.number);
-  return blocks.map((block) => block.text).join("\n\n");
+  const text = blocks.map((block) => block.text).join("\n\n");
+  if (!text) return "";
+  // 补充说明只进这条消息正文，不进后端答案记录：它是给模型的额外一句话，不是某一题的答案。
+  const extra = String(supplement ?? "").trim();
+  return extra ? `${text}\n\n【补充】\n→ ${extra}` : text;
 }

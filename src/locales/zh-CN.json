@@ -2590,7 +2590,13 @@
       "customAnswerEmpty": "自己写的答案不能为空",
       "optionRequiredEmpty": "请填写必填的补充说明",
       "sending": "发送中...",
-      "sendSelected": "发送 {count} 题"
+      "overviewAnswers": "预览",
+      "notNow": "暂不回答",
+      "editAnswer": "修改",
+      "sendAnswers": "发送",
+      "submitAnswers": "提交 {count} 个回答",
+      "supplementLabel": "补充",
+      "supplementPlaceholder": "还有什么要补充的？（可选，会跟回答一起发给模型）"
     }
   },
   "memory": {
