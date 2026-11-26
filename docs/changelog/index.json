@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-26T02:50:59.313Z",
-  "latestVersion": "v0.98.11",
+  "generatedAt": "2026-11-26T23:17:27.672Z",
+  "latestVersion": "v0.98.12",
   "releases": [
+    {
+      "version": "v0.98.12",
+      "path": "docs/changelog/releases/v0.98.12.md",
+      "summary": "提问卡改在输入卡里展开：逐题作答后可以先预览全部回答、附一段补充说明，再一次性发出；收起即回到普通输入，右下角的问号仍在提示还有题没答"
+    },
     {
       "version": "v0.98.11",
       "path": "docs/changelog/releases/v0.98.11.md",
