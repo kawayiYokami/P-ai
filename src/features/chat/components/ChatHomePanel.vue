@@ -27,6 +27,7 @@
           :branch="branch"
           :change-count="changeCount"
           :commits="recentCommits"
+          :loading="envLoading"
           :col-span="2"
           :row-span="1"
           @open-changes="emit('openGitChanges')"
@@ -200,6 +201,8 @@ const props = withDefaults(defineProps<{
   changeCount?: number;
   /** 当前仓库最近几条提交；来源与分支、更改列表同一处 */
   recentCommits?: Array<{ hash: string; message: string }>;
+  /** 仓库与状态正在解析：环境卡三行值位置显示骨架，不显示上一份或空值 */
+  envLoading?: boolean;
   /** 已打开文件，path 为绝对路径，label 仅用于展示 */
   openFiles?: Array<{ path: string; label: string }>;
   /** 追问能力是否可用；不可用时首页不出现「追问」入口磁贴 */
@@ -248,6 +251,7 @@ const props = withDefaults(defineProps<{
   branch: "",
   changeCount: 0,
   recentCommits: () => [],
+  envLoading: false,
   openFiles: () => [],
   sideChatEnabled: false,
   teamVisible: false,

@@ -868,6 +868,7 @@
           :branch="homeGitBranch"
           :change-count="homeGitChangeCount"
           :recent-commits="homeGitRecentCommits"
+          :env-loading="homeGitLoading"
           :open-files="homeFilePreview.openFiles"
           :side-chat-enabled="Boolean(sideChatPanelEnabled)"
           :team-visible="Boolean(props.teamVisible)"
@@ -3739,7 +3740,15 @@ const {
   acquire: acquireHomeGitStatus,
   release: releaseHomeGitStatus,
   isPanelActive: isHomeGitPanelActive,
+  statusLoaded: homeGitStatusLoaded,
 } = useWorkspaceGitStatus();
+
+/** 环境卡在解析与首次回填之间显示骨架：这时卡片上还没有本会话的数据 */
+const homeGitDiscovering = ref(false);
+const homeGitLoading = computed(() =>
+  homeGitDiscovering.value
+  || (!!String(homeGitRepoRoot.value || "").trim() && !homeGitStatusLoaded.value),
+);
 
 const homeGitChangeCount = computed(() => {
   const visible = homeGitStatusEntries.value.length;
@@ -3774,6 +3783,7 @@ function syncHomeGitConsume(mode: string) {
 }
 
 let homeGitWorkspaceKey = "";
+let homeGitConversationKey = "";
 
 /**
  * 卡片墙的仓库来源：Git 面板在场时完全跟随面板（它负责选定仓库与刷新）；
@@ -3785,21 +3795,36 @@ let homeGitWorkspaceKey = "";
 async function syncHomeGitRepo() {
   if (isHomeGitPanelActive()) return;
   const workspace = String(effectiveSessionRootPath.value || props.currentWorkspaceRootPath || "").trim();
+  const conversationKey = String(props.activeConversationId || "").trim();
+  const conversationChanged = conversationKey !== homeGitConversationKey;
   const workspaceChanged = workspace !== homeGitWorkspaceKey;
+  homeGitConversationKey = conversationKey;
   homeGitWorkspaceKey = workspace;
-  if (!workspaceChanged) return;
-  const discovered = await discoverHomeGitRepoRoot(workspace);
-  if (!homeGitConsuming) return;
-  // 解析期间会话/工作区可能已经切走，过期结果直接丢弃，
-  // 否则慢返回的那次会把另一个会话的仓库写进共享状态（卡片墙与 Git 面板共用同一份）
-  if (homeGitWorkspaceKey !== workspace) return;
-  const rememberedRoot = readHomeGitRepoMemory(
-    String(chatFileReaderSessionKey.value || "").trim(),
-    discovered.repoPaths,
-  );
-  const root = rememberedRoot || discovered.defaultRepoRoot;
-  setHomeGitRepoRoot(root);
-  if (root) void loadHomeGitStatus();
+  if (!conversationChanged && !workspaceChanged) return;
+  homeGitDiscovering.value = true;
+  // 换会话先清空：仓库解析与状态请求都要等后端返回，不清空的话这期间卡片上
+  // 还是上一个会话的仓库、分支与提交；仓库恰好相同时更看不出来，显示的是旧快照。
+  setHomeGitRepoRoot("");
+  try {
+    const discovered = await discoverHomeGitRepoRoot(workspace);
+    if (!homeGitConsuming) return;
+    // 解析期间会话/工作区可能已经切走，过期结果直接丢弃，
+    // 否则慢返回的那次会把另一个会话的仓库写进共享状态（卡片墙与 Git 面板共用同一份）
+    if (homeGitWorkspaceKey !== workspace) return;
+    const rememberedRoot = readHomeGitRepoMemory(
+      String(chatFileReaderSessionKey.value || "").trim(),
+      discovered.repoPaths,
+    );
+    const root = rememberedRoot || discovered.defaultRepoRoot;
+    setHomeGitRepoRoot(root);
+    if (root) {
+      void loadHomeGitStatus();
+      void loadHomeGitRecentCommits();
+    }
+  } finally {
+    // 已被更新的一次解析顶掉时不动标记，让后来那次的骨架继续挂着
+    if (homeGitWorkspaceKey === workspace) homeGitDiscovering.value = false;
+  }
 }
 
 watch(

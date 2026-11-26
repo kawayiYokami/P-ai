@@ -17,7 +17,8 @@
       >
         <span class="ecall-env-icon ecall-env-icon-warning"><AppIcon name="file-diff" class="size-3.5" /></span>
         <span class="ecall-env-label">{{ t("chat.homePanel.changesLabel") }}</span>
-        <span class="ecall-env-value" :class="changeCount > 0 ? 'text-warning' : 'opacity-45'">{{ changeText }}</span>
+        <span v-if="loading" class="ecall-env-value"><span class="skeleton inline-block h-2.5 rounded-full w-14" /></span>
+        <span v-else class="ecall-env-value" :class="changeCount > 0 ? 'text-warning' : 'opacity-45'">{{ changeText }}</span>
       </button>
 
       <!-- 分支：点击就地展开下拉切换 -->
@@ -38,7 +39,8 @@
           >
             <span class="ecall-env-icon ecall-env-icon-primary"><AppIcon name="git-branch" class="size-3.5" /></span>
             <span class="ecall-env-label">{{ t("chat.homePanel.branchLabel") }}</span>
-            <span class="ecall-env-value min-w-0 truncate">{{ branchDisplay }}</span>
+            <span v-if="loading" class="ecall-env-value"><span class="skeleton inline-block h-2.5 rounded-full w-10" /></span>
+            <span v-else class="ecall-env-value min-w-0 truncate">{{ branchDisplay }}</span>
             <AppIcon name="chevron-down"
               class="size-3 shrink-0 opacity-45 transition-transform"
               :class="{ 'rotate-180': open }"
@@ -67,7 +69,8 @@
       >
         <span class="ecall-env-icon ecall-env-icon-info"><AppIcon name="history" class="size-3.5" /></span>
         <span class="ecall-env-label">{{ t("chat.homePanel.latestCommitLabel") }}</span>
-        <span class="ecall-env-value min-w-0 truncate">{{ latestCommitSubject || t("chat.homePanel.noCommits") }}</span>
+        <span v-if="loading" class="ecall-env-value"><span class="skeleton inline-block h-2.5 rounded-full w-24" /></span>
+        <span v-else class="ecall-env-value min-w-0 truncate">{{ latestCommitSubject || t("chat.homePanel.noCommits") }}</span>
       </button>
     </div>
   </CardShell>
@@ -96,6 +99,8 @@ const props = withDefaults(defineProps<{
   changeCount?: number;
   /** 最近提交；只取第一条作为「最新提交」 */
   commits?: Array<{ hash: string; message: string }>;
+  /** 仓库与状态正在解析：三行值位置显示骨架 */
+  loading?: boolean;
   /** 占几列：宿主 ChatHomePanel 算好下发 */
   colSpan?: number;
   /** 占几行：宿主 ChatHomePanel 算好下发 */
@@ -105,6 +110,7 @@ const props = withDefaults(defineProps<{
   branch: "",
   changeCount: 0,
   commits: () => [],
+  loading: false,
   colSpan: 2,
   rowSpan: 1,
 });
