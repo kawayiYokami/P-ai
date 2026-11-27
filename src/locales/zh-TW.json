@@ -2567,8 +2567,7 @@
     "questionPanel": {
       "collapse": "收合",
       "collapseHint": "收合問題面板；題目有更新時會自動展開",
-      "expand": "展開問題",
-      "pendingCount": "{count} 個問題待答",
+      "pendingCount": "有 {count} 個問題等待確認",
       "empty": "暫無問題",
       "confirmSuffix": "確認",
       "backToEdit": "返回修改",
@@ -2583,10 +2582,8 @@
       "customAnswerEmpty": "自行輸入的答案不能為空",
       "optionRequiredEmpty": "請填寫必填的補充說明",
       "sending": "傳送中...",
-      "overviewAnswers": "預覽",
-      "notNow": "暫不回答",
       "editAnswer": "修改",
-      "sendAnswers": "傳送",
+      "confirmAnswers": "確認",
       "submitAnswers": "提交 {count} 個回答",
       "supplementLabel": "補充",
       "supplementPlaceholder": "還有什麼要補充的？（選填，會跟回答一起送給模型）"

@@ -2574,8 +2574,7 @@
     "questionPanel": {
       "collapse": "Collapse",
       "collapseHint": "Collapse the question panel; it expands again when questions update",
-      "expand": "Expand questions",
-      "pendingCount": "{count} questions pending",
+      "pendingCount": "{count} questions awaiting confirmation",
       "empty": "No questions",
       "confirmSuffix": "Confirm",
       "backToEdit": "Back to edit",
@@ -2590,10 +2589,8 @@
       "customAnswerEmpty": "Your own answer cannot be empty",
       "optionRequiredEmpty": "Fill in the required note",
       "sending": "Sending...",
-      "overviewAnswers": "Preview",
-      "notNow": "Answer later",
       "editAnswer": "Change",
-      "sendAnswers": "Send",
+      "confirmAnswers": "Confirm",
       "submitAnswers": "Submit {count} answers",
       "supplementLabel": "Additional notes",
       "supplementPlaceholder": "Anything to add? (optional, sent along with your answers)"

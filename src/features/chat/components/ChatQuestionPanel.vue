@@ -257,7 +257,8 @@ function optionBtnClass(opt: QuestionOption): string {
   const selected = selectedOptionIdForCurrent.value === opt.id;
   const destructive = isDestructiveOption(opt);
   if (destructive) return selected ? "btn-error" : "btn-error btn-soft";
-  return selected ? "btn-primary" : "btn-primary btn-soft";
+  // 未选中不给主色：daisyUI btn 的默认底色就是中性的 base-200，选中才上主色实心。
+  return selected ? "btn-primary" : "";
 }
 
 /** 这一题选的是拒绝类的答案（审批流里的 deny / 拒绝执行）。 */
@@ -269,15 +270,15 @@ function isDenyAnswer(itemId: string): boolean {
 }
 
 /**
- * 题号格子上的编号：后端给的题目编号就是会话提问的 id，直接用它；
- * 终端审批的 id 是 requestId，才退回按位置编号。
+ * 题号一律按位置编号（1、2、3…），不显示后端的问题 id。
+ * 会话提问的 id 是提问编号、终端审批的 id 是 requestId，两种都会跳号，
+ * 排在面包屑里读起来是乱的。
  */
-function questionNavLabel(item: QuestionItem, index: number): string {
-  const id = String(item.id ?? "").trim();
-  return /^[1-9]\d*$/.test(id) ? id : String(index + 1);
+function questionNavLabel(_item: QuestionItem, index: number): string {
+  return String(index + 1);
 }
 
-/** 题干里后端自带的前缀题号（`#4`）摘掉：序号由序号徽标表达，正文里不再写井号。 */
+/** 题干里后端自带的前缀题号（`#4`）摘掉：序号写在标题行首，正文里不再重复写井号。 */
 function displayTitle(item: QuestionItem): string {
   return String(item.title ?? "").replace(/^#\s*\d+\s*[、.．:]?\s*/u, "");
 }
@@ -287,12 +288,12 @@ function answerText(entry: { answer?: QuestionAnswer }): string {
   return String(entry.answer?.customText || entry.answer?.label || "");
 }
 
-/** 题号格子的三态：当前题主色实心、已答绿底、未答只剩描边。 */
-function questionNavClass(index: number, itemId: string): string {
+/** 题号面包屑：当前题主色实心；未答的是正文色，答过的转灰。 */
+function questionNavClass(index: number, answered: boolean): string {
   const isCurrent = index === currentIndex.value && !confirmStep.value && !previewStep.value;
-  if (isCurrent) return "border-primary bg-primary text-primary-content";
-  if (answersMap.value[itemId]) return "border-success/40 bg-success/15 text-success";
-  return "border-base-content/25 bg-transparent text-base-content/60 hover:border-base-content/40 hover:text-base-content";
+  if (isCurrent) return "bg-primary text-primary-content";
+  if (answered) return "text-base-content/35 hover:bg-base-200";
+  return "text-base-content hover:bg-base-200";
 }
 
 function goTo(index: number) {
@@ -321,6 +322,16 @@ function advanceAfterAnswer(nextAnswers: Record<string, QuestionAnswer>) {
 function handleOptionSelect(option: QuestionOption) {
   const item = currentItem.value;
   if (!item || props.submitting) return;
+  // 再点一次已选中的那条 = 取消这一题的答案。放在必填校验之前：
+  // 取消不该被「必填说明还没填」拦住。
+  if (selectedOptionIdForCurrent.value === option.id) {
+    const cleared = { ...answersMap.value };
+    delete cleared[item.id];
+    customAnswerEditing.value = false;
+    shakeOptionId.value = "";
+    emit("update:modelValue", cleared);
+    return;
+  }
   let comment = "";
   if (option.kind === "withInput") {
     comment = getDraft(item.id, option.id).trim();
@@ -372,17 +383,6 @@ function handleSubmitFromPreview() {
   emit("submit", payload, supplement || undefined);
 }
 
-/** 直接发送：从答题页跳过预览，把这批已答的题一次交出去（不带补充）。 */
-function handleSendAnswers() {
-  if (props.submitting) return;
-  const payload = buildSelectedQuestionSubmitPayload(props.items, answersMap.value);
-  if (!payload) return;
-  currentIndex.value = 0;
-  previewStep.value = false;
-  confirmStep.value = false;
-  emit("submit", payload);
-}
-
 function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
   if (props.submitting) return;
   const payload = buildQuestionSubmitPayload(props.items, overrideMap ?? answersMap.value);
@@ -404,9 +404,10 @@ function handleReject() {
 </script>
 
 <template>
-  <!-- 提问内容：输入卡容器内部的一种内容形态，不自带卡片与外框。
-       整块只有一个 flex 列，间距统一由 gap 控制，不再逐块写 padding。 -->
-  <div class="flex w-full flex-col gap-2 p-2">
+  <!-- 提问卡：装在双层卡的露头层——底卡多出来的那一截，面卡仍是输入面板，
+       所以答题时上面是问题、下面是照旧可用的输入框。
+       自身不画卡片和外框，露头本身就是底卡区域。 -->
+  <div class="mx-auto my-2 flex w-[calc(100%-1rem)] max-w-2xl flex-col gap-2 rounded-lg bg-base-100 p-4">
     <div v-if="total === 0" class="py-6 text-center text-sm text-base-content/50">
       {{ t("chat.questionPanel.empty") }}
     </div>
@@ -431,7 +432,7 @@ function handleReject() {
               variant="document"
             />
           </div>
-          <div class="rounded-lg bg-base-100 px-4 py-2">
+          <div class="rounded-lg bg-base-200 px-4 py-2">
             <AppMarkdownRenderer
               class="ecall-markdown-content text-sm leading-6"
               :text="answerText(entry)"
@@ -468,6 +469,21 @@ function handleReject() {
 
     <!-- ========== 答题 ========== -->
     <template v-else>
+      <!-- 题号列表固定在题目上方：文字面包屑，已答的那几题在右上角打勾标 -->
+      <nav v-if="!isSingle" class="flex min-w-0 flex-wrap items-center gap-1 text-xs" aria-label="breadcrumb">
+        <template v-for="(item, idx) in items" :key="item.id">
+          <button
+            type="button"
+            class="rounded px-1.5 py-0.5 text-xs tabular-nums transition"
+            :class="questionNavClass(idx, !!answersMap[item.id])"
+            @click="goTo(idx)"
+          >
+            {{ questionNavLabel(item, idx) }}
+          </button>
+          <span v-if="idx < items.length - 1" class="text-base-content/25" aria-hidden="true">/</span>
+        </template>
+      </nav>
+
       <!-- 终端审批：全部答完后在这里做最终确认 -->
       <template v-if="confirmStep">
         <ul class="flex flex-col gap-2">
@@ -506,6 +522,7 @@ function handleReject() {
       <!-- 单题作答 -->
       <template v-else-if="currentItem">
         <div class="flex items-start gap-2">
+          <span class="shrink-0 text-sm font-semibold leading-6 tabular-nums">{{ questionNavLabel(currentItem, currentIndex) }}.</span>
           <AppMarkdownRenderer
             class="ecall-markdown-content min-w-0 flex-1 text-sm font-semibold leading-6"
             :text="displayTitle(currentItem)"
@@ -522,13 +539,13 @@ function handleReject() {
             <span>{{ t("terminalApproval.rememberWorkspace") }}</span>
           </label>
           <button
-            v-if="isManualSubmit"
             type="button"
-            class="btn btn-ghost btn-sm shrink-0 px-2 font-normal text-base-content/50 hover:text-base-content"
-            :disabled="submitting"
-            @click="handleReject"
+            class="btn btn-ghost btn-sm shrink-0"
+            :title="t('chat.questionPanel.collapseHint')"
+            @click="emit('collapse')"
           >
-            {{ t("chat.questionPanel.reject") }}
+            {{ t("chat.questionPanel.collapse") }}
+            <AppIcon name="chevron-down" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           </button>
         </div>
 
@@ -565,7 +582,7 @@ function handleReject() {
           <button
             v-if="opt.kind === 'direct'"
             type="button"
-            class="btn btn-sm ecall-question-option w-full justify-start gap-2 whitespace-normal px-3 text-left font-normal leading-5"
+            class="btn btn-md ecall-question-option w-full justify-start gap-2 whitespace-normal px-3 text-left font-normal leading-5"
             :class="optionBtnClass(opt)"
             :disabled="submitting"
             @click="handleOptionSelect(opt)"
@@ -579,14 +596,14 @@ function handleReject() {
               :value="getDraft(currentItem!.id, opt.id)"
               type="text"
               :placeholder="opt.placeholder ?? (opt.inputRequired ? t('chat.questionPanel.optionPlaceholderRequired') : t('chat.questionPanel.optionPlaceholderOptional'))"
-              class="input input-bordered input-sm join-item min-w-0 flex-1"
+              class="input input-bordered input-md join-item min-w-0 flex-1"
               :class="shakeOptionId === opt.id ? 'input-error animate-[shake_0.42s_ease]' : ''"
               @input="setDraft(currentItem!.id, opt.id, ($event.target as HTMLInputElement).value)"
               @keydown.enter.prevent="handleOptionSelect(opt)"
             >
             <button
               type="button"
-              class="btn btn-sm ecall-question-option join-item shrink-0 gap-1.5 px-3 font-normal"
+              class="btn btn-md ecall-question-option join-item shrink-0 gap-1.5 px-3 font-normal"
               :class="optionBtnClass(opt)"
               :disabled="submitting"
               @click="handleOptionSelect(opt)"
@@ -602,7 +619,7 @@ function handleReject() {
           <button
             v-if="customAnswerText && !customAnswerEditing"
             type="button"
-            class="btn btn-sm ecall-question-option w-full min-w-0 justify-center gap-1.5 px-3 font-normal btn-primary"
+            class="btn btn-md ecall-question-option w-full min-w-0 justify-center gap-1.5 px-3 font-normal btn-primary"
             :title="customAnswerText"
             :disabled="submitting"
             @click="handleStartCustomAnswer"
@@ -612,7 +629,7 @@ function handleReject() {
           <button
             v-else-if="!customAnswerEditing"
             type="button"
-            class="btn btn-sm ecall-question-option w-full justify-start gap-2 px-3 text-left font-normal btn-primary btn-soft"
+            class="btn btn-md ecall-question-option w-full justify-start gap-2 px-3 text-left font-normal"
             :disabled="submitting"
             @click="handleStartCustomAnswer"
           >
@@ -625,14 +642,14 @@ function handleReject() {
               type="text"
               :maxlength="CUSTOM_ANSWER_MAX_CHARS"
               :placeholder="t('chat.questionPanel.customAnswerPlaceholder')"
-              class="input input-bordered input-sm join-item min-w-0 flex-1"
+              class="input input-bordered input-md join-item min-w-0 flex-1"
               :class="shakeOptionId === CUSTOM_ANSWER_OPTION_ID ? 'input-error animate-[shake_0.42s_ease]' : ''"
               @input="setCustomAnswerDraft(currentItem!.id, ($event.target as HTMLInputElement).value)"
               @keydown.enter.prevent="handleCustomAnswerConfirm"
             >
             <button
               type="button"
-              class="btn btn-sm ecall-question-option join-item shrink-0 px-3 font-normal btn-primary"
+              class="btn btn-md ecall-question-option join-item shrink-0 px-3 font-normal btn-primary"
               :disabled="submitting"
               @click="handleCustomAnswerConfirm"
             >
@@ -648,44 +665,24 @@ function handleReject() {
         <!-- 答案列表与底部操作之间拉一条分隔线 -->
         <div class="divider divider-sm my-0"></div>
 
-        <!-- 底部一行：页码靠左，暂不回答与发送在右 -->
-        <div v-if="isManualSubmit || !isSingle" class="flex items-center justify-between gap-2">
-          <nav v-if="!isSingle" class="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-1.5" aria-label="breadcrumb">
-            <button
-              v-for="(item, idx) in items"
-              :key="item.id"
-              type="button"
-              class="btn btn-sm btn-square font-medium"
-              :class="questionNavClass(idx, item.id)"
-              @click="goTo(idx)"
-            >
-              {{ questionNavLabel(item, idx) }}
-            </button>
-          </nav>
-          <div v-if="isManualSubmit" class="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              :title="t('chat.questionPanel.collapseHint')"
-              @click="emit('collapse')"
-            >
-              {{ t("chat.questionPanel.notNow") }}
-            </button>
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              :disabled="submitting || selectedCount <= 1"
-              @click="handleOpenPreview"
-            >
-              {{ t("chat.questionPanel.overviewAnswers") }}
-            </button>
+        <!-- 底部一行：放弃靠左，收起问题、预览与发送在右 -->
+        <div v-if="isManualSubmit" class="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm mr-auto shrink-0 px-2 font-normal text-base-content/50 hover:text-base-content"
+            :disabled="submitting"
+            @click="handleReject"
+          >
+            {{ t("chat.questionPanel.reject") }}
+          </button>
+          <div class="flex shrink-0 items-center gap-2">
             <button
               type="button"
               class="btn btn-primary btn-sm"
               :disabled="submitting || selectedCount === 0"
-              @click="handleSendAnswers"
+              @click="handleOpenPreview"
             >
-              {{ submitting ? t("chat.questionPanel.sending") : t("chat.questionPanel.sendAnswers") }}
+              {{ t("chat.questionPanel.confirmAnswers") }}
             </button>
           </div>
         </div>
@@ -695,14 +692,6 @@ function handleReject() {
 </template>
 
 <style scoped>
-/* 选项文字沿项目既有混色口径（同 style.css 的 --ecall-md-link-color）：
-   主色掺入正文色——浅色主题把主色压深、深色主题把主色提亮。
-   浅深两档主色都已单独过对比度，这里只是让文字比实心按钮更收敛，
-   不动全局 btn 样式；只作用于 soft 态，选中后的实心 primary 仍用 primary-content。 */
-.ecall-question-option.btn-soft {
-  color: color-mix(in oklab, var(--color-primary) 70%, var(--color-base-content));
-}
-
 /* 提问卡里的 markdown 只当文字用：document 变体给段落 1em 上下外边距，
    一个单行答案会被顶出 28px 空白，整块卡被撑得又高又散。这里把它归零，
    只有连续段落之间留一点行距。 */

@@ -578,6 +578,7 @@
             v-else ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
             :composer-scope="composerScope"
             :question-active="hasPendingQuestion"
+            :question-pending-count="pendingQuestionCount"
             :question-expanded="questionExpanded"
             @toggle-question="questionExpanded = !questionExpanded"
             :selected-message-count="selectedMessageBlocks.length"
@@ -1717,6 +1718,12 @@ const questionPanelMode = computed<ComposerQuestionMode>(() => {
   return "none";
 });
 const hasPendingQuestion = computed(() => questionPanelMode.value !== "none");
+/** 待答题目数：收起时窄条要显示「有 N 个问题等待确认」 */
+const pendingQuestionCount = computed(() =>
+  questionPanelMode.value === "conversation"
+    ? conversationQuestionItems.value.length
+    : approvalQuestionItems.value.length,
+);
 /** 展开态只活在组件内：有待答问题时默认展开，用户点问题图标或「收起」后回到普通输入。 */
 const questionExpanded = ref(false);
 watch(

@@ -2574,8 +2574,7 @@
     "questionPanel": {
       "collapse": "收起",
       "collapseHint": "收起问题面板；题目有更新时会自动展开",
-      "expand": "展开问题",
-      "pendingCount": "{count} 个问题待答",
+      "pendingCount": "有 {count} 个问题等待确认",
       "empty": "暂无问题",
       "confirmSuffix": "确认",
       "backToEdit": "返回修改",
@@ -2590,10 +2589,8 @@
       "customAnswerEmpty": "自己写的答案不能为空",
       "optionRequiredEmpty": "请填写必填的补充说明",
       "sending": "发送中...",
-      "overviewAnswers": "预览",
-      "notNow": "暂不回答",
       "editAnswer": "修改",
-      "sendAnswers": "发送",
+      "confirmAnswers": "确认",
       "submitAnswers": "提交 {count} 个回答",
       "supplementLabel": "补充",
       "supplementPlaceholder": "还有什么要补充的？（可选，会跟回答一起发给模型）"

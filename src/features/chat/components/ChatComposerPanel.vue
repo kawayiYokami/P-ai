@@ -79,7 +79,7 @@
     </div>
     <template v-else>
     <InputPanelDock
-      :deck-extra-visible="!!wheelchairSuggestion"
+      :deck-extra-visible="!!wheelchairSuggestion || !!questionActive"
       :queue-events="queueEnabled && !systemNotificationMode && !remoteContactMode ? visibleQueueEvents : []"
       :user-persona-name="queueUserPersonaName"
       :queue-visible="props.queueVisible ?? true"
@@ -89,6 +89,23 @@
       @mark-guided="handleQueueMarkGuided"
     >
         <template #deck-extra>
+          <!-- 提问卡：放在底盘露头层，底卡多出来的这一截装问题，面卡仍是输入面板。
+               这样两层同时在屏：上面答题，下面照旧可以打字、附件、发送。
+               收起后不消失，缩成一条 info 窄条占住露头，点它重新展开。 -->
+          <template v-if="questionActive">
+            <slot v-if="questionExpanded" name="question" />
+            <div v-else class="mx-auto w-full max-w-2xl p-2">
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-lg bg-info px-3 py-1.5 text-xs text-info-content transition-opacity hover:opacity-90"
+                @click="emit('toggleQuestion')"
+              >
+                <AppIcon name="help-circle" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 flex-1 truncate text-left">{{ t("chat.questionPanel.pendingCount", { count: questionPendingCount }) }}</span>
+                <AppIcon name="chevron-up" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              </button>
+            </div>
+          </template>
           <!-- 护航建议：贴在底盘露头层，与队列同层，不进输入卡内部 -->
           <div
             v-if="wheelchairSuggestion"
@@ -147,8 +164,6 @@
           </div>
         </template>
         <template #attachments>
-          <!-- 提问内容展开时，未发送的附件与引用跟着输入内容一起让位 -->
-          <template v-if="!questionExpanded">
           <div v-if="attachedIssueReferences.length > 0" class="mb-2 flex flex-wrap gap-1">
             <span
               v-for="item in attachedIssueReferences"
@@ -190,13 +205,10 @@
             @remove-file="removePanelAttachmentFile($event)"
             @toggle-bridge="togglePanelBridge($event)"
           />
-          </template>
         </template>
         <template #body>
-          <!-- 提问内容与普通输入是同一种容器内的两种内容形态：
-               有此行时整块内容换成提问卡，外框（底座、露头、圆角、底色）完全不动。 -->
-          <slot v-if="questionExpanded" name="question" />
-          <div v-else ref="composerRootRef" class="relative">
+          <!-- 普通输入：提问卡展开时不再让位，它已移到露头层，面卡这一层照旧可用。 -->
+          <div ref="composerRootRef" class="relative">
             <Transition name="ecall-dropdown-up">
               <div
                 v-if="instructionPanelOpen"
@@ -337,7 +349,7 @@
         <template #footer>
           <InputPanelToolbar>
             <template #left>
-              <div v-if="!questionExpanded" class="flex min-w-0 items-center gap-1">
+              <div class="flex min-w-0 items-center gap-1">
                 <EcallDropdown
                   v-model="plusPanelOpen"
                   teleport
@@ -509,23 +521,6 @@
               </div>
             </template>
             <template #right>
-              <!-- 问题图标：有待答问题时高亮，点一下在提问卡与普通输入之间切换。
-                   它留在同一张输入卡右下角，所以收起后仍然看得见还有题没答。 -->
-              <!-- 问题图标：只在「普通输入 + 有待答问题」时出现，点一下把输入卡切成提问卡。
-                   提问卡展开时这里不出按钮——收起只有右上角那一个入口，
-                   同一件事不该在底部再放第二个。 -->
-              <button
-                v-if="questionActive && !questionExpanded"
-                type="button"
-                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-info text-info-content transition-transform duration-150 ease-out active:scale-90"
-                :title="t('chat.questionPanel.expand')"
-                @pointerdown.prevent
-                @mousedown.prevent
-                @click="emit('toggleQuestion')"
-              >
-                <AppIcon name="help-circle" class="h-4 w-4" aria-hidden="true" />
-              </button>
-              <template v-if="!questionExpanded">
               <EcallDropdown
                 v-model="usagePanelOpen"
                 teleport
@@ -655,7 +650,6 @@
                   </div>
                 </div>
               </div>
-              </template>
             </template>
           </InputPanelToolbar>
         </template>
@@ -759,6 +753,8 @@ const props = withDefaults(defineProps<{
   queueVisible?: boolean;
   /** 当前会话是否有待回答的问题（会话提问或终端审批）。有则右下角显示问题图标并高亮。 */
   questionActive?: boolean;
+  /** 待回答的题目数：收起时窄条上显示「有 N 个问题等待确认」 */
+  questionPendingCount?: number;
   /** 输入卡内部当前显示的是提问内容还是普通输入 */
   questionExpanded?: boolean;
 }>(), {
