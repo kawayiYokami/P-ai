@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-11-26T23:17:27.672Z",
-  "latestVersion": "v0.98.12",
+  "generatedAt": "2026-11-27T03:46:23.798Z",
+  "latestVersion": "v0.98.14",
   "releases": [
+    {
+      "version": "v0.98.14",
+      "path": "docs/changelog/releases/v0.98.14.md",
+      "summary": "提问卡移到输入卡上方单独的一层：答题时下方的输入框照旧可以打字、贴附件、发送，收起后缩成一条提示条，写明还有几道题等待确认"
+    },
     {
       "version": "v0.98.12",
       "path": "docs/changelog/releases/v0.98.12.md",
