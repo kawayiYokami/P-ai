@@ -29,8 +29,12 @@ export function isSessionPersonaBlock(block: ChatMessageBlock, sessionAgentId: s
   return !!current && speakerId === current;
 }
 
-/** 发言人是否用户：只管「这句谁说的」，用于时间线节点的名字与头像。 */
-export function isUserBlock(block: ChatMessageBlock): boolean {
+/**
+ * 发言人是否用户：只管「这句谁说的」，用于时间线节点的名字与头像。
+ * 参数只取 role 与 speakerAgentId 两个字段，标签预览卡里的摘要消息也能直接传进来——
+ * 那里同样只有这两个字段，不该为此再写一份同样的判定。
+ */
+export function isUserBlock(block: { role?: string; speakerAgentId?: string }): boolean {
   const speakerId = String(block.speakerAgentId || "").trim();
   if (speakerId) return speakerId === USER_PERSONA_ID;
   return String(block.role || "").trim() === "user";

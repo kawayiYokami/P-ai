@@ -59,16 +59,22 @@
     <div
       class="min-h-0 flex-1 overflow-hidden rounded-[calc(var(--radius-box)-0.5rem)] border border-base-300/70 bg-base-100 px-2 py-1.5"
     >
-      <template v-if="tab.previewMessages && tab.previewMessages.length > 0">
+      <!-- 文件标签预览的就是文件本身，不该画两个聊天气泡。
+           这里不用 3:4 纸张形态：内层高度约 130px，sm 纸张 170px 放不下。 -->
+      <div v-if="fileVariant" class="flex h-full flex-col items-center justify-center gap-1">
+        <AppIcon name="file-text" class="h-7 w-7 shrink-0 text-base-content/25" aria-hidden="true" />
+        <span class="line-clamp-2 text-center text-xs text-base-content/60">{{ tab.cardTitle || tab.label }}</span>
+      </div>
+      <template v-else-if="tab.previewMessages && tab.previewMessages.length > 0">
         <div
           v-for="(message, index) in tab.previewMessages"
-          :key="index"
+          :key="message.messageId || index"
           class="chat"
-          :class="message.role === 'user' ? 'chat-end' : 'chat-start'"
+          :class="isUserBlock(message) ? 'chat-end' : 'chat-start'"
         >
           <div
             class="chat-bubble text-xs leading-snug break-words"
-            :class="message.role === 'user' ? 'chat-bubble-primary' : ''"
+            :class="isUserBlock(message) ? 'chat-bubble-primary' : ''"
           >{{ message.textPreview }}</div>
         </div>
       </template>
@@ -89,12 +95,15 @@
 <script setup lang="ts">
 import AppIcon from "./AppIcon.vue";
 import AppLoading from "./AppLoading.vue";
+import { isUserBlock } from "../../chat/utils/timeline-anchors";
 import type { PanelTabStripItem } from "./panel-tab-strip.types";
 
 defineProps<{
   tab: PanelTabStripItem;
   active: boolean;
   closeTitle: string;
+  /** 文件标签（variant=file）：预览的是文件本身，不排聊天气泡 */
+  fileVariant?: boolean;
 }>();
 
 const emit = defineEmits<{

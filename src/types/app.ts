@@ -1138,8 +1138,8 @@ export type ChildConversationSummary = {
   unreadCount?: number;
   runtimeState?: string;
   lastError?: string;
-  /** 最近两条消息的纯文本预览，溢出标签卡片用它显示摘要 */
-  previewMessages?: Array<{ role: string; textPreview: string }>;
+  /** 最近两条消息的纯文本预览，溢出标签卡片用它显示摘要与发言人左右 */
+  previewMessages?: ConversationPreviewMessage[];
 };
 
 export type ConversationListItemState = {

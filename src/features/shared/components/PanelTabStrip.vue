@@ -172,6 +172,7 @@
                     :tab="tab"
                     :active="tab.key === activeKey"
                     :close-title="closeTitle"
+                    :file-variant="fileVariant"
                     @select="handleOverflowCardSelect"
                     @close="handleOverflowCardClose"
                     @contextmenu="handleTabContextMenu"

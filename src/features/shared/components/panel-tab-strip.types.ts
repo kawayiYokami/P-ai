@@ -1,4 +1,5 @@
 import type { AppIconName } from "../icons/icon-map";
+import type { ConversationPreviewMessage } from "../../../types/app";
 
 export type PanelTabStripItem = {
   key: string;
@@ -24,8 +25,8 @@ export type PanelTabStripItem = {
    * 非会话标签（工具 / 定时器 / 委托）不填，卡片回退到 `label`。
    */
   cardTitle?: string;
-  /** 溢出面板卡片里的内容预览：最近两条消息，按角色分深浅 */
-  previewMessages?: Array<{ role: string; textPreview: string }>;
+  /** 溢出面板卡片里的内容预览：最近两条消息，左右按发言人身份排，不按 role */
+  previewMessages?: ConversationPreviewMessage[];
 };
 
 export type PanelTabStripContextMenuItem = {
